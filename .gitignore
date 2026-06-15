@@ -1,0 +1,45 @@
+# macOS
+.DS_Store
+.AppleDouble
+Icon?
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ML 产物 / 大文件（用外部存储或 git-lfs，不要进 git）
+data/
+datasets/
+outputs/
+checkpoints/
+runs/
+wandb/
+*.ckpt
+*.pth
+*.pt
+*.safetensors
+*.tfevents.*
+
+# HuggingFace / 缓存
+.cache/
+
+# 日志 / 密钥
+*.log
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
