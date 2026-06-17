@@ -9,21 +9,12 @@ import time
 import logging
 import traceback
 import sys
-import glob
+import os
 
-# 每条臂的电机控制板 USB 序列号（板子固定；端口名会变，按序列号自动解析）
-ARMS = {
-    "white": "5B3D040988",   # arm 1 · 白色机械臂
-    "black": "5B3D043224",   # arm 2 · 黑色机械臂
-}
+# 跨平台端口解析（Mac/Windows/Linux 都按板子 USB 序列号自动找端口）
+from portutil import BOARDS, resolve_port, PortResolutionError
 
-def resolve_port(arm):
-    """按板子序列号在 /dev/cu.usbmodem* 里找当前端口（解决端口名变化）。"""
-    serial = ARMS[arm]
-    matches = sorted(glob.glob(f"/dev/cu.usbmodem{serial}*"))
-    if not matches:
-        raise SystemExit(f"找不到 {arm} 臂的端口（板序列号 {serial}）。确认这条臂已接 USB + 12V。")
-    return matches[0]
+ARMS = BOARDS   # 兼容旧名：白/黑臂 -> 板序列号（实际定义在 portutil.BOARDS）
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -313,17 +304,16 @@ def main():
         # Get port
         arm = sys.argv[1].lower() if len(sys.argv) > 1 else input("哪条臂? white/black: ").strip().lower()
         if arm not in ARMS:
-            raise SystemExit("用法: python tools/arm_keyboard.py [white|black]")
-        port = resolve_port(arm)
+            raise SystemExit("用法: python tools/arm_keyboard.py [white|black] [可选:端口如 COM7]")
+        # 端口自动按板序列号解析；也可命令行第 2 个参数 / 环境变量 XLEROBOT_PORT 手动指定
+        override = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("XLEROBOT_PORT")
+        try:
+            port = resolve_port(ARMS[arm], override=override)
+        except PortResolutionError as e:
+            raise SystemExit(str(e))
         print(f"控制 {arm} 臂")
-        
-        # If directly press enter, use default port
-        if not port:
-            port = "/dev/ttyACM0"
-            print(f"Using default port: {port}")
-        else:
-            print(f"Connecting to port: {port}")
-        
+        print(f"Connecting to port: {port}")
+
         # Configure robot
         robot_config = SO100FollowerConfig(port=port, id=f"{arm}_arm")
         robot = SO100Follower(robot_config)

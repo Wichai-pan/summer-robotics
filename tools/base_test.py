@@ -5,11 +5,15 @@
 
 用法：  python tools/base_test.py
 """
-import glob
+import os
+import sys
 import time
 from scservo_sdk import PortHandler, PacketHandler, COMM_SUCCESS
 
-WHITE_SERIAL = "5B3D040988"          # 白板(arm1)：臂 1-6 + 底盘轮 7-9
+# 跨平台端口解析（Mac/Windows/Linux 通用）
+from portutil import BOARDS, resolve_port, PortResolutionError
+
+WHITE_SERIAL = BOARDS["white"]       # 白板(arm1)：臂 1-6 + 底盘轮 7-9
 WHEELS = {7: "左轮", 8: "后轮", 9: "右轮"}
 SPEED = 300                          # 轻速(STS3215 满速约 3400)，保守
 SPIN_SEC = 1.0
@@ -19,15 +23,13 @@ OP_MODE, TORQUE, GOAL_VEL, LOCK = 33, 40, 46, 55
 MODE_VELOCITY = 1
 
 
-def find_port(serial):
-    m = sorted(glob.glob(f"/dev/cu.usbmodem{serial}*"))
-    if not m:
-        raise SystemExit(f"找不到白板端口(序列号 {serial})。确认白臂那块板已接 USB + 12V。")
-    return m[0]
-
-
 def main():
-    port = find_port(WHITE_SERIAL)
+    # 端口自动按板序列号解析；也可命令行参数 / 环境变量 XLEROBOT_PORT 手动指定
+    override = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("XLEROBOT_PORT")
+    try:
+        port = resolve_port(WHITE_SERIAL, override=override)
+    except PortResolutionError as e:
+        raise SystemExit(str(e))
     print(f"白板端口: {port}")
     ph = PortHandler(port)
     if not ph.openPort():

@@ -79,6 +79,8 @@ ls /dev/cu.usbmodem*          # Mac 上优先用 cu.，别用 tty.（tty 打开�
 - 本次端口：`/dev/cu.usbmodem5B3D0409881`（序列号 `5B3D040988` 在名字里，一般认得出这块板）。
 - **换 USB 口名字可能变**，跑之前先 `ls` 确认一次。
 
+> **其实不用手动找了**：所有脚本通过 [`tools/portutil.py`](../tools/portutil.py) 按板序列号在 **Mac / Windows / Linux** 上自动解析端口，端口名变了也不用管。想看本机当前串口： `python tools/portutil.py`。Windows 用法见下面 §10。
+
 ## 6. 怎么跑（让臂动）
 
 **在自己的终端里跑**（键盘控制要抓本机键盘）。
@@ -136,3 +138,35 @@ Q/A 肩转   W/S 肩抬   E/D 肘   R/F 腕屈   T/G 腕转   Y/H 夹爪   X 退
 
 - 接第二条臂 + 底盘（同样套路，板子各自 12V + USB）。
 - 遥操作采数据（脚本 `4_`/`8_`）→ V100 训练 ACT → Jetson 部署。
+
+## 10. Windows / 跨平台（与 Mac 共用同一套脚本）
+
+脚本已跨平台：`tools/*.py` 通过 [`tools/portutil.py`](../tools/portutil.py) 按**板子 USB 序列号**自动找端口，Mac / Windows / Linux 通用，端口名变了也不用管。**Mac 上行为和以前完全一样**（仍走 `/dev/cu.usbmodem...`）。
+
+**Windows 与 Mac 的差异（就这几点）：**
+
+| 事项 | Mac | Windows |
+|---|---|---|
+| 串口名 | `/dev/cu.usbmodem...` | `COMx`（如 `COM7`）|
+| WCH 驱动 | 免装 | **要装** CH343SER（[wch-ic.com](https://www.wch-ic.com/downloads/CH343SER_EXE.html)），否则设备管理器里根本没有 COM 口 |
+| 键盘权限 | 要在 隐私与安全性 › 输入监控 给终端授权 | **不用**，pynput 直接能用（普通终端即可，不必管理员）|
+| conda / pip 安装 | 同 §3 | **完全一样**（`conda create -n lerobot python=3.12` …）|
+
+**Windows 跑法（PowerShell）：**
+
+```powershell
+conda activate lerobot
+cd <仓库路径>\summer-robotics
+python tools\portutil.py            # 先看本机串口 + 能不能认出白/黑板
+python tools\arm_keyboard.py white  # 同 Mac，自动找 COM 口
+python tools\base_test.py           # 底盘逐轮测试（务必先垫高离地！）
+python tools\base_keyboard.py       # 底盘键盘遥控
+```
+
+**认不出端口 / 想手动指定**（任一脚本都能跳过自动解析）：
+- 命令行直接给端口：`python tools/arm_keyboard.py white COM7`、`python tools/base_keyboard.py COM7`、`python tools/base_test.py COM7`
+- 或环境变量：PowerShell `$env:XLEROBOT_PORT="COM7"`；bash `export XLEROBOT_PORT=COM7`
+
+怎么知道是哪个 COM？跑 `python tools/portutil.py`，或拔插板子看 设备管理器 › 端口(COM 和 LPT) 里哪个 CH343 出现/消失。
+
+> CH343 + 1,000,000 波特率 + SO-101/STS3215 在 Windows 上都受支持：`scservo_sdk` 和 `lerobot` 底层都是 pyserial，直接吃 `COMx`，无需改动代码。`COM9` 及以上 pyserial 会自动加 `\\.\` 前缀，不用自己处理。
