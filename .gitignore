@@ -45,4 +45,4 @@ wandb/
 .idea/
 
 # 上游依赖源码（lerobot / XLeRobot，各自 pip install -e，不进本仓库）
-external/
+# external/
