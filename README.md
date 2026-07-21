@@ -2,7 +2,10 @@
 
 Robotics Nation 主办的 3 个月具身智能机器人挑战赛。平台：**XLeRobot**（基于 [LeRobot](https://github.com/huggingface/lerobot)）。
 
-> 队名 / 队员：_待填_
+> 队名 / 队员：
+> Huati Pan
+> Yuan Ou
+> Jiacheng Wei
 
 ## 关键信息
 
