@@ -1,0 +1,24 @@
+export const ENV = {
+  SERVER_HOST: import.meta.env.VITE_SERVER_HOST || 'localhost',
+  SERVER_PORT: import.meta.env.VITE_SERVER_PORT || 8000,
+  SERVER_PROTOCOL: import.meta.env.VITE_SERVER_PROTOCOL || 'http',
+
+  get SERVER_URL() {
+    return `${this.SERVER_PROTOCOL}://${this.SERVER_HOST}:${this.SERVER_PORT}`;
+  },
+
+  SOCKET_RECONNECTION: true,
+  SOCKET_RECONNECTION_DELAY: 1000,
+  SOCKET_RECONNECTION_ATTEMPTS: 5,
+
+  MOVEMENT_INTERVAL_MS: 100,
+  JOYSTICK_DEAD_ZONE: 0.3,
+
+  VIDEO_QUALITY: 80,
+  VIDEO_FORMAT: 'jpeg',
+
+  LOG_MAX_ENTRIES: 50,
+  DEFAULT_SPEED: 1.0,
+  MIN_SPEED: 0.1,
+  MAX_SPEED: 2.0,
+};

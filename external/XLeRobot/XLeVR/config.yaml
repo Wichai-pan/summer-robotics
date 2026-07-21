@@ -1,0 +1,22 @@
+network:
+  https_port: 8443
+  websocket_port: 8442
+  host_ip: 0.0.0.0
+ssl:
+  certfile: cert.pem
+  keyfile: key.pem
+robot:
+  left_arm:
+    name: Left Arm
+    port: /dev/cu.usbmodem5B3D0432241   # 黑板（左臂+头）；注：XLeVR 本身不驱动臂，此处仅显示
+    enabled: true
+  right_arm:
+    name: Right Arm
+    port: /dev/cu.usbmodem5B3D0409881   # 白板（右臂+底盘）
+    enabled: true
+  vr_to_robot_scale: 1
+  send_interval: 0.05
+control:
+  keyboard:
+    pos_step: 0.01
+    angle_step: 5
