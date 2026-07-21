@@ -45,8 +45,7 @@ wandb/
 .idea/
 
 # 上游依赖源码
-# XLeRobot 随本仓库提交，确保 VR 集成改动可复现；LeRobot 仍由各开发机单独安装。
-external/lerobot/
+# XLeRobot 与 LeRobot 随本仓库提交，确保硬件集成改动可复现。
 
 # 每台开发机自行生成的 VR HTTPS 证书与私钥
 external/XLeRobot/XLeVR/cert.pem
