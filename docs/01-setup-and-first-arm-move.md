@@ -81,6 +81,23 @@ ls /dev/cu.usbmodem*          # Mac 上优先用 cu.，别用 tty.（tty 打开�
 
 > **其实不用手动找了**：所有脚本通过 [`tools/portutil.py`](../tools/portutil.py) 按板序列号在 **Mac / Windows / Linux** 上自动解析端口，端口名变了也不用管。想看本机当前串口： `python tools/portutil.py`。Windows 用法见下面 §10。
 
+### 手腕摄像头预览
+
+两只手腕 UVC 相机接好后，先用 LeRobot 查索引并保存静态图确认物理位置：
+
+```bash
+lerobot-find-cameras opencv --record-time-s 2
+```
+
+再同时预览两路（当前 Mac 上常为 `0 1`；**拔插后索引会变，以实际检测结果为准**）：
+
+```bash
+python tools/preview_cameras.py 0 1
+# 可请求 720p/30fps：python tools/preview_cameras.py 0 1 --width 1280 --height 720 --fps 30
+```
+
+按 `q` 或 `Esc` 退出。画面上标有实际索引和分辨率；遮住一只镜头即可确认哪路是左手/右手。macOS 首次运行需在「隐私与安全性 → 相机」允许终端 App。
+
 ## 6. 怎么跑（让臂动）
 
 **在自己的终端里跑**（键盘控制要抓本机键盘）。

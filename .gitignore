@@ -50,3 +50,7 @@ wandb/
 # 每台开发机自行生成的 VR HTTPS 证书与私钥
 external/XLeRobot/XLeVR/cert.pem
 external/XLeRobot/XLeVR/key.pem
+
+# Orbbec macOS SDK / Viewer 是按开发机架构下载的二进制包；路径与版本记录在 docs/04。
+external/orbbec/OrbbecSDK_*/
+external/orbbec/OrbbecViewer_*/
