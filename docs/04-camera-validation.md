@@ -50,6 +50,11 @@ xattr -dr com.apple.quarantine external/orbbec/OrbbecSDK_*_macOS external/orbbec
 # 2) 启动官方可视化：先开 Color 与 Depth；不要点 firmware / flash / Update
 ./tools/launch_orbbec_viewer.sh
 
+# 等价的原始命令（调试时使用；注意 SDK/Viewer 已从仓库根目录移至 external/orbbec/）
+cd external/orbbec/OrbbecViewer_v2.9.3_202607161423_b7e38ef_macOS_arm64
+sudo ./OrbbecViewer
+cd ../../..
+
 # 3) 枚举手腕相机、保存每路静态测试图到 outputs/captured_images/
 conda activate lerobot
 lerobot-find-cameras opencv --record-time-s 2
