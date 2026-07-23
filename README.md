@@ -30,7 +30,7 @@ Robotics Nation 主办的 3 个月具身智能机器人挑战赛。平台：**XL
 - Orbbec Gemini 335 —— 深度相机
 - Anker SOLIX C300X —— 电源
 
-> 当前状态：机器人本体已组装；Jetson / Quest / 电池未拆封。
+> 当前状态：机器人本体、Gemini 335、两只手腕相机、Jetson、双臂与底盘均已完成首轮连通/控制验收；见 [实验记录 05](docs/05-jetson-and-supervised-llm-navigation.md)。
 
 ## 算力架构（三段，别混）
 
@@ -44,11 +44,13 @@ V100 只做**离线训练**；**实时控制必须在本地**（Mac/Windows 有�
 
 ## 当前阶段 & 下一步
 
-平台上手期。目标：**7.4 第一次 check-up 前跑通完整闭环** —— 机械臂自主完成一次「抓方块 → 放到指定点」。
+平台上手期。已完成相机、双臂、底盘和一次安全监督式视觉 LLM 前进闭环；下一阶段是 Jetson 固定设备名、深度安全约束与数据采集。
 
 1. Mac 装 LeRobot → 找串口 → 标定双臂 → 键盘遥操作
 2. 接相机录一小段示范数据
 3. V100 训 ACT → 部署测试
+
+近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md)
 
 > 业务场景（养老 / 桌面整理 / 垃圾分拣 / 药品识别提醒…）暂不锁定。先把闭环跑通，**换场景 = 换数据**。打法：窄任务 + 稳 demo + 硬付费方 + 营销视频。
 

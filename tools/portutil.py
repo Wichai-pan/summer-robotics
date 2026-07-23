@@ -28,7 +28,7 @@ except ImportError as e:  # pyserial 随 lerobot / scservo_sdk 一起装
 # 板子注册表：名字 -> USB 序列号（板子固定，端口名会变）
 BOARDS = {
     "white": "5B3D040988",   # arm 1 · 白臂(关节 1-6) + 底盘轮 7-9
-    "black": "5B3D043224",   # arm 2 · 黑臂(关节 1-6) + 辅助 7-8
+    "black": "5B3D043224",   # arm 2 · 黑臂(关节 1-6) + 深度相机云台轴 7-8；ID 9 当前未响应
 }
 
 WCH_VID = 0x1A86             # CH343 / CH34x 厂商 ID

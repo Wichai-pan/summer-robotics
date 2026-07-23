@@ -39,6 +39,7 @@ wandb/
 *.log
 .env
 .env.local
+agents/llm_navigation/runtime/
 
 # IDE
 .vscode/

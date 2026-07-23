@@ -52,7 +52,7 @@ cd .. && git clone --depth 1 https://github.com/Vector-Wangel/XLeRobot.git
 
 ## 4. 硬件拓扑（重要）
 
-只读扫描（`external/scan_servos.py`）发现该板总线挂 **9 个 STS3215（model 777）**：
+只读扫描（`external/scan_servos.py`）确认白臂板总线挂 **9 个 STS3215（model 777）**；黑臂板当前有 8 个响应：
 
 - **ID 1–6** = 这条臂的关节（shoulder_pan / shoulder_lift / elbow_flex / wrist_flex / wrist_roll / gripper）
 - **ID 7–9** = 底盘 3 个全向轮
@@ -64,7 +64,7 @@ cd .. && git clone --depth 1 https://github.com/Vector-Wangel/XLeRobot.git
 | 臂 | 颜色 | 板 USB 序列号 | 标定 id / 文件 | 实测舵机 |
 |---|---|---|---|---|
 | arm 1 | **白色** | `5B3D040988` | `white_arm` → `white_arm.json` | 9 个（臂 1-6 + 底盘轮 7-9） |
-| arm 2 | **黑色** | `5B3D043224` | `black_arm` → `black_arm.json` | 8 个（臂 1-6 + 辅助 7-8） |
+| arm 2 | **黑色** | `5B3D043224` | `black_arm` → `black_arm.json` | 8 个（臂 1-6 + 深度相机云台两个轴 7、8；ID 9 当前未响应） |
 
 启动脚本 [`tools/arm_keyboard.py`](../tools/arm_keyboard.py) 按上面的序列号**自动找端口**，每条臂用**各自的标定文件**，互不覆盖。
 
@@ -127,6 +127,51 @@ python tools/arm_keyboard.py white      # 白臂；黑臂用 black
 ```
 Q/A 肩转   W/S 肩抬   E/D 肘   R/F 腕屈   T/G 腕转   Y/H 夹爪   X 退出
 ```
+
+### 双臂末端执行器控制（官方 `2_` 示例，Mac 入口）
+
+官方双臂脚本将 Linux 端口 `/dev/ttyACM0`、`/dev/ttyACM1` 写死。运行项目入口
+[`tools/dual_arm_keyboard_ee.py`](../tools/dual_arm_keyboard_ee.py) 会按白、黑板序列号自动解析端口，
+仅在内存中替换端口后执行**官方原有**双臂逆运动学、键位和 P 控制逻辑，不改动 vendor 源码。
+
+```bash
+python tools/dual_arm_keyboard_ee.py
+```
+
+启动前两条臂都必须固定、接好 12V，且运动范围清空。脚本会询问两条臂是否重新标定；已有正确的
+`white_arm.json` / `black_arm.json` 时选 `n`，随后会让两臂同时归零约 3 秒。
+
+```text
+白臂：7/y 底座，8/u X，9/i Y，=/[ 腕俯仰，0/o 腕转，-/p 夹爪
+黑臂：h/b 底座，j/n X，k/m Y，,/. 腕俯仰，;/l 腕转，'/ 夹爪
+X：退出（先返回启动姿态）
+```
+
+### 深度相机云台独立测试（黑板 ID 7、8）
+
+黑板的 ID 7、8 分别是深度相机云台两个轴。若整机遥操作中云台无反应，先退出整机
+脚本以释放串口，再运行下面的独立测试。它不连接或命令手臂/底盘，每次输入仅让一个
+云台轴相对当前位置移动约 5°，用来区分键盘映射问题和电机/总线问题：
+
+```bash
+python tools/head_gimbal_test.py
+```
+
+确认云台周围清空后输入 `yes`，再用 `a/d` 测 ID 7、`j/l` 测 ID 8；每个输入需要按
+Enter，`q` 退出。退出时脚本会松开两个云台电机扭矩。
+
+### 底盘地面直行 1 秒（复用键盘 W 映射）
+
+在确认三轮的 ID 与方向后，运行下面的独立测试会复用已验证的 `base_keyboard.py` 中 **W 键**
+运动学和默认速度（0.12 m/s）直行 **1 秒**，再自动发停止指令并松开底盘扭矩。它只会操作白板
+ID 7/8/9，不会控制白臂或调用 Gemini：
+
+```bash
+python tools/base_forward_1s.py
+```
+
+运行前将双臂收好，清空机器人正前方至少 2 米，并确保旁边有人可立即断开 12V 电源。脚本会先
+检查三轮响应，并要求逐字输入 `MOVE` 才会运动；输入任何其它内容都会取消。
 
 ## 7. 标定会不会重做
 
