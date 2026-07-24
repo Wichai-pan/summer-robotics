@@ -1,0 +1,57 @@
+# macOS
+.DS_Store
+.AppleDouble
+Icon?
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ML 产物 / 大文件（用外部存储或 git-lfs，不要进 git）
+data/
+datasets/
+outputs/
+checkpoints/
+runs/
+wandb/
+*.ckpt
+*.pth
+*.pt
+*.safetensors
+*.tfevents.*
+
+# HuggingFace / 缓存
+.cache/
+
+# 日志 / 密钥
+*.log
+.env
+.env.local
+agents/llm_navigation/runtime/
+
+# IDE
+.vscode/
+.idea/
+
+# 上游依赖源码
+# XLeRobot 与 LeRobot 随本仓库提交，确保硬件集成改动可复现。
+
+# 每台开发机自行生成的 VR HTTPS 证书与私钥
+external/XLeRobot/XLeVR/cert.pem
+external/XLeRobot/XLeVR/key.pem
+
+# Orbbec macOS SDK / Viewer 是按开发机架构下载的二进制包；路径与版本记录在 docs/04。
+external/orbbec/OrbbecSDK_*/
+external/orbbec/OrbbecViewer_*/
