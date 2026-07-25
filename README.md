@@ -30,7 +30,7 @@ Robotics Nation 主办的 3 个月具身智能机器人挑战赛。平台：**XL
 - Orbbec Gemini 335 —— 深度相机
 - Anker SOLIX C300X —— 电源
 
-> 当前状态：机器人本体、Gemini 335、两只手腕相机、Jetson、双臂与底盘均已完成首轮连通/控制验收；见 [实验记录 05](docs/05-jetson-and-supervised-llm-navigation.md)。
+> 当前状态：机器人本体、Gemini 335、两只手腕相机、Jetson、双臂与底盘均已完成首轮连通/控制验收；Gemini→YOLO→RGB-D→人工双确认底盘动作的 MVP 链路已实测。见 [实验记录 05](docs/05-jetson-and-supervised-llm-navigation.md)。
 
 ## 算力架构（三段，别混）
 
@@ -44,11 +44,11 @@ V100 只做**离线训练**；**实时控制必须在本地**（Mac/Windows 有�
 
 ## 当前阶段 & 下一步
 
-平台上手期。已完成相机、双臂、底盘和一次安全监督式视觉 LLM 前进闭环；下一阶段是 Jetson 固定设备名、深度安全约束与数据采集。
+平台上手期。已完成相机、双臂、底盘、实时深度检查点，以及安全监督式的 LLM 目标接近闭环；下一阶段转向机械臂遥操作数据采集与抓取策略训练。
 
-1. Mac 装 LeRobot → 找串口 → 标定双臂 → 键盘遥操作
-2. 接相机录一小段示范数据
-3. V100 训 ACT → 部署测试
+1. 规划抓取窄任务，确认物体、放置区、相机视角和评价标准
+2. 使用双臂遥操作采集一小段抓取示范数据
+3. 在 V100 训练 ACT 基线并部署回本地/Jetson 测试
 
 近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md)
 
