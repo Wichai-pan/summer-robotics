@@ -1,0 +1,4 @@
+numpy>=1.24
+opencv-python>=4.8
+pyorbbecsdk2>=2.0
+pytest>=8
