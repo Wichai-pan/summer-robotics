@@ -44,13 +44,13 @@ V100 只做**离线训练**；**实时控制必须在本地**（Mac/Windows 有�
 
 ## 当前阶段 & 下一步
 
-平台上手期。已完成相机、双臂、底盘、实时深度检查点，以及安全监督式的 LLM 目标接近闭环；下一阶段转向机械臂遥操作数据采集与抓取策略训练。
+平台上手期。已完成相机、双臂、底盘、实时深度检查点，以及安全监督式的 LLM 目标接近闭环；Gemini RGB-D 对浅蓝桌面物体定位和黑臂人工抓取也已分别验证。下一阶段转向相机到机械臂标定、遥操作数据采集与抓取策略训练。
 
 1. 规划抓取窄任务，确认物体、放置区、相机视角和评价标准
 2. 使用双臂遥操作采集一小段抓取示范数据
 3. 在 V100 训练 ACT 基线并部署回本地/Jetson 测试
 
-近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md)
+近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md) · [06 RGB-D 抓取准备](docs/06-rgbd-grasp-bringup.md)
 
 > 业务场景（养老 / 桌面整理 / 垃圾分拣 / 药品识别提醒…）暂不锁定。先把闭环跑通，**换场景 = 换数据**。打法：窄任务 + 稳 demo + 硬付费方 + 营销视频。
 
