@@ -1,0 +1,76 @@
+{
+  "calibrated": false,
+  "notes": [
+    "EXAMPLE ONLY: never set calibrated=true until camera extrinsic, shoulder origin, motor signs and gripper values are measured on your robot.",
+    "The camera matrix below is an approximate URDF-derived head camera pose at pan=0 and tilt=0.65 rad; a differently mounted Gemini 335 will not match it.",
+    "robot_base convention: +x forward, +y left, +z up. camera convention: +x right, +y down, +z forward."
+  ],
+  "camera_to_base_4x4": [
+    [0.0, -0.605186, 0.796084, -0.089599],
+    [-1.0, 0.0, 0.0, 0.020000],
+    [0.0, -0.796084, -0.605186, 1.152777],
+    [0.0, 0.0, 0.0, 1.0]
+  ],
+  "right_shoulder_position_base_m": [-0.0592, -0.1330, 0.8790],
+  "safe_home_joints_deg": {
+    "shoulder_pan": null,
+    "shoulder_lift": null,
+    "elbow_flex": null,
+    "wrist_flex": null,
+    "wrist_roll": null,
+    "gripper": null
+  },
+  "workspace_base_m": {
+    "x": [0.10, 0.55],
+    "y": [-0.35, 0.10],
+    "z": [0.74, 1.05]
+  },
+  "kinematics": {
+    "upper_arm_m": 0.1159,
+    "lower_arm_m": 0.1350,
+    "tool_length_m": 0.153,
+    "shoulder_height_correction_m": 0.0,
+    "base_forward_sign": 1.0,
+    "base_lateral_sign": 1.0,
+    "shoulder_pan_sign": 1.0,
+    "shoulder_pan_offset_deg": 0.0,
+    "wrist_pitch_offset_deg": 0.0,
+    "wrist_roll_deg": 90.0
+  },
+  "joint_command_offsets_deg": {
+    "shoulder_pan": 0.0,
+    "shoulder_lift": 0.0,
+    "elbow_flex": 0.0,
+    "wrist_flex": 0.0,
+    "wrist_roll": 0.0
+  },
+  "joint_limits_deg": {
+    "shoulder_pan": [-100.0, 100.0],
+    "shoulder_lift": [-80.0, 100.0],
+    "elbow_flex": [-100.0, 100.0],
+    "wrist_flex": [-100.0, 100.0],
+    "wrist_roll": [-100.0, 100.0],
+    "gripper": [0.0, 100.0]
+  },
+  "gripper": {
+    "open_deg": 80.0,
+    "closed_deg": 35.0
+  },
+  "motion": {
+    "grasp_offset_base_m": [0.0, 0.0, 0.020],
+    "approach_height_m": 0.080,
+    "lift_height_m": 0.130,
+    "control_hz": 30.0,
+    "max_command_step_deg": 2.0,
+    "max_tracking_error_deg": 25.0,
+    "home_tolerance_deg": 8.0,
+    "phase_duration_s": {
+      "open": 1.5,
+      "transit": 5.0,
+      "approach": 4.0,
+      "close": 2.0,
+      "lift": 4.0,
+      "hold": 2.0
+    }
+  }
+}
