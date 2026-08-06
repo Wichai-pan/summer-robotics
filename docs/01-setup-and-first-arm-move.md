@@ -68,6 +68,8 @@ cd .. && git clone --depth 1 https://github.com/Vector-Wangel/XLeRobot.git
 
 启动脚本 [`tools/arm_keyboard.py`](../tools/arm_keyboard.py) 按上面的序列号**自动找端口**，每条臂用**各自的标定文件**，互不覆盖。
 
+固定抓取轨迹采集时，可在每个关键姿态轻按 `P`；终端会输出两行：`SAVED_TARGET_JSON=...` 是本脚本 P 控制器实际追踪的目标，`MEASURED_ENCODER_JSON=...` 是 LeRobot 读回的编码器坐标。由于此遗留脚本有额外的手写标定，两者数值**不会相同**；低速回放只使用前者。按顺序保存 `预抓取 → 下探 → 合爪 → 抬起`，`P` 本身不发送任何运动命令。
+
 ## 5. 怎么找端口（端口名会变！）
 
 板子 USB 芯片是 **WCH CH343**（Vendor `0x1a86`），**Mac 免装驱动**。

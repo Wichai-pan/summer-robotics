@@ -10,6 +10,7 @@ import logging
 import traceback
 import sys
 import os
+import json
 
 # 跨平台端口解析（Mac/Windows/Linux 都按板子 USB 序列号自动找端口）
 from portutil import BOARDS, resolve_port, PortResolutionError
@@ -193,6 +194,7 @@ def p_control_loop(robot, keyboard, target_positions, start_positions, kp=0.5, c
         control_freq: Control frequency (Hz)
     """
     control_period = 1.0 / control_freq
+    save_key_latched = False
     
     print(f"Starting P control loop, control frequency: {control_freq}Hz, proportional gain: {kp}")
     
@@ -200,6 +202,26 @@ def p_control_loop(robot, keyboard, target_positions, start_positions, kp=0.5, c
         try:
             # Get keyboard input
             keyboard_action = keyboard.get_action()
+
+            # Save both coordinate systems. This legacy controller applies its
+            # own calibration before P-control, so its replayable targets are
+            # intentionally different from the encoder values read by LeRobot.
+            # Debounce because KeyboardTeleop reports a held key every loop.
+            p_pressed = bool(keyboard_action and 'p' in keyboard_action)
+            if p_pressed and not save_key_latched:
+                pose_obs = robot.get_observation()
+                measured_pose = {
+                    key.removesuffix('.pos'): round(float(value), 3)
+                    for key, value in pose_obs.items()
+                    if key.endswith('.pos')
+                }
+                replay_target = {
+                    joint: round(float(target), 3)
+                    for joint, target in target_positions.items()
+                }
+                print("SAVED_TARGET_JSON=" + json.dumps(replay_target, sort_keys=True))
+                print("MEASURED_ENCODER_JSON=" + json.dumps(measured_pose, sort_keys=True))
+            save_key_latched = p_pressed
             
             if keyboard_action:
                 # Process keyboard input, update target positions
@@ -376,6 +398,7 @@ def main():
         print("- R/F: Joint4 (wrist_flex) decrease/increase")
         print("- T/G: Joint5 (wrist_roll) decrease/increase")
         print("- Y/H: Joint6 (gripper) decrease/increase")
+        print("- P: Print current measured joint pose for grasp-trajectory recording")
         print("- X: Exit program (first return to start position)")
         print("- ESC: Exit program")
         print("="*50)
