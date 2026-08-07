@@ -66,7 +66,9 @@ resolve_gemini() {
   for node in /dev/video*; do
     [[ -e "$node" ]] || continue
     vendor="$(udevadm info -q property -n "$node" 2>/dev/null | sed -n 's/^ID_VENDOR_ID=//p')"
-    [[ "$vendor" == "2bc5" ]] && device_args+=(--device "$node:$node:rw")
+    if [[ "$vendor" == "2bc5" ]]; then
+      device_args+=(--device "$node:$node:rw")
+    fi
   done
 }
 
