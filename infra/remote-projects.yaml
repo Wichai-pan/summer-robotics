@@ -17,16 +17,17 @@ servers:
     launch_modes:
       - ssh
       - tmux
-    env_activation: source /home/jetsonl7/miniforge3/bin/activate lerobot
-    default_env: lerobot
+    env_activation: docker run --rm --runtime nvidia forestbridge-xlerobot:jp62
+    default_env: forestbridge-xlerobot:jp62
     data_root: /home/jetsonl7/robot-data
     checkpoint_root: /home/jetsonl7/robot-data/checkpoints
     scratch_root: /home/jetsonl7/robot-data/tmp
     logs_root: /home/jetsonl7/robot-data/logs
     notes:
       - Host is an NVIDIA Jetson Orin Nano Super running Ubuntu 22.04 / L4T 36.4.4.
-      - The repo and environment paths are deployment targets; verify existence before every run.
-      - The Orbbec environment is planned separately at /home/jetsonl7/miniforge3/envs/orbbec-depth.
+      - The deployment clone exists and currently tracks origin/main.
+      - NVIDIA NGC PyTorch 25.06 py3 iGPU is the baseline; do not replace its torch with a generic PyPI wheel.
+      - Add the Linux aarch64 Orbbec SDK to the derived image after the GPU and LeRobot smoke test passes.
 
 policies:
   code_runs_on_jetson_for_robot_hardware: true
@@ -41,11 +42,12 @@ policies:
   prefer_remote_bash_for_complex_server_shell_logic: true
 
 environment_policy:
-  python_env_strategy: persistent-miniforge-envs
+  python_env_strategy: versioned-jetson-igpu-container
   environments:
-    - lerobot
-    - orbbec-depth
+    - forestbridge-xlerobot:jp62
   notes:
     - Preserve NVIDIA's system CUDA and TensorRT packages.
-    - Do not install a generic PyPI CUDA torch before checking JetPack compatibility.
+    - Base image is nvcr.io/nvidia/pytorch:25.06-py3-igpu with Python 3.12 and NVIDIA's Jetson GPU torch.
+    - Install vendored LeRobot with --no-deps after its non-torch dependencies so pip cannot replace NVIDIA torch.
+    - The host owns Docker, udev rules, device permissions, and hardware locks; robot Python packages live in the image.
     - Linux USB access must use groups/udev rules, not recurring chmod 666 or sudo camera runs.

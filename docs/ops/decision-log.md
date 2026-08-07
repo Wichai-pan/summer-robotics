@@ -8,11 +8,13 @@
 - Real movement requires a person physically present with immediate power-cut access.
 - Revisit if network reliability cannot support supervision or if a dedicated onboard control service replaces direct SSH runs.
 
-## 2026-08-07 — Separate perception and robot environments
+## 2026-08-07 — Versioned Jetson iGPU container
 
-- Maintain persistent `lerobot` and `orbbec-depth` environments on the Jetson.
-- Preserve JetPack CUDA/TensorRT packages and verify an NVIDIA-compatible PyTorch build before installation.
-- Install the Linux aarch64 Orbbec SDK; the macOS SDK is never copied to the Jetson.
+- Use NVIDIA's `nvcr.io/nvidia/pytorch:25.06-py3-igpu` as the Python 3.12 / GPU baseline on JetPack 6.2.
+- Keep LeRobot, Feetech, and eventually Orbbec Python dependencies in one derived image; keep the host responsible only for Docker, udev, permissions, and locks.
+- Install vendored LeRobot with `--no-deps` after explicit non-Torch dependencies. Never let generic pip resolution replace NVIDIA's Torch/Torchvision builds.
+- Install the Linux aarch64 Orbbec SDK in the derived image; the macOS SDK is never copied to the Jetson.
+- Revisit a split host/container architecture only if Orbbec UVC/USB access proves unstable in the container.
 
 ## 2026-08-07 — Stable device identity and permissions
 
