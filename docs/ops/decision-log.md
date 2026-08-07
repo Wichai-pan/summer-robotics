@@ -36,3 +36,10 @@
 - Expose only explicitly requested camera/controller device nodes; never default to `--privileged`.
 - Hold one host `flock` for the full container lifetime so separate SSH users cannot concurrently own robot hardware.
 - Keep persistent outputs under `/home/jetsonl7/robot-data`; mount calibration read-only.
+
+## 2026-08-07 — Preserve the verified arm controller across SSH
+
+- `tools/arm_keyboard.py` remains the primary manual arm controller because it is the controller used to record and replay the successful physical grasp.
+- Add a POSIX terminal input backend with `--terminal`; do not replace its joint mapping, calibration, P control, pose logging, or full working range with a new limited controller.
+- Keep `tools/arm_terminal.py` only as a conservative connectivity diagnostic. Its startup-relative limits are intentional and it is not a substitute for full teleoperation.
+- All SSH keyboard control still runs through `scripts/jetson_robot_exec.sh --interactive` and the shared hardware lock.

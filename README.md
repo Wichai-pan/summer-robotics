@@ -30,17 +30,17 @@ Robotics Nation 主办的 3 个月具身智能机器人挑战赛。平台：**XL
 - Orbbec Gemini 335 —— 深度相机
 - Anker SOLIX C300X —— 电源
 
-> 当前状态：机器人本体、Gemini 335、两只手腕相机、Jetson、双臂与底盘均已完成首轮连通/控制验收；Gemini→YOLO→RGB-D→人工双确认底盘动作的 MVP 链路已实测。见 [实验记录 05](docs/05-jetson-and-supervised-llm-navigation.md)。
+> 当前状态：机器人全部 USB 已迁移到 Jetson，GPU 容器、Gemini RGB-D、两只手腕相机、控制板稳定识别和跨进程硬件锁均已验证；Gemini→YOLO→RGB-D→人工双确认底盘动作的 MVP 链路此前已实测。见 [实验记录 05](docs/05-jetson-and-supervised-llm-navigation.md) 与 [实验记录 08](docs/08-jetson-migration-log.md)。
 
 ## 算力架构（三段，别混）
 
 | 阶段 | 在哪算 | 干什么 |
 |---|---|---|
-| 开发 | **Mac / Windows**（USB 直连双臂） | 标定 · 遥操作 · 采数据 |
+| 开发 | **Mac / Windows → SSH → Jetson** | 编辑代码 · 发起遥操作 · 查看数据；USB 统一由 Jetson 持有 |
 | 训练 | **学校 V100 / 集群** | 离线训练 ACT 策略 |
 | 部署 | **Jetson**（机器人上） | 实时推理 · 自主控制 |
 
-V100 只做**离线训练**；**实时控制必须在本地**（Mac/Windows 有线 / Jetson），不能走远程集群（延迟会毁掉控制环路）。开发脚本 `tools/*.py` 跨平台（Mac/Windows/Linux 自动按板序列号找端口，见 [docs/01 §10](docs/01-setup-and-first-arm-move.md)）。
+V100 只做**离线训练**；实时控制在机器人随车 Jetson 上执行，不能走远程训练集群。开发机通过 SSH 使用 Jetson；所有硬件命令必须经过带全局锁的容器入口。开发脚本 `tools/*.py` 跨平台按板序列号找端口，原 `arm_keyboard.py` 已增加 SSH 终端输入后端。
 
 ## 当前阶段 & 下一步
 
@@ -50,7 +50,7 @@ V100 只做**离线训练**；**实时控制必须在本地**（Mac/Windows 有�
 2. 使用双臂遥操作采集一小段抓取示范数据
 3. 在 V100 训练 ACT 基线并部署回本地/Jetson 测试
 
-近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md) · [06 RGB-D 抓取准备](docs/06-rgbd-grasp-bringup.md) · [07 Jetson 机载部署](docs/07-jetson-deployment.md)
+近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md) · [06 RGB-D 抓取准备](docs/06-rgbd-grasp-bringup.md) · [07 Jetson 机载部署](docs/07-jetson-deployment.md) · [08 迁移总日志](docs/08-jetson-migration-log.md)
 
 > 业务场景（养老 / 桌面整理 / 垃圾分拣 / 药品识别提醒…）暂不锁定。先把闭环跑通，**换场景 = 换数据**。打法：窄任务 + 稳 demo + 硬付费方 + 营销视频。
 

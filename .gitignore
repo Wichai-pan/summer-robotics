@@ -43,6 +43,12 @@ wandb/
 agents/llm_navigation/runtime/
 .agent/local-overrides.yaml
 
+# 本机失败/废弃的抓取锚点原型与手工原始快照；保留作个人诊断，不部署或共享
+calibration/raw/
+calibration/black_arm_facecream_local_anchor.json
+tools/black_arm_ik_anchor.py
+tools/black_arm_ik_highpoint.py
+
 # IDE
 .vscode/
 .idea/

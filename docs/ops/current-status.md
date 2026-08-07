@@ -13,9 +13,9 @@
 
 ## Current Focus
 
-- Move all robot USB ownership and execution from the developer Mac to the onboard Jetson.
+- Keep all robot USB ownership and execution on the onboard Jetson.
 - Keep GitHub as the code source of truth and make the Jetson deployment clone reproducible.
-- Perform read-only enumeration before installing dependencies or commanding hardware.
+- Complete the first supervised black-arm control test with the migrated, previously verified controller.
 
 ## Latest Verified Server State
 
@@ -33,18 +33,21 @@
 - Control boards: online as `/dev/ttyACM0` serial `5B3D040988` and `/dev/ttyACM1` serial `5B3D043224`.
 - Container port resolution: verified `white -> ttyACM0` and `black -> ttyACM1` using read-only device mappings; no motor bus was opened.
 - Concurrency: `scripts/jetson_robot_exec.sh` minimally maps requested devices and the host lock was verified to reject a second container with exit code 3.
+- SSH keyboard control: the previously verified `tools/arm_keyboard.py` now supports `--terminal`; the Jetson container help/import path and POSIX terminal backend were verified without opening a motor port.
+- Robot calibration: `black_arm.json`, `white_arm.json`, and the XLeRobot calibration cache are mounted read-only into hardware containers.
 
 ## Open Issues
 
 - Wrist cameras require stable names based on USB physical paths, not `/dev/videoN` or duplicate `by-id` names.
 - Wrist path `2.4.1` (A) still shows the previously observed fixed edge blemish and is therefore probably the white-arm camera; path `2.4.3` (B) has no comparable mark. Confirm the arm labels physically before making them stable aliases.
-- Existing GUI (`cv2.imshow`) and `pynput` scripts need headless/terminal-native alternatives for SSH use.
+- Camera GUI tools still need headless/web alternatives for remote use; the primary arm keyboard controller no longer depends on `pynput` when run with `--terminal`.
 - The hardware lock only protects commands that use `scripts/jetson_robot_exec.sh`; direct `docker run` or host processes bypass it and are forbidden for team operation.
 - LeRobot calibration cache, LLM `.env`, and YOLO weights remain machine state outside Git, although they are present on this Jetson.
+- Cross-internet teammate access is only a design discussion: Tailscale/frp has not been installed, and remote physical control lacks a disconnect watchdog.
 
 ## Next Step
 
-1. Confirm path `2.4.1` / `2.4.3` as white or black arm from the physical wiring, then create stable aliases.
-2. Add a terminal-native, headless wrist-camera snapshot/stream command for SSH use.
-3. Inspect the existing bus monitor and perform position-only motor reads through the locked wrapper; do not enable torque.
-4. Only after those checks, perform a supervised single-joint or fixed base motion on Jetson.
+1. Run `tools/arm_keyboard.py black --terminal` through the locked wrapper with an on-site operator; choose `n` to reuse `black_arm.json`.
+2. Confirm path `2.4.1` / `2.4.3` as white or black arm from the physical wiring, then create stable aliases.
+3. Add a terminal-native, headless wrist-camera snapshot/stream command for SSH use.
+4. Add per-person accounts plus a motor disconnect watchdog before any cross-internet physical operation.
