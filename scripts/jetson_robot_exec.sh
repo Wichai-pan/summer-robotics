@@ -12,6 +12,7 @@ Device flags (only requested devices are exposed to the container):
   --ports-readonly  both controller nodes with read-only device permission
   --wrist-a         wrist camera at physical USB path 2.4.1, index0
   --wrist-b         wrist camera at physical USB path 2.4.3, index0
+  --interactive     attach the current SSH terminal to Docker (for keyboard/input tools)
 
 Examples:
   ./scripts/jetson_robot_exec.sh --ports-readonly -- python3 tools/portutil.py
@@ -29,6 +30,7 @@ calibration_root="${FORESTBRIDGE_CALIBRATION_ROOT:-/home/jetsonl7/.cache/hugging
 lock_path="${FORESTBRIDGE_HARDWARE_LOCK:-/tmp/forestbridge-xlerobot.lock}"
 
 device_args=()
+interactive_args=()
 
 resolve_board() {
   local serial="$1"
@@ -84,6 +86,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --wrist-a) resolve_wrist 2.4.1; shift ;;
     --wrist-b) resolve_wrist 2.4.3; shift ;;
+    --interactive) interactive_args=(-i -t); shift ;;
     --) shift; break ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -95,6 +98,7 @@ done
 [[ -d "$calibration_root" ]] || { echo "Missing calibration root: $calibration_root" >&2; exit 2; }
 
 docker_cmd=(docker run --rm \
+  "${interactive_args[@]}" \
   --runtime nvidia \
   --ipc host \
   "${device_args[@]}" \
