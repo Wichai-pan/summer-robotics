@@ -37,9 +37,11 @@ wandb/
 
 # 日志 / 密钥
 *.log
+*.log.txt
 .env
 .env.local
 agents/llm_navigation/runtime/
+.agent/local-overrides.yaml
 
 # IDE
 .vscode/

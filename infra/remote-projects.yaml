@@ -1,0 +1,51 @@
+# Stable shared mapping for the robot's Jetson execution host.
+
+project:
+  name: ForestBridge summer-robotics
+  local_repo_root: /Users/huataipan/Wichai/Hackathons/summer-robotics
+
+git_sync:
+  remote_name: origin
+  default_branch: main
+  strategy: github
+
+servers:
+  - name: xlerobot-jetson
+    ssh_alias: jetsonl7
+    remote_repo_root: /home/jetsonl7/summer-robotics-deploy
+    scheduler: none
+    launch_modes:
+      - ssh
+      - tmux
+    env_activation: source /home/jetsonl7/miniforge3/bin/activate lerobot
+    default_env: lerobot
+    data_root: /home/jetsonl7/robot-data
+    checkpoint_root: /home/jetsonl7/robot-data/checkpoints
+    scratch_root: /home/jetsonl7/robot-data/tmp
+    logs_root: /home/jetsonl7/robot-data/logs
+    notes:
+      - Host is an NVIDIA Jetson Orin Nano Super running Ubuntu 22.04 / L4T 36.4.4.
+      - The repo and environment paths are deployment targets; verify existence before every run.
+      - The Orbbec environment is planned separately at /home/jetsonl7/miniforge3/envs/orbbec-depth.
+
+policies:
+  code_runs_on_jetson_for_robot_hardware: true
+  git_remote_is_source_of_truth: true
+  require_clean_git_before_sync: true
+  require_git_sync_before_server_run: true
+  require_physical_operator_for_motion: true
+  require_exclusive_hardware_lock_for_motion: true
+  forbid_concurrent_motor_control: true
+  forbid_destructive_git_on_server_without_confirmation: true
+  prefer_remote_cmd_for_simple_server_commands: true
+  prefer_remote_bash_for_complex_server_shell_logic: true
+
+environment_policy:
+  python_env_strategy: persistent-miniforge-envs
+  environments:
+    - lerobot
+    - orbbec-depth
+  notes:
+    - Preserve NVIDIA's system CUDA and TensorRT packages.
+    - Do not install a generic PyPI CUDA torch before checking JetPack compatibility.
+    - Linux USB access must use groups/udev rules, not recurring chmod 666 or sudo camera runs.

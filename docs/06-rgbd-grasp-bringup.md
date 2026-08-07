@@ -68,7 +68,7 @@ python tools/black_arm_facecream_replay.py
 
 目标是固定相机的 **eye-to-hand（相机—机械臂）标定**，而不是记录物体位置对应的抓取动作。保持底盘、头部云台和桌面不动，在夹爪固定一个 Gemini 可稳定识别的彩色标记（可先夹住面霜作为标记），采集 6–10 个安全且分散的姿态。每个样本包含：
 
-1. 黑臂 `SAVED_TARGET_JSON` 关节目标；
+1. 黑臂 `MEASURED_ENCODER_JSON` 实测关节角（`SAVED_TARGET_JSON` 仅用于诊断旧 P 控制器映射）；
 2. Gemini RGB-D 观察到的标记三维坐标。
 
 用这些对应关系拟合真实的 `T_base_camera`、关节零位偏差和末端工具偏移。拟合通过独立验证后，才重新启用“物体 RGB-D 坐标 → 基座坐标 → 解析 IK → 分阶段抓取”的计算链路，并改用平滑轨迹执行。
@@ -80,3 +80,30 @@ python tools/black_arm_facecream_replay.py
 3. 定义安全抓取状态机：预抓取点 → 垂直下降 → 合爪 → 抬升；每段保留可中止和人工监督。
 4. 接入标定后的真实逆运动学、关节限位和平滑轨迹执行，再用同一物体重复验证。
 5. 在确定性闭环稳定后，再采集遥操作示范数据并训练 ACT / VLA 基线。
+
+## 6. 2026-08-07 · 九点 eye-to-hand 离线拟合
+
+已采集 9 组黑臂实测编码器角度与 Gemini 标记三维坐标，覆盖相机坐标约 X `158 mm`、Y `63 mm`、Z `208 mm`；五个关节的实测角度范围分别达到 `35° / 37° / 52° / 141° / 115°`。RGB-D 单组最大散布为 `3.55 mm`。
+
+[`tools/fit_black_arm_eye_to_hand.py`](../tools/fit_black_arm_eye_to_hand.py) 动态读取 XLeRobot URDF 黑臂链，枚举关节方向，并拟合可辨识的关节零点、夹爪内标记点和相机刚体外参。它是纯离线程序，产物强制标记为 `motion_locked`。合成真值单元测试已通过，确认正运动学、刚体配准和优化实现可恢复一致数据中的几何模型。
+
+真实数据采用前 8 组训练、第 9 组完全留出，结果为：
+
+| 指标 | 结果 |
+|---|---:|
+| 训练点 RMSE | 10.64 mm |
+| 留出第 7 组误差（诊断） | 14.98 mm |
+| 留出第 8 组误差（诊断） | 20.80 mm |
+| 留出第 9 组误差 | **93.41 mm** |
+
+本轮结论是 **FAIL，不得用于真实 IK**。第 9 组在约相同 19 cm 深度处选择出的蓝色区域为 `137×202 / 8211 px`，而第 8 组只有 `20×12 / 110 px`；两者明显不是稳定一致的物理特征点。退出控制器松扭矩后，面霜也可能相对夹爪发生滑动或被重新夹持。面霜表面的“蓝色区域三维质心”会随遮挡和观察方向移动，因此不满足 eye-to-hand 标定要求的刚性固定点假设。
+
+拟合产物 [`calibration/black_arm_eye_to_hand_fit.json`](../calibration/black_arm_eye_to_hand_fit.json) 仅保留失败证据和诊断信息，不能复制到执行配置。下一轮应将小型 ArUco/AprilTag 板或明确的固定点标记刚性安装在夹爪上，并在一次不断电、不松夹的采集会话中重新采点；随后再运行同一离线拟合器进行独立留出验证。
+
+复现命令：
+
+```bash
+conda activate lerobot
+python tools/fit_black_arm_eye_to_hand.py --starts 10
+python tests/test_eye_to_hand_fit.py
+```

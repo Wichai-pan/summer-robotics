@@ -1,0 +1,173 @@
+{
+  "schema": "black_arm_eye_to_hand_fit/v1",
+  "status": "diagnostic_only",
+  "motion_locked": true,
+  "model": "URDF FK + joint signs + 3 identifiable zero offsets + jaw marker + rigid camera extrinsic",
+  "gauge_choices": {
+    "shoulder_pan_offset_deg": 0.0,
+    "wrist_roll_offset_deg": 0.0,
+    "reason": "These offsets are not separately identifiable from camera rotation / marker orientation."
+  },
+  "training_labels": [
+    "pose_01_center_high",
+    "pose_02_vertical_offset",
+    "pose_03_left_lateral",
+    "pose_04_right_lateral",
+    "pose_05_backward",
+    "pose_06_max_reach",
+    "pose_07_shoulder_lift_high",
+    "pose_08_validation_multi_joint"
+  ],
+  "holdout_label": "pose_09_multi_joint_roll",
+  "joint_signs": {
+    "shoulder_pan": -1,
+    "shoulder_lift": -1,
+    "elbow_flex": 1,
+    "wrist_flex": 1,
+    "wrist_roll": -1
+  },
+  "fitted_joint_offsets_deg": {
+    "shoulder_lift": 23.05391214960148,
+    "elbow_flex": -155.52820960501478,
+    "wrist_flex": -102.89225007647696
+  },
+  "marker_in_fixed_jaw_m": [
+    -0.006819490711816746,
+    -0.020607135942119683,
+    0.0391349459612111
+  ],
+  "camera_from_arm_base_4x4": [
+    [
+      0.9839379295904896,
+      -0.16517284868398083,
+      0.06770584000511655,
+      -0.12437989037695489
+    ],
+    [
+      0.08138044713439387,
+      0.7526215257196446,
+      0.6534049753771701,
+      0.20514754627412357
+    ],
+    [
+      -0.1588816337321145,
+      -0.6374000071235122,
+      0.7539747060621866,
+      0.09129840618604712
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "arm_base_from_camera_4x4": [
+    [
+      0.9839379295904905,
+      0.08138044713439382,
+      -0.15888163373211459,
+      0.12019273270785862
+    ],
+    [
+      -0.16517284868398086,
+      0.7526215257196444,
+      -0.637400007123512,
+      -0.1167490353336834
+    ],
+    [
+      0.06770584000511655,
+      0.6534049753771707,
+      0.753974706062187,
+      -0.19445987143228569
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "train_rmse_m": 0.010636564797644101,
+  "train_errors_m": {
+    "pose_01_center_high": 0.020812389110129965,
+    "pose_02_vertical_offset": 0.01333280485549427,
+    "pose_03_left_lateral": 0.0072573422573189526,
+    "pose_04_right_lateral": 0.00532632608632126,
+    "pose_05_backward": 0.001475600958370091,
+    "pose_06_max_reach": 0.012254773938437538,
+    "pose_07_shoulder_lift_high": 0.006981573525653379,
+    "pose_08_validation_multi_joint": 0.0034691270065186687
+  },
+  "holdout_observed_camera_m": [
+    0.06896586972556396,
+    -0.06598425008602296,
+    0.1850000023841858
+  ],
+  "holdout_predicted_camera_m": [
+    0.07798694209567743,
+    0.025897340727186607,
+    0.19919476190383806
+  ],
+  "holdout_error_m": 0.09340823130160243,
+  "fit_settings": {
+    "starts_per_sign": 10,
+    "seed": 20260807
+  },
+  "top_direction_candidates": [
+    {
+      "train_rmse_m": 0.010636564797644101,
+      "joint_signs": {
+        "shoulder_pan": -1,
+        "shoulder_lift": -1,
+        "elbow_flex": 1,
+        "wrist_flex": 1,
+        "wrist_roll": -1
+      }
+    },
+    {
+      "train_rmse_m": 0.010636564941713288,
+      "joint_signs": {
+        "shoulder_pan": 1,
+        "shoulder_lift": 1,
+        "elbow_flex": -1,
+        "wrist_flex": -1,
+        "wrist_roll": 1
+      }
+    },
+    {
+      "train_rmse_m": 0.010636567812142181,
+      "joint_signs": {
+        "shoulder_pan": -1,
+        "shoulder_lift": -1,
+        "elbow_flex": 1,
+        "wrist_flex": 1,
+        "wrist_roll": 1
+      }
+    },
+    {
+      "train_rmse_m": 0.010636568016158414,
+      "joint_signs": {
+        "shoulder_pan": 1,
+        "shoulder_lift": 1,
+        "elbow_flex": -1,
+        "wrist_flex": -1,
+        "wrist_roll": -1
+      }
+    },
+    {
+      "train_rmse_m": 0.011174903967585408,
+      "joint_signs": {
+        "shoulder_pan": 1,
+        "shoulder_lift": -1,
+        "elbow_flex": 1,
+        "wrist_flex": 1,
+        "wrist_roll": -1
+      }
+    }
+  ],
+  "notes": [
+    "Do not copy this matrix into a motor-execution config until holdout and repeatability gates pass.",
+    "Measured encoder coordinates, not legacy SAVED_TARGET coordinates, were used for geometry."
+  ]
+}
