@@ -119,4 +119,4 @@ cd /home/jetsonl7/summer-robotics-deploy
 ./scripts/jetson_orbbec_smoke.sh 5
 ```
 
-RGB-D 结果位于 `/home/jetsonl7/robot-data/tmp/jetson-gemini-smoke.{jpg,json}`。
+RGB-D 结果按 UTC 时间戳写入 `/home/jetsonl7/robot-data/tmp/jetson-gemini-smoke-*.{jpg,json}`，宿主用户拥有这些文件。
