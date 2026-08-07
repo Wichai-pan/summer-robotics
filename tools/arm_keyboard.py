@@ -11,11 +11,69 @@ import traceback
 import sys
 import os
 import json
+import argparse
+import select
 
 # 跨平台端口解析（Mac/Windows/Linux 都按板子 USB 序列号自动找端口）
 from portutil import BOARDS, resolve_port, PortResolutionError
 
 ARMS = BOARDS   # 兼容旧名：白/黑臂 -> 板序列号（实际定义在 portutil.BOARDS）
+
+
+class TerminalKeyboard:
+    """SSH/TTY keyboard backend with the same action format as KeyboardTeleop."""
+
+    def __init__(self):
+        self.fd = None
+        self.saved_attributes = None
+        self.termios = None
+
+    def connect(self):
+        try:
+            import termios
+            import tty
+        except ImportError as exc:
+            raise RuntimeError("--terminal 仅支持 macOS/Linux POSIX 终端") from exc
+        if not sys.stdin.isatty():
+            raise RuntimeError(
+                "stdin 不是交互式终端；Jetson 上请给 jetson_robot_exec.sh 加 --interactive"
+            )
+        self.fd = sys.stdin.fileno()
+        self.termios = termios
+        self.saved_attributes = self.termios.tcgetattr(self.fd)
+        tty.setcbreak(self.fd)
+
+    def get_action(self):
+        if self.fd is None:
+            return {}
+        readable, _, _ = select.select([self.fd], [], [], 0)
+        if not readable:
+            return {}
+        key = os.read(self.fd, 1).decode("utf-8", errors="ignore").lower()
+        if key == "\x1b":
+            key = "x"
+        return {key: True} if key else {}
+
+    def disconnect(self):
+        if self.fd is not None and self.saved_attributes is not None and self.termios is not None:
+            self.termios.tcsetattr(self.fd, self.termios.TCSADRAIN, self.saved_attributes)
+        self.fd = None
+        self.saved_attributes = None
+        self.termios = None
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="SO100/SO101 P-control keyboard teleoperation"
+    )
+    parser.add_argument("arm", nargs="?", choices=sorted(ARMS), help="white or black")
+    parser.add_argument("port", nargs="?", help="optional serial-port override")
+    parser.add_argument(
+        "--terminal",
+        action="store_true",
+        help="read keys directly from an SSH/POSIX terminal instead of pynput",
+    )
+    return parser.parse_args()
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -312,6 +370,10 @@ def main():
     print("LeRobot Simplified Keyboard Control Example (P Control)")
     print("="*50)
     
+    robot = None
+    keyboard = None
+    robot_connected = False
+    keyboard_connected = False
     try:
 
         # from lerobot.robots.so100_follower import SO100Follower, SO100FollowerConfig
@@ -320,15 +382,14 @@ def main():
         from lerobot.robots.so_follower.so_follower import SO100Follower
         from lerobot.robots.so_follower.config_so_follower import SO100FollowerConfig
         
-        from lerobot.teleoperators.keyboard.teleop_keyboard import KeyboardTeleop
-        from lerobot.teleoperators.keyboard.configuration_keyboard import KeyboardTeleopConfig
+        args = parse_args()
                 
         # Get port
-        arm = sys.argv[1].lower() if len(sys.argv) > 1 else input("哪条臂? white/black: ").strip().lower()
+        arm = args.arm or input("哪条臂? white/black: ").strip().lower()
         if arm not in ARMS:
-            raise SystemExit("用法: python tools/arm_keyboard.py [white|black] [可选:端口如 COM7]")
+            raise SystemExit("用法: python tools/arm_keyboard.py [white|black] [可选端口] [--terminal]")
         # 端口自动按板序列号解析；也可命令行第 2 个参数 / 环境变量 XLEROBOT_PORT 手动指定
-        override = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("XLEROBOT_PORT")
+        override = args.port or os.environ.get("XLEROBOT_PORT")
         try:
             port = resolve_port(ARMS[arm], override=override)
         except PortResolutionError as e:
@@ -341,14 +402,19 @@ def main():
         robot = SO100Follower(robot_config)
         
         # Configure keyboard
-        keyboard_config = KeyboardTeleopConfig()
-        keyboard = KeyboardTeleop(keyboard_config)
+        if args.terminal:
+            keyboard = TerminalKeyboard()
+        else:
+            from lerobot.teleoperators.keyboard.teleop_keyboard import KeyboardTeleop
+            from lerobot.teleoperators.keyboard.configuration_keyboard import KeyboardTeleopConfig
+
+            keyboard = KeyboardTeleop(KeyboardTeleopConfig())
         
         # Connect devices
         robot.connect()
-        keyboard.connect()
-        
-        print("Devices connected successfully!")
+        robot_connected = True
+
+        print("Robot connected successfully!")
         
         # Ask whether to recalibrate
         while True:
@@ -389,6 +455,11 @@ def main():
         'wrist_roll': 0.0,
         'gripper': 0.0
           }
+
+        # Enter raw/cbreak mode only after all line-oriented confirmations and
+        # the legacy zero move are complete. This keeps input() reliable over SSH.
+        keyboard.connect()
+        keyboard_connected = True
         
         
         print("Keyboard control instructions:")
@@ -408,8 +479,6 @@ def main():
         p_control_loop(robot, keyboard, target_positions, start_positions, kp=0.5, control_freq=50)
         
         # Disconnect
-        robot.disconnect()
-        keyboard.disconnect()
         print("Program ended")
         
     except Exception as e:
@@ -420,6 +489,12 @@ def main():
         print("2. Is the USB port correct")
         print("3. Do you have sufficient permissions to access USB device")
         print("4. Is the robot correctly configured")
+    finally:
+        if keyboard_connected:
+            keyboard.disconnect()
+        if robot_connected:
+            robot.disconnect()
+            print("Robot torque released and serial port closed")
 
 if __name__ == "__main__":
     main() 
