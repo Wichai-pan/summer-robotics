@@ -14,6 +14,7 @@
 - Keep LeRobot, Feetech, and eventually Orbbec Python dependencies in one derived image; keep the host responsible only for Docker, udev, permissions, and locks.
 - Install vendored LeRobot with `--no-deps` after explicit non-Torch dependencies. Never let generic pip resolution replace NVIDIA's Torch/Torchvision builds.
 - Pin NumPy 1.26.4 and OpenCV 4.11 in the Jetson image: NVIDIA 25.06 iGPU Torch cannot use NumPy 2.x through `torch.from_numpy`, despite LeRobot's newer generic NumPy declaration.
+- Install the official `pyorbbecsdk2==2.1.1` ARM64 wheel with `--no-deps`; its generic dependency set would otherwise replace the validated Jetson NumPy/OpenCV ABI stack.
 - Install the Linux aarch64 Orbbec SDK in the derived image; the macOS SDK is never copied to the Jetson.
 - Revisit a split host/container architecture only if Orbbec UVC/USB access proves unstable in the container.
 

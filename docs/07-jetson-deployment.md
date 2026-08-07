@@ -53,6 +53,8 @@ nvcr.io/nvidia/pytorch:25.06-py3-igpu
 
 NVIDIA 25.06 iGPU Torch 使用 NumPy 1.x ABI；项目镜像因此固定 NumPy 1.26.4 和 OpenCV 4.11。虽然这比 LeRobot 通用依赖中声明的 NumPy 2.x 更旧，但它是保证 `torch.from_numpy` 在本机可用的 Jetson 专用兼容覆盖。
 
+Orbbec 官方 `pyorbbecsdk2 2.1.1` 提供 Python 3.12 / Linux ARM64 wheel，但其通用依赖会升级 NumPy 和 OpenCV。镜像只安装固定版本的 vendor wheel（`--no-deps`）；已验证其 `pyorbbecsdk` 模块可与上述 Jetson ABI 组合导入。
+
 ## 5. 构建与无硬件自检
 
 基础镜像较大，首次下载需要稳定网络和足够时间：
@@ -69,6 +71,7 @@ cd /home/jetsonl7/summer-robotics-deploy
 - Python 为 3.12；
 - 能导入 LeRobot 0.5.2；
 - NumPy、OpenCV 和 `torch.from_numpy(...).cuda()` 可用；
+- `pyorbbecsdk` 可导入；
 - `cuda True`；
 - GPU 名称可见。
 
