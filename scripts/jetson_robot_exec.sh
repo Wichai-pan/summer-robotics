@@ -100,7 +100,9 @@ if ! flock -n 9; then
   exit 3
 fi
 
-exec docker run --rm \
+# Do not exec Docker here: the host shell must retain fd 9 (and therefore the
+# flock) for the entire lifetime of the Docker client/container.
+docker run --rm \
   --runtime nvidia \
   --ipc host \
   "${device_args[@]}" \
