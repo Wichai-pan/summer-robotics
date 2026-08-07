@@ -94,15 +94,7 @@ done
 [[ -d "$data_root" ]] || { echo "Missing data root: $data_root" >&2; exit 2; }
 [[ -d "$calibration_root" ]] || { echo "Missing calibration root: $calibration_root" >&2; exit 2; }
 
-exec 9>"$lock_path"
-if ! flock -n 9; then
-  echo "Robot hardware is already in use (lock: $lock_path). Stop the other session first." >&2
-  exit 3
-fi
-
-# Do not exec Docker here: the host shell must retain fd 9 (and therefore the
-# flock) for the entire lifetime of the Docker client/container.
-docker run --rm \
+docker_cmd=(docker run --rm \
   --runtime nvidia \
   --ipc host \
   "${device_args[@]}" \
@@ -112,4 +104,15 @@ docker run --rm \
   --workdir /workspace \
   --env PYTHONPATH=/workspace/tools:/workspace/external/lerobot/src \
   "$image_name" \
-  "$@"
+  "$@")
+
+# Use flock's parent-process mode. It holds the lock while the Docker child is
+# running, independent of which file descriptors the Go Docker client closes.
+set +e
+flock --nonblock --conflict-exit-code 3 "$lock_path" "${docker_cmd[@]}"
+status=$?
+set -e
+if [[ $status -eq 3 ]]; then
+  echo "Robot hardware is already in use (lock: $lock_path). Stop the other session first." >&2
+fi
+exit "$status"
