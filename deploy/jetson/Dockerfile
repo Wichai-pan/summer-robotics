@@ -18,6 +18,6 @@ RUN python3 -m pip install -r /tmp/requirements-control.txt
 
 COPY external/lerobot /opt/lerobot
 RUN python3 -m pip install --no-deps -e /opt/lerobot \
-    && python3 -c "import lerobot, torch, torchvision; print('lerobot', lerobot.__version__); print('torch', torch.__version__); print('torchvision', torchvision.__version__)"
+    && python3 -c "import cv2, lerobot, numpy, torch, torchvision; tensor = torch.from_numpy(numpy.zeros(3, dtype=numpy.float32)); print('lerobot', lerobot.__version__); print('numpy', numpy.__version__); print('opencv', cv2.__version__); print('torch', torch.__version__); print('torchvision', torchvision.__version__); print('torch_from_numpy', tensor.tolist())"
 
 CMD ["bash"]

@@ -51,6 +51,8 @@ nvcr.io/nvidia/pytorch:25.06-py3-igpu
 
 它提供适用于 Jetson 的 Python 3.12 与 GPU Torch。不要在主机或镜像中执行通用的 `pip install torch`，也不要使用仓库的巨型 `requirements-ubuntu.txt` 覆盖 NVIDIA Torch。
 
+NVIDIA 25.06 iGPU Torch 使用 NumPy 1.x ABI；项目镜像因此固定 NumPy 1.26.4 和 OpenCV 4.11。虽然这比 LeRobot 通用依赖中声明的 NumPy 2.x 更旧，但它是保证 `torch.from_numpy` 在本机可用的 Jetson 专用兼容覆盖。
+
 ## 5. 构建与无硬件自检
 
 基础镜像较大，首次下载需要稳定网络和足够时间：
@@ -66,6 +68,7 @@ cd /home/jetsonl7/summer-robotics-deploy
 - 架构为 `aarch64`；
 - Python 为 3.12；
 - 能导入 LeRobot 0.5.2；
+- NumPy、OpenCV 和 `torch.from_numpy(...).cuda()` 可用；
 - `cuda True`；
 - GPU 名称可见。
 
