@@ -98,3 +98,25 @@ cd /home/jetsonl7/summer-robotics-deploy
 7. 现场操作者清空范围后，才进行单关节小动作和底盘短动作。
 
 在第 6 步完成前，团队成员可以共同查看代码和感知输出，但不能同时启动任何两个电机控制进程。
+
+## 8. 统一硬件容器入口
+
+所有会访问机器人 USB 的命令都应通过：
+
+```bash
+./scripts/jetson_robot_exec.sh [设备参数] -- COMMAND [ARG...]
+```
+
+设备参数包括 `--gemini`、`--white`、`--black`、`--ports-readonly`、`--wrist-a` 和 `--wrist-b`。入口只映射明确申请的设备，不使用 `--privileged`，并通过 `/tmp/forestbridge-xlerobot.lock` 阻止两个团队成员同时启动硬件容器。
+
+常用无运动检查：
+
+```bash
+# 控制板身份；设备节点以只读权限映射，脚本不会打开串口
+./scripts/jetson_ports_smoke.sh
+
+# Gemini RGB-D 5 帧快照；不会映射电机串口
+./scripts/jetson_orbbec_smoke.sh 5
+```
+
+RGB-D 结果位于 `/home/jetsonl7/robot-data/tmp/jetson-gemini-smoke.{jpg,json}`。

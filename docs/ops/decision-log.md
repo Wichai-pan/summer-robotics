@@ -29,3 +29,10 @@
 - Use the configured SSH alias and simple argv-style remote commands; promote complex remote logic to versioned scripts.
 - Require clean Git state and fast-forward-only deployment updates.
 - Never reset, clean, or overwrite a dirty deployment clone without explicit approval.
+
+## 2026-08-07 — One locked, minimally mapped hardware container
+
+- Run USB hardware commands through `scripts/jetson_robot_exec.sh`.
+- Expose only explicitly requested camera/controller device nodes; never default to `--privileged`.
+- Hold one host `flock` for the full container lifetime so separate SSH users cannot concurrently own robot hardware.
+- Keep persistent outputs under `/home/jetsonl7/robot-data`; mount calibration read-only.
