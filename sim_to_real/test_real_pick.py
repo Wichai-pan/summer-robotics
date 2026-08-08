@@ -54,6 +54,7 @@ def test_workspace_violation_is_rejected():
 def test_example_configuration_is_deliberately_locked():
     config = load_config(HERE / "pick_config.example.json")
     assert config["calibrated"] is False
+    assert "safe_home_joints_deg" not in config
 
 
 def test_urdf_approximation_can_plan_simulation_cylinder_position():

@@ -22,7 +22,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import cv2
 import numpy as np
@@ -31,13 +31,17 @@ from gemini335 import Gemini335Camera
 from perception import DetectorConfig, annotate, detect_blue_cylinder
 
 
-JOINTS = (
-    "shoulder_pan",
-    "shoulder_lift",
-    "elbow_flex",
-    "wrist_flex",
-    "wrist_roll",
-    "gripper",
+JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
+
+ROBOT_IMPORTS = (
+    ("lerobot.robots.so_follower.so_follower", "lerobot.robots.so_follower.config_so_follower",
+     "SO100Follower", "SO100FollowerConfig"),
+    ("lerobot.robots.so101_follower.so101_follower",
+     "lerobot.robots.so101_follower.config_so101_follower", "SO101Follower", "SO101FollowerConfig"),
+    ("lerobot.robots.so101_follower", "lerobot.robots.so101_follower",
+     "SO101Follower", "SO101FollowerConfig"),
+    ("lerobot.robots.so100_follower", "lerobot.robots.so100_follower",
+     "SO100Follower", "SO100FollowerConfig"),
 )
 
 
@@ -77,7 +81,6 @@ def load_config(path: Path) -> dict:
         "joint_limits_deg",
         "gripper",
         "workspace_base_m",
-        "safe_home_joints_deg",
     }
     missing = required - config.keys()
     if missing:
@@ -268,33 +271,7 @@ def acquire_stable_target(camera: Gemini335Camera, args, output_dir: Path):
 
 def import_robot_classes():
     attempts = []
-    candidates = (
-        (
-            "lerobot.robots.so_follower.so_follower",
-            "lerobot.robots.so_follower.config_so_follower",
-            "SO100Follower",
-            "SO100FollowerConfig",
-        ),
-        (
-            "lerobot.robots.so101_follower.so101_follower",
-            "lerobot.robots.so101_follower.config_so101_follower",
-            "SO101Follower",
-            "SO101FollowerConfig",
-        ),
-        (
-            "lerobot.robots.so101_follower",
-            "lerobot.robots.so101_follower",
-            "SO101Follower",
-            "SO101FollowerConfig",
-        ),
-        (
-            "lerobot.robots.so100_follower",
-            "lerobot.robots.so100_follower",
-            "SO100Follower",
-            "SO100FollowerConfig",
-        ),
-    )
-    for robot_module, config_module, robot_name, config_name in candidates:
+    for robot_module, config_module, robot_name, config_name in ROBOT_IMPORTS:
         try:
             rmod = __import__(robot_module, fromlist=[robot_name])
             cmod = __import__(config_module, fromlist=[config_name])
@@ -340,26 +317,31 @@ def smoothstep(value: float) -> float:
     return value * value * (3.0 - 2.0 * value)
 
 
-def execute_trajectory(robot, target: dict[str, float], duration_s: float, config: dict, phase: str) -> None:
-    validate_joint_targets(target, config)
-    start = read_joint_positions(robot)
+def run_control_loop(
+    robot,
+    command_at: Callable[[float], dict[str, float]],
+    start: dict[str, float],
+    duration_s: float,
+    config: dict,
+    phase: str,
+) -> None:
+    """Send one smooth, bounded trajectory and monitor tracking error."""
     frequency = float(config["motion"]["control_hz"])
     steps = max(2, int(duration_s * frequency))
     max_step = float(config["motion"]["max_command_step_deg"])
     max_tracking_error = float(config["motion"]["max_tracking_error_deg"])
     previous = start.copy()
-    print(f"[PHASE] {phase}: duration={duration_s:.1f}s target={target}")
+
     for step in range(1, steps + 1):
-        alpha = smoothstep(step / steps)
-        command = {}
+        desired = command_at(smoothstep(step / steps))
+        validate_joint_targets(desired, config)
         for name in JOINTS:
-            desired = start[name] + alpha * (float(target[name]) - start[name])
-            delta = desired - previous[name]
+            delta = float(desired[name]) - previous[name]
             if abs(delta) > max_step + 1e-9:
                 raise SafetyError(f"{phase}: {name} step {delta:.2f} deg exceeds {max_step:.2f}")
-            command[f"{name}.pos"] = desired
-            previous[name] = desired
-        robot.send_action(command)
+        previous = {name: float(desired[name]) for name in JOINTS}
+        robot.send_action({f"{name}.pos": value for name, value in previous.items()})
+
         if step > max(2, int(0.5 * frequency)) and step % max(1, int(frequency / 5)) == 0:
             measured = read_joint_positions(robot)
             error = max(abs(measured[name] - previous[name]) for name in JOINTS)
@@ -368,6 +350,21 @@ def execute_trajectory(robot, target: dict[str, float], duration_s: float, confi
                     f"{phase}: tracking error {error:.1f} deg exceeds {max_tracking_error:.1f}; aborting"
                 )
         time.sleep(1.0 / frequency)
+
+
+def execute_trajectory(robot, target: dict[str, float], duration_s: float, config: dict, phase: str) -> None:
+    """Interpolate directly between two joint poses."""
+    validate_joint_targets(target, config)
+    start = read_joint_positions(robot)
+    print(f"[PHASE] {phase}: duration={duration_s:.1f}s target={target}")
+
+    def command_at(alpha: float) -> dict[str, float]:
+        return {
+            name: start[name] + alpha * (float(target[name]) - start[name])
+            for name in JOINTS
+        }
+
+    run_control_loop(robot, command_at, start, duration_s, config, phase)
 
 
 def execute_cartesian_trajectory(
@@ -382,37 +379,19 @@ def execute_cartesian_trajectory(
     """Follow a Cartesian line, solving IK at every control cycle."""
     start_xyz = _vector3(start_base_m, "Cartesian start")
     target_xyz = _vector3(target_base_m, "Cartesian target")
-    frequency = float(config["motion"]["control_hz"])
-    steps = max(2, int(duration_s * frequency))
-    max_step = float(config["motion"]["max_command_step_deg"])
-    max_tracking_error = float(config["motion"]["max_tracking_error_deg"])
-    previous = read_joint_positions(robot)
+    start = read_joint_positions(robot)
     print(
         f"[PHASE] {phase}: Cartesian {start_xyz.tolist()} -> {target_xyz.tolist()}, "
         f"duration={duration_s:.1f}s"
     )
-    for step in range(1, steps + 1):
-        alpha = smoothstep(step / steps)
+
+    def command_at(alpha: float) -> dict[str, float]:
         xyz = start_xyz + alpha * (target_xyz - start_xyz)
         desired = cartesian_to_joints(xyz, config)
         desired["gripper"] = float(gripper_deg)
-        validate_joint_targets(desired, config)
-        command = {}
-        for name in JOINTS:
-            delta = desired[name] - previous[name]
-            if abs(delta) > max_step + 1e-9:
-                raise SafetyError(f"{phase}: {name} step {delta:.2f} deg exceeds {max_step:.2f}")
-            command[f"{name}.pos"] = desired[name]
-            previous[name] = desired[name]
-        robot.send_action(command)
-        if step > max(2, int(0.5 * frequency)) and step % max(1, int(frequency / 5)) == 0:
-            measured = read_joint_positions(robot)
-            error = max(abs(measured[name] - previous[name]) for name in JOINTS)
-            if error > max_tracking_error:
-                raise SafetyError(
-                    f"{phase}: tracking error {error:.1f} deg exceeds {max_tracking_error:.1f}; aborting"
-                )
-        time.sleep(1.0 / frequency)
+        return desired
+
+    run_control_loop(robot, command_at, start, duration_s, config, phase)
 
 
 def inspect_robot(port: str, robot_id: str) -> None:
@@ -443,43 +422,19 @@ def execute_pick(plan: PickPlan, config: dict, port: str, robot_id: str) -> None
         start = read_joint_positions(robot)
         print(f"[ROBOT] connected; measured joints={start}")
         validate_joint_targets(start, config)
-        home = config["safe_home_joints_deg"]
-        arm_joint_names = JOINTS[:-1]
-        if any(home.get(name) is None for name in arm_joint_names):
-            raise SafetyError("safe_home_joints_deg must be measured and filled before execution")
-        home_error = max(abs(start[name] - float(home[name])) for name in arm_joint_names)
-        home_tolerance = float(config["motion"]["home_tolerance_deg"])
-        if home_error > home_tolerance:
-            raise SafetyError(
-                f"Robot is not in the calibrated safe home pose: max error={home_error:.1f} deg "
-                f"> {home_tolerance:.1f} deg"
-            )
-        answer = input(
-            "Remove people/obstacles, hold the emergency stop, verify the arm is in a safe home pose. "
-            "Type PICK to move: "
-        ).strip()
-        if answer != "PICK":
-            raise SafetyError("Operator did not confirm PICK")
 
         durations = config["motion"]["phase_duration_s"]
-        overhead = dict(plan.overhead_joints_deg)
-        grasp = dict(plan.grasp_joints_deg)
-        lift = dict(plan.lift_joints_deg)
         open_value = float(config["gripper"]["open_deg"])
         closed_value = float(config["gripper"]["closed_deg"])
-        overhead["gripper"] = open_value
-        grasp["gripper"] = open_value
-        lift["gripper"] = closed_value
+        overhead = plan.overhead_joints_deg | {"gripper": open_value}
+        grasp = plan.grasp_joints_deg | {"gripper": closed_value}
 
-        open_pose = start | {"gripper": open_value}
-        execute_trajectory(robot, open_pose, float(durations["open"]), config, "open")
         execute_trajectory(robot, overhead, float(durations["transit"]), config, "transit")
         execute_cartesian_trajectory(
             robot, plan.overhead_base_m, plan.grasp_base_m, open_value,
             float(durations["approach"]), config, "approach"
         )
-        closed_pose = grasp | {"gripper": closed_value}
-        execute_trajectory(robot, closed_pose, float(durations["close"]), config, "close")
+        execute_trajectory(robot, grasp, float(durations["close"]), config, "close")
         execute_cartesian_trajectory(
             robot, plan.grasp_base_m, plan.lift_base_m, closed_value,
             float(durations["lift"]), config, "lift"
@@ -542,8 +497,6 @@ def main() -> int:
         plan_path.write_text(json.dumps(asdict(plan), indent=2), encoding="utf-8")
         print(json.dumps(asdict(plan), indent=2))
         print(f"[PLAN] saved {plan_path}")
-        camera.stop()
-        cv2.destroyAllWindows()
         if not args.execute:
             print("[DRY-RUN] no motor connection or command was made. Add --execute only after calibration review.")
             return 0

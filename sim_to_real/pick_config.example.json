@@ -12,14 +12,6 @@
     [0.0, 0.0, 0.0, 1.0]
   ],
   "right_shoulder_position_base_m": [-0.0592, -0.1330, 0.8790],
-  "safe_home_joints_deg": {
-    "shoulder_pan": null,
-    "shoulder_lift": null,
-    "elbow_flex": null,
-    "wrist_flex": null,
-    "wrist_roll": null,
-    "gripper": null
-  },
   "workspace_base_m": {
     "x": [0.10, 0.55],
     "y": [-0.35, 0.10],
@@ -63,9 +55,7 @@
     "control_hz": 30.0,
     "max_command_step_deg": 2.0,
     "max_tracking_error_deg": 25.0,
-    "home_tolerance_deg": 8.0,
     "phase_duration_s": {
-      "open": 1.5,
       "transit": 5.0,
       "approach": 4.0,
       "close": 2.0,

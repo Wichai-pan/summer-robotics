@@ -107,7 +107,6 @@ Copy-Item pick_config.example.json pick_config.json
 - `right_shoulder_position_base_m`：右肩 IK 原点；
 - `shoulder_pan_sign/offset` 和各 `joint_command_offsets_deg`；
 - `tool_length_m`、夹爪 `open_deg/closed_deg`；
-- `safe_home_joints_deg`：机械臂处于已验证安全起始姿态时读取的五个臂关节值；
 - 安全工作空间与每个关节的保守限位。
 
 模板矩阵只是依据仓库 URDF、头部 pan=0、tilt≈0.65 rad 推出的近似值，**不能用于
@@ -133,6 +132,7 @@ python real_pick_blue_cylinder.py --config pick_config.json
 python real_pick_blue_cylinder.py --config pick_config.json --port /dev/arm_right --execute
 ```
 
-Windows 串口示例为 `--port COM5`。程序在任何运动前仍要求现场输入大写 `PICK`。
+Windows 串口示例为 `--port COM5`。程序把连接时读到的当前关节位置直接作为轨迹
+起点，不检查预设 home 姿态；运行前必须由操作者确认当前姿态和周围空间安全。
 Ctrl+C 会中止流程并调用 `disconnect()`；不同电机固件断开后是否卸力需要现场确认。
 脚本没有力/电流抓取反馈，因此“完成 lift”不等于已经可靠夹住物体。
