@@ -226,4 +226,4 @@ python tools/target_approach_supervised.py \
 
 把控制逻辑迁到 Jetson 后，先为相机与两块控制板建立 udev 固定名，并确认底盘三电机与急停流程。之后才会将本文件中的 dry-run 工具替换为 RoboCrew 官方的 `ServoControler` 和 `create_move_forward` / `create_turn_*` 工具。不能直接跳过这一步。
 
-官方参照：XLeRobot 的 [LLM Agent 教程](../../external/XLeRobot/docs/zh/source/software/getting_started/LLM_agent.md)。
+官方参照：XLeRobot 的 [LLM Agent 教程](https://github.com/Vector-Wangel/XLeRobot/blob/main/docs/zh/source/software/getting_started/LLM_agent.md)。

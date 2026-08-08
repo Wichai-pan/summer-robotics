@@ -12,7 +12,7 @@ WORKDIR /opt/summer-robotics
 
 # Keep the NVIDIA-provided torch/torchvision builds.  Installing LeRobot's
 # dependencies separately prevents pip from replacing them with generic
-# aarch64 wheels while still making the vendored LeRobot source importable.
+# aarch64 wheels while still making the locally bootstrapped LeRobot source importable.
 COPY deploy/jetson/requirements-control.txt /tmp/requirements-control.txt
 RUN python3 -m pip install -r /tmp/requirements-control.txt
 

@@ -52,7 +52,7 @@ cd .. && git clone --depth 1 https://github.com/Vector-Wangel/XLeRobot.git
 
 ## 4. 硬件拓扑（重要）
 
-只读扫描（`external/scan_servos.py`）确认白臂板总线挂 **9 个 STS3215（model 777）**；黑臂板当前有 8 个响应：
+只读扫描（`tools/scan_servos.py`）确认白臂板总线挂 **9 个 STS3215（model 777）**；黑臂板当前有 8 个响应：
 
 - **ID 1–6** = 这条臂的关节（shoulder_pan / shoulder_lift / elbow_flex / wrist_flex / wrist_roll / gripper）
 - **ID 7–9** = 底盘 3 个全向轮

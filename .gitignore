@@ -53,13 +53,5 @@ tools/black_arm_ik_highpoint.py
 .vscode/
 .idea/
 
-# 上游依赖源码
-# XLeRobot 与 LeRobot 随本仓库提交，确保硬件集成改动可复现。
-
-# 每台开发机自行生成的 VR HTTPS 证书与私钥
-external/XLeRobot/XLeVR/cert.pem
-external/XLeRobot/XLeVR/key.pem
-
-# Orbbec macOS SDK / Viewer 是按开发机架构下载的二进制包；路径与版本记录在 docs/04。
-external/orbbec/OrbbecSDK_*/
-external/orbbec/OrbbecViewer_*/
+# 上游依赖源码和各平台 SDK 体积较大，由 scripts/bootstrap_external.sh 在本机获取。
+/external/

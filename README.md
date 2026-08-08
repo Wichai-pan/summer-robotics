@@ -42,6 +42,16 @@ Robotics Nation 主办的 3 个月具身智能机器人挑战赛。平台：**XL
 
 V100 只做**离线训练**；实时控制在机器人随车 Jetson 上执行，不能走远程训练集群。开发机通过 SSH 使用 Jetson；所有硬件命令必须经过带全局锁的容器入口。开发脚本 `tools/*.py` 跨平台按板序列号找端口，原 `arm_keyboard.py` 已增加 SSH 终端输入后端。
 
+## 获取上游依赖
+
+`external/` 包含 LeRobot、XLeRobot 和按平台下载的 SDK，体积较大，不再提交到本仓库。首次 clone 后运行：
+
+```bash
+bash scripts/bootstrap_external.sh
+```
+
+脚本只在目标目录不存在时 clone 上游仓库，不会覆盖已有的本机修改。Jetson 镜像构建依赖 `external/lerobot`，因此构建前必须先完成这一步。Orbbec SDK/Viewer 仍需按开发机架构单独下载到 `external/orbbec/`；具体版本与路径见 [相机验收记录](docs/04-camera-validation.md)。
+
 ## 当前阶段 & 下一步
 
 平台上手期。已完成相机、双臂、底盘、实时深度检查点，以及安全监督式的 LLM 目标接近闭环；Gemini RGB-D 对浅蓝桌面物体定位和黑臂人工抓取也已分别验证。下一阶段转向相机到机械臂标定、遥操作数据采集与抓取策略训练。
