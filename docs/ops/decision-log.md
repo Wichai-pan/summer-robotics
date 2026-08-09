@@ -43,3 +43,12 @@
 - Add a POSIX terminal input backend with `--terminal`; do not replace its joint mapping, calibration, P control, pose logging, or full working range with a new limited controller.
 - Keep `tools/arm_terminal.py` only as a conservative connectivity diagnostic. Its startup-relative limits are intentional and it is not a substitute for full teleoperation.
 - All SSH keyboard control still runs through `scripts/jetson_robot_exec.sh --interactive` and the shared hardware lock.
+
+## 2026-08-09 — Relative leader/follower with a velocity-controlled cyclic wrist
+
+- Do not align the white arm to the black arm by copying absolute calibrated angles: the two calibration files use different numerical zero references even when physical poses are similar.
+- Define each arm's current pose as its own zero when the operator enters `FOLLOW`, then copy relative leader motion.
+- Keep shoulder, elbow, wrist-flex and gripper in bounded/slewed position control.
+- Never send a `wrist_roll` position target across encoder `4095/0`. Track its unwrapped relative displacement and command a bounded signed velocity instead.
+- Keep a cable-safe accumulated wrist limit. At the limit, clamp the white-wrist target while keeping the session alive so returning the leader allows the follower to return.
+- Keep the legacy mixed position-mode script motion-locked; use `tools/black_leads_white_wrap_safe.py` for subsequent demonstrations.
