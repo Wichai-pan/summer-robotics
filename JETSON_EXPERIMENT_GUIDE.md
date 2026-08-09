@@ -1,7 +1,7 @@
 # ForestBridge Jetson 实机实验指南
 
-> 更新日期：2026-08-09  
-> 机器人主机：`jetsonl7-desktop`  
+> 更新日期：2026-08-09
+> 机器人主机：`jetsonl7-desktop`
 > 正式部署目录：`/home/jetsonl7/summer-robotics-deploy`
 
 本文面向所有队员，说明 XLeRobot 当前如何在 Jetson 上运行代码、Docker 与主机目录如何对应、应该在哪里查看或修改文件，以及进行实机实验时必须遵守的协作和安全规则。
