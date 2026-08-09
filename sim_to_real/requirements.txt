@@ -1,0 +1,6 @@
+numpy>=1.24
+opencv-python>=4.8
+pyorbbecsdk2>=2.0
+pytest>=8
+# Install the LeRobot version required by your XLeRobot release separately;
+# XLeRobot 0.3 examples use SO100Follower from lerobot.robots.so_follower.
