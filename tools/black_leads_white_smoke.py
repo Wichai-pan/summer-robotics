@@ -36,6 +36,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--black-port", help="optional black-board port override")
     parser.add_argument("--white-port", help="optional white-board port override")
     parser.add_argument(
+        "--black-id",
+        default="black_arm",
+        help="LeRobot calibration id for the hand-moved black arm",
+    )
+    parser.add_argument(
+        "--white-id",
+        default="white_arm_xlerobot",
+        help="LeRobot calibration id for the powered white arm",
+    )
+    parser.add_argument(
         "--invert",
         nargs="*",
         choices=JOINTS,
@@ -145,14 +155,14 @@ def main() -> int:
     black = SO100Follower(
         SO100FollowerConfig(
             port=black_port,
-            id="black_arm",
+            id=args.black_id,
             disable_torque_on_disconnect=True,
         )
     )
     white = SO100Follower(
         SO100FollowerConfig(
             port=white_port,
-            id="white_arm",
+            id=args.white_id,
             disable_torque_on_disconnect=True,
             max_relative_target={
                 joint: (2.0 if joint == "gripper" else 1.0) for joint in JOINTS
@@ -173,13 +183,17 @@ def main() -> int:
         black_connected = True
         black.bus.disable_torque()
         if not black.is_calibrated:
-            raise RuntimeError("black-arm motor registers do not match black_arm calibration")
+            raise RuntimeError(
+                f"black-arm motor registers do not match {args.black_id} calibration"
+            )
 
         white.bus.connect()
         white_connected = True
         white.bus.disable_torque()
         if not white.is_calibrated:
-            raise RuntimeError("white-arm motor registers do not match white_arm calibration")
+            raise RuntimeError(
+                f"white-arm motor registers do not match {args.white_id} calibration"
+            )
         configure_follower_while_torque_off(white)
 
         black_start = positions(black.get_observation())
