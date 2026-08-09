@@ -39,6 +39,7 @@
 - Leader/follower: black-to-white relative following works for shoulder, elbow, wrist flex and gripper. The cyclic `wrist_roll` now uses a separately validated velocity loop rather than a wrap-crossing position target.
 - Wrist validation: raw encoder wrap was crossed successfully without a long-path turn; a 45° trial reached leader `+42.4°` / follower `+37.0°` before the configured boundary and stopped with zero velocity and torque release.
 - Safe combined controller: `tools/black_leads_white_wrap_safe.py` was physically tested; the operator confirmed the wrist can now reach most required positions.
+- Closeout sync: local `main`, GitHub `origin/main`, and `/home/jetsonl7/summer-robotics-deploy` were aligned on 2026-08-09. The formal Jetson clone was clean and passed all 14 leader/follower unit tests in the production container.
 
 ## Open Issues
 
