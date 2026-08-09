@@ -64,8 +64,25 @@ def parse_args() -> argparse.Namespace:
         default=10.0,
         help="maximum total gripper displacement from startup (0-100 units)",
     )
+    parser.add_argument(
+        "--full-range",
+        action="store_true",
+        help="remove startup-relative excursion limits; calibrated motor ranges still apply",
+    )
     parser.add_argument("--fps", type=float, default=20.0)
     parser.add_argument("--duration-s", type=float, default=30.0)
+    parser.add_argument(
+        "--max-speed-deg-s",
+        type=float,
+        default=30.0,
+        help="white-arm joint command slew rate; this is a speed limit, not a range limit",
+    )
+    parser.add_argument(
+        "--max-gripper-speed-s",
+        type=float,
+        default=60.0,
+        help="white gripper command slew rate in 0-100 units per second",
+    )
     parser.add_argument(
         "--tracking-error-deg",
         type=float,
@@ -94,17 +111,59 @@ def bounded_relative_targets(
     signs: dict[str, float],
     max_delta_deg: float,
     max_gripper_delta: float,
+    full_range: bool = False,
 ) -> dict[str, float]:
     targets: dict[str, float] = {}
     for joint in JOINTS:
         limit = max_gripper_delta if joint == "gripper" else max_delta_deg
         relative = signs[joint] * (black_now[joint] - black_start[joint])
-        relative = max(-limit, min(limit, relative))
+        if not full_range:
+            relative = max(-limit, min(limit, relative))
         target = white_start[joint] + relative
         if joint == "gripper":
             target = max(0.0, min(100.0, target))
         targets[f"{joint}.pos"] = target
     return targets
+
+
+def calibrated_target_bounds(robot: object) -> dict[str, tuple[float, float]]:
+    """Return commandable normalized bounds implied by the calibration."""
+    bounds: dict[str, tuple[float, float]] = {}
+    for joint in JOINTS:
+        calibration = robot.calibration[joint]
+        if joint == "gripper":
+            bounds[joint] = (0.0, 100.0)
+        else:
+            span_deg = (calibration.range_max - calibration.range_min) * 360.0 / 4095.0
+            bounds[joint] = (-span_deg / 2.0, span_deg / 2.0)
+    return bounds
+
+
+def clamp_to_bounds(
+    action: dict[str, float], bounds: dict[str, tuple[float, float]]
+) -> dict[str, float]:
+    result: dict[str, float] = {}
+    for key, value in action.items():
+        joint = key.removesuffix(".pos")
+        lower, upper = bounds[joint]
+        result[key] = max(lower, min(upper, value))
+    return result
+
+
+def slew_toward(
+    current_command: dict[str, float],
+    desired: dict[str, float],
+    arm_step: float,
+    gripper_step: float,
+) -> dict[str, float]:
+    command: dict[str, float] = {}
+    for key, target in desired.items():
+        joint = key.removesuffix(".pos")
+        step = gripper_step if joint == "gripper" else arm_step
+        previous = current_command[key]
+        change = max(-step, min(step, target - previous))
+        command[key] = previous + change
+    return command
 
 
 def key_available() -> bool:
@@ -136,8 +195,13 @@ def main() -> int:
     args = parse_args()
     if args.max_delta_deg <= 0 or args.max_gripper_delta <= 0:
         raise SystemExit("motion limits must be positive")
-    if args.fps <= 0 or args.duration_s <= 0:
-        raise SystemExit("fps and duration must be positive")
+    if (
+        args.fps <= 0
+        or args.duration_s <= 0
+        or args.max_speed_deg_s <= 0
+        or args.max_gripper_speed_s <= 0
+    ):
+        raise SystemExit("fps, duration and speed limits must be positive")
     if not sys.stdin.isatty():
         raise SystemExit("interactive TTY required; use jetson_robot_exec.sh --interactive")
 
@@ -164,9 +228,7 @@ def main() -> int:
             port=white_port,
             id=args.white_id,
             disable_torque_on_disconnect=True,
-            max_relative_target={
-                joint: (2.0 if joint == "gripper" else 1.0) for joint in JOINTS
-            },
+            max_relative_target=None,
         )
     )
 
@@ -196,17 +258,44 @@ def main() -> int:
             )
         configure_follower_while_torque_off(white)
 
+        white_raw = white.bus.sync_read("Present_Position", normalize=False)
+        outside = {}
+        for joint, raw in white_raw.items():
+            calibration = white.calibration[joint]
+            if raw < calibration.range_min or raw > calibration.range_max:
+                outside[joint] = {
+                    "raw": int(raw),
+                    "allowed": [calibration.range_min, calibration.range_max],
+                }
+        if outside:
+            details = ", ".join(
+                f"{joint}: raw={item['raw']} allowed={item['allowed']}"
+                for joint, item in outside.items()
+            )
+            raise RuntimeError(
+                "white arm is outside its commandable calibrated range while torque is off; "
+                f"reposition it manually before following ({details})"
+            )
+
         black_start = positions(black.get_observation())
         white_start = positions(white.get_observation())
+        bounds = calibrated_target_bounds(white)
         # Seed goals before torque is enabled so the white arm cannot jump.
         white.bus.sync_write("Goal_Position", white_start)
 
         signs = {joint: (-1.0 if joint in args.invert else 1.0) for joint in JOINTS}
         print("\n启动姿态已读取。映射为相对运动，不要求两臂零位相同。")
         print("方向：" + ", ".join(f"{j}={'-' if signs[j] < 0 else '+'}" for j in JOINTS))
+        if args.full_range:
+            print("白臂总范围：完整标定范围（没有启动姿态 ±N° 限制）。")
+        else:
+            print(
+                f"白臂总范围：手臂关节 ±{args.max_delta_deg:.1f}°，"
+                f"夹爪 ±{args.max_gripper_delta:.1f}。"
+            )
         print(
-            f"白臂总范围：手臂关节 ±{args.max_delta_deg:.1f}°，"
-            f"夹爪 ±{args.max_gripper_delta:.1f}；最长 {args.duration_s:.0f}s。"
+            f"速度限制：手臂 {args.max_speed_deg_s:.1f}°/s，"
+            f"夹爪 {args.max_gripper_speed_s:.1f}/s；最长 {args.duration_s:.0f}s。"
         )
         print("先托住两条手臂并清空周围；随时按 q/ESC、Ctrl-C 或切断 12V。")
         if input("输入 FOLLOW 才给白臂上扭矩并开始：").strip() != "FOLLOW":
@@ -218,6 +307,9 @@ def main() -> int:
         tty.setcbreak(sys.stdin.fileno())
         started = time.monotonic()
         period = 1.0 / args.fps
+        arm_step = args.max_speed_deg_s / args.fps
+        gripper_step = args.max_gripper_speed_s / args.fps
+        command = {f"{joint}.pos": white_start[joint] for joint in JOINTS}
         last_print = 0.0
         while time.monotonic() - started < args.duration_s:
             loop_started = time.monotonic()
@@ -233,11 +325,17 @@ def main() -> int:
                 signs,
                 args.max_delta_deg,
                 args.max_gripper_delta,
+                args.full_range,
             )
-            sent = white.send_action(target)
+            target = clamp_to_bounds(target, bounds)
+            command = slew_toward(command, target, arm_step, gripper_step)
+            white.bus.sync_write(
+                "Goal_Position",
+                {key.removesuffix(".pos"): value for key, value in command.items()},
+            )
             white_now = positions(white.get_observation())
             arm_errors = {
-                joint: abs(float(sent[f"{joint}.pos"]) - white_now[joint])
+                joint: abs(float(command[f"{joint}.pos"]) - white_now[joint])
                 for joint in JOINTS
                 if joint != "gripper"
             }
@@ -251,7 +349,7 @@ def main() -> int:
             elapsed = time.monotonic() - started
             if elapsed - last_print >= 0.5:
                 delta_text = " ".join(
-                    f"{joint}={float(sent[f'{joint}.pos']) - white_start[joint]:+.1f}"
+                    f"{joint}={float(command[f'{joint}.pos']) - white_start[joint]:+.1f}"
                     for joint in JOINTS
                 )
                 print(f"\r{elapsed:5.1f}s white delta: {delta_text}", end="", flush=True)
