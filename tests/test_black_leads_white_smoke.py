@@ -1,7 +1,10 @@
-from tools.black_leads_white_smoke import (
+from black_leads_white_smoke import (
+    absolute_targets,
     bounded_relative_targets,
     clamp_to_bounds,
     slew_toward,
+    target_bound_violations,
+    wrapped_delta_deg,
 )
 
 
@@ -74,3 +77,32 @@ def test_calibrated_bounds_and_slew_still_apply_in_full_range() -> None:
     )
     assert command["shoulder_pan.pos"] == 1.5
     assert command["gripper.pos"] == 3.0
+
+
+def test_absolute_mapping_copies_calibrated_pose_and_inverts_selected_joint() -> None:
+    leader = pose(12.0)
+    leader["wrist_roll"] = -35.0
+    leader["gripper"] = 150.0
+    signs = {joint: 1.0 for joint in JOINTS}
+    signs["wrist_roll"] = -1.0
+
+    targets = absolute_targets(leader, signs)
+
+    assert targets["shoulder_pan.pos"] == 12.0
+    assert targets["wrist_roll.pos"] == 35.0
+    assert targets["gripper.pos"] == 100.0
+
+
+def test_absolute_target_bound_violations_report_only_outside_joints() -> None:
+    action = {f"{joint}.pos": 0.0 for joint in JOINTS}
+    action["elbow_flex.pos"] = 25.0
+    bounds = {joint: (-20.0, 20.0) for joint in JOINTS}
+
+    violations = target_bound_violations(action, bounds)
+
+    assert violations == {"elbow_flex": (25.0, -20.0, 20.0)}
+
+
+def test_wrist_delta_is_continuous_across_encoder_wrap() -> None:
+    assert wrapped_delta_deg(-179.0, 179.0) == 2.0
+    assert wrapped_delta_deg(179.0, -179.0) == -2.0
