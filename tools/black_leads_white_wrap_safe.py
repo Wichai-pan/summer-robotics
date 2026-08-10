@@ -300,6 +300,7 @@ def main() -> int:
     black_connected = False
     white_connected = False
     white_enabled = False
+    white_wrist_velocity_mode = False
     terminal_state = None
     recorder = None
     recorder_abort_reason = "process_ended_without_episode_decision"
@@ -317,23 +318,22 @@ def main() -> int:
         white.bus.disable_torque()
         if not white.is_calibrated:
             raise RuntimeError(f"white motor registers do not match {args.white_id}")
-        configure_white_torque_free(white)
-        seed_position_goals_from_feedback(white)
-
-        black_start = positions(black.get_observation())
-        white_start = positions(white.get_observation())
-        black_wrist_start = raw_wrist(black.bus)
-        white_wrist_start = raw_wrist(white.bus)
         folded_reference = None
         folded_wrist_raw = None
         if args.record_root is not None:
+            # The saved reference is captured while wrist_roll is in position
+            # mode. Validate in that same mode: switching to velocity mode can
+            # change which numeric branch Present_Position reports near 4095/0
+            # even though the physical shaft did not move.
             folded_reference, folded_wrist_raw = load_folded_pose(args.folded_pose_json)
+            white_folded_check = positions(white.get_observation())
+            white_folded_wrist_raw = raw_wrist(white.bus)
             start_violations = folded_pose_violations(
-                white_start,
+                white_folded_check,
                 folded_reference,
                 args.folded_tolerance_deg,
                 args.folded_gripper_tolerance,
-                current_wrist_raw=white_wrist_start,
+                current_wrist_raw=white_folded_wrist_raw,
                 reference_wrist_raw=folded_wrist_raw,
             )
             if start_violations:
@@ -345,6 +345,15 @@ def main() -> int:
                     f"errors outside tolerance: {detail}"
                 )
             print("固定收拢起点校验通过。")
+
+        configure_white_torque_free(white)
+        white_wrist_velocity_mode = True
+        seed_position_goals_from_feedback(white)
+
+        black_start = positions(black.get_observation())
+        white_start = positions(white.get_observation())
+        black_wrist_start = raw_wrist(black.bus)
+        white_wrist_start = raw_wrist(white.bus)
         signs = {joint: (-1.0 if joint in args.invert else 1.0) for joint in ALL_JOINTS}
         bounds = {joint: normalized_bounds(white, joint) for joint in POSITION_JOINTS}
 
@@ -510,11 +519,17 @@ def main() -> int:
         # dataset reopen. Finalization may take seconds and must never leave
         # the previous wrist velocity active during that work.
         white.bus.write("Goal_Velocity", WRIST, 0, normalize=False, num_retry=3)
-        white_final = positions(white.get_observation())
-        white_final_wrist_raw = raw_wrist(white.bus)
         if white_enabled:
             white.bus.disable_torque(num_retry=3)
             white_enabled = False
+        # Compare against the saved fixed pose in the same torque-free
+        # position mode in which save_white_folded_pose.py captured it.
+        from lerobot.motors.feetech import OperatingMode
+
+        white.bus.write("Operating_Mode", WRIST, OperatingMode.POSITION.value)
+        white_wrist_velocity_mode = False
+        white_final = positions(white.get_observation())
+        white_final_wrist_raw = raw_wrist(white.bus)
         print("白腕已发送零速度；白臂已松开全部扭矩。")
         if recorder is not None:
             if terminal_state is not None:
@@ -563,10 +578,11 @@ def main() -> int:
         if terminal_state is not None:
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, terminal_state)
         if white_connected:
-            try:
-                white.bus.write("Goal_Velocity", WRIST, 0, normalize=False, num_retry=3)
-            except Exception as exc:
-                print(f"警告：腕部零速度写入失败，请切断 12V：{exc}", file=sys.stderr)
+            if white_wrist_velocity_mode:
+                try:
+                    white.bus.write("Goal_Velocity", WRIST, 0, normalize=False, num_retry=3)
+                except Exception as exc:
+                    print(f"警告：腕部零速度写入失败，请切断 12V：{exc}", file=sys.stderr)
             if white_enabled:
                 try:
                     white.bus.disable_torque(num_retry=3)
