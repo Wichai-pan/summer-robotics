@@ -46,6 +46,16 @@
 - ACT camera preflight: Gemini plus each wrist path independently delivered
   60/60 unique 640x480 RGB samples with no duplicate control samples and
   maximum observed frame age below 30 ms. No motor devices were mapped.
+- ACT formal deployment: local `main`, GitHub `origin/main`, and the clean
+  Jetson deployment clone were fast-forwarded to `3e74d4e`. The formal
+  `forestbridge-xlerobot:jp62` image was rebuilt with LeRobot 0.6.2,
+  `datasets 4.8.5`, and PyAV 15.1.0. GPU/import smoke passed.
+- ACT formal dataset smoke: create -> save -> finalize -> reopen passed with
+  one 10-frame/two-video synthetic episode at
+  `/home/jetsonl7/robot-data/act-smoke/20260810-formal-recorder-v1/dataset`.
+- ACT formal camera smoke: Gemini and white wrist (`2.4.1`) each produced
+  60/60 unique RGB samples with no duplicates; maximum ages were 25 ms and
+  35 ms. No motor device was mapped.
 
 ## Open Issues
 
@@ -63,7 +73,8 @@
 
 ## Next Step
 
-1. Review and commit the ACT recorder changes, then fast-forward the formal Jetson deployment through Git.
-2. Rebuild the formal Jetson image with the pinned LeRobot dataset dependencies and repeat the no-hardware smoke.
+1. Save the white arm's fixed folded-pose reference with the torque-free tool.
+2. Record one supervised fixed-scene pilot episode and inspect both videos,
+   frame count, start/end-pose gates, and action/state traces.
 3. Record and inspect three fixed-scene pilot episodes before collecting the main corpus.
 4. Add per-person accounts plus a motor disconnect watchdog before any cross-internet physical operation.

@@ -89,7 +89,7 @@ Processed split checksums: TODO after corpus freeze.
 
 | ID | Item | Owner | Due |
 |---|---|---|---|
-| ACT-DATA-1 | Promote the smoke-tested dataset image changes into the formal Jetson deployment | team | before hardware recording |
+| ACT-DATA-1 | Promote the smoke-tested dataset image changes into the formal Jetson deployment | complete (`3e74d4e`) | 2026-08-10 |
 | ACT-DATA-2 | Confirm which physical wrist camera belongs to white arm | complete: `2.4.1` | 2026-08-10 |
 | ACT-DATA-3 | Record scene photos and fixed folded/pick/place poses | on-site operator | before pilot |
 | ACT-DATA-4 | Record and inspect 3 pilot episodes | team | before corpus capture |
