@@ -30,7 +30,7 @@ Robotics Nation 主办的 3 个月具身智能机器人挑战赛。平台：**XL
 - Orbbec Gemini 335 —— 深度相机
 - Anker SOLIX C300X —— 电源
 
-> 当前状态：机器人全部 USB 已迁移到 Jetson，GPU 容器、Gemini RGB-D、两只手腕相机、控制板稳定识别和跨进程硬件锁均已验证；Gemini→YOLO→RGB-D→人工双确认底盘动作的 MVP 链路此前已实测。见 [实验记录 05](docs/05-jetson-and-supervised-llm-navigation.md) 与 [实验记录 08](docs/08-jetson-migration-log.md)。
+> 当前状态：机器人全部 USB 已迁移到 Jetson，GPU 容器、Gemini RGB-D、两只手腕相机、控制板稳定识别和跨进程硬件锁均已验证；11 条固定场景示教已训练 ACT，checkpoint 已在 Jetson CUDA 上通过录制帧和实时双相机的无电机推理门槛。真实机器人 rollout 尚未开放。见 [实验记录 08](docs/08-jetson-migration-log.md)、[实验记录 09](docs/09-leader-follower-wrap-safe-log.md) 与 [实验记录 10](docs/10-act-training-and-jetson-inference-log.md)。
 
 ## 算力架构（三段，别混）
 
@@ -60,7 +60,7 @@ bash scripts/bootstrap_external.sh
 2. 使用双臂遥操作采集一小段抓取示范数据
 3. 在 V100 训练 ACT 基线并部署回本地/Jetson 测试
 
-近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md) · [06 RGB-D 抓取准备](docs/06-rgbd-grasp-bringup.md) · [07 Jetson 机载部署](docs/07-jetson-deployment.md) · [08 迁移总日志](docs/08-jetson-migration-log.md)
+近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md) · [06 RGB-D 抓取准备](docs/06-rgbd-grasp-bringup.md) · [07 Jetson 机载部署](docs/07-jetson-deployment.md) · [08 迁移总日志](docs/08-jetson-migration-log.md) · [09 主从臂与腕部跨圈](docs/09-leader-follower-wrap-safe-log.md) · [10 ACT 训练与 Jetson 推理](docs/10-act-training-and-jetson-inference-log.md)
 
 > 业务场景（养老 / 桌面整理 / 垃圾分拣 / 药品识别提醒…）暂不锁定。先把闭环跑通，**换场景 = 换数据**。打法：窄任务 + 稳 demo + 硬付费方 + 营销视频。
 
