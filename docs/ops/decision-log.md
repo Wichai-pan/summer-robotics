@@ -52,3 +52,17 @@
 - Never send a `wrist_roll` position target across encoder `4095/0`. Track its unwrapped relative displacement and command a bounded signed velocity instead.
 - Keep a cable-safe accumulated wrist limit. At the limit, clamp the white-wrist target while keeping the session alive so returning the leader allows the follower to return.
 - Keep the legacy mixed position-mode script motion-locked; use `tools/black_leads_white_wrap_safe.py` for subsequent demonstrations.
+
+## 2026-08-10 — First ACT dataset is a fixed-scene white-arm task
+
+- Each episode starts and ends in the same folded pose and performs one fixed
+  face-cream pick and one fixed placement; scene variation is deferred until a
+  reliable baseline exists.
+- The black arm is a torque-free leader and diagnostic source. The future ACT
+  policy observes white-arm state, Gemini RGB, and white-wrist RGB, and predicts
+  commands for the white follower.
+- Record the exact command actually sent: five slewed position goals plus the
+  wrap-safe wrist-roll velocity. Do not mislabel wrist velocity as position.
+- Only operator-approved complete episodes enter LeRobotDataset. Failed or
+  interrupted trials go to a separate ledger, and every accepted episode must
+  finalize and reopen successfully.

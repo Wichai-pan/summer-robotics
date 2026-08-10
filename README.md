@@ -50,7 +50,7 @@ V100 只做**离线训练**；实时控制在机器人随车 Jetson 上执行，
 bash scripts/bootstrap_external.sh
 ```
 
-脚本只在目标目录不存在时 clone 上游仓库，不会覆盖已有的本机修改。Jetson 镜像构建依赖 `external/lerobot`，因此构建前必须先完成这一步。Orbbec SDK/Viewer 仍需按开发机架构单独下载到 `external/orbbec/`；具体版本与路径见 [相机验收记录](docs/04-camera-validation.md)。
+脚本按文件内声明的 commit 获取两套上游源码，并验证已有 checkout 是否仍在同一个 commit；它不会覆盖或 reset 本机修改。Jetson 镜像构建依赖 `external/lerobot`，因此构建前必须先完成这一步。Orbbec SDK/Viewer 仍需按开发机架构单独下载到 `external/orbbec/`；具体版本与路径见 [相机验收记录](docs/04-camera-validation.md)。
 
 ## 当前阶段 & 下一步
 

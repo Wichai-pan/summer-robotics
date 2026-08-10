@@ -10,12 +10,14 @@ performed; place both arms in similar physical poses before starting.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import select
 import sys
 import termios
 import time
 import tty
+from pathlib import Path
 
 from portutil import BOARDS, PortResolutionError, resolve_port
 from wrist_roll_velocity_follow import (
@@ -35,6 +37,10 @@ POSITION_JOINTS = (
     "gripper",
 )
 ALL_JOINTS = (*POSITION_JOINTS[:-1], WRIST, POSITION_JOINTS[-1])
+DEFAULT_ACT_TASK = (
+    "Pick up the blue face-cream jar from the fixed point, place it at the fixed target, "
+    "and return the white arm to its folded rest pose."
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,6 +62,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--wrist-gain-per-s", type=float, default=1.5)
     parser.add_argument("--wrist-deadband-deg", type=float, default=1.5)
     parser.add_argument("--wrist-max-travel-deg", type=float, default=60.0)
+    recording = parser.add_argument_group("optional ACT recording")
+    recording.add_argument(
+        "--record-root",
+        type=Path,
+        help="LeRobotDataset root (for example /data/act/fixed_pick_place_v1)",
+    )
+    recording.add_argument("--record-repo-id", default="forestbridge/fixed-pick-place-v1")
+    recording.add_argument("--scene-version")
+    recording.add_argument("--task", default=DEFAULT_ACT_TASK)
+    recording.add_argument(
+        "--white-wrist-device",
+        help="container V4L2 path, e.g. /dev/wrist-2-4-1 (required with --record-root)",
+    )
+    recording.add_argument("--record-width", type=int, default=640)
+    recording.add_argument("--record-height", type=int, default=480)
+    recording.add_argument("--camera-fps", type=int, default=30)
+    recording.add_argument("--max-camera-age-s", type=float, default=0.25)
+    recording.add_argument(
+        "--folded-pose-json",
+        type=Path,
+        help="fixed white-arm folded-pose reference (required with --record-root)",
+    )
+    recording.add_argument("--folded-tolerance-deg", type=float, default=8.0)
+    recording.add_argument("--folded-gripper-tolerance", type=float, default=10.0)
     return parser.parse_args()
 
 
@@ -73,6 +103,42 @@ def positions(observation: dict[str, object]) -> dict[str, float]:
 
 def raw_wrist(bus: object) -> int:
     return int(bus.read("Present_Position", WRIST, normalize=False)) % ENCODER_TICKS
+
+
+def cyclic_angle_error_deg(current: float, reference: float) -> float:
+    """Shortest signed difference for the cyclic wrist-roll joint."""
+    return (current - reference + 180.0) % 360.0 - 180.0
+
+
+def load_folded_pose(path: Path) -> dict[str, float]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("schema") != "forestbridge_white_folded_pose/v1":
+        raise RuntimeError(f"unsupported folded-pose schema in {path}")
+    pose = payload.get("pose")
+    if not isinstance(pose, dict):
+        raise RuntimeError(f"folded-pose file has no pose object: {path}")
+    result = {joint: float(pose[joint]) for joint in ALL_JOINTS}
+    if any(not math.isfinite(value) for value in result.values()):
+        raise RuntimeError(f"folded-pose file contains a non-finite value: {path}")
+    return result
+
+
+def folded_pose_violations(
+    current: dict[str, float],
+    reference: dict[str, float],
+    arm_tolerance_deg: float,
+    gripper_tolerance: float,
+) -> dict[str, float]:
+    violations = {}
+    for joint in ALL_JOINTS:
+        if joint == WRIST:
+            error = cyclic_angle_error_deg(current[joint], reference[joint])
+        else:
+            error = current[joint] - reference[joint]
+        tolerance = gripper_tolerance if joint == "gripper" else arm_tolerance_deg
+        if abs(error) > tolerance:
+            violations[joint] = error
+    return violations
 
 
 def normalized_bounds(robot: object, joint: str) -> tuple[float, float]:
@@ -175,6 +241,22 @@ def main() -> int:
     )
     if any(not math.isfinite(value) or value <= 0 for value in positive):
         raise SystemExit("all timing, gain, speed, error and travel values must be positive")
+    if args.record_root is not None:
+        if not args.scene_version or not args.white_wrist_device or not args.folded_pose_json:
+            raise SystemExit(
+                "--record-root also requires --scene-version, --white-wrist-device, "
+                "and --folded-pose-json"
+            )
+        if not float(args.fps).is_integer():
+            raise SystemExit("LeRobotDataset recording requires an integer --fps")
+        if args.record_width <= 0 or args.record_height <= 0 or args.camera_fps <= 0:
+            raise SystemExit("recording dimensions and camera FPS must be positive")
+        if not math.isfinite(args.max_camera_age_s) or args.max_camera_age_s <= 0:
+            raise SystemExit("--max-camera-age-s must be positive")
+        if args.folded_tolerance_deg <= 0 or args.folded_gripper_tolerance <= 0:
+            raise SystemExit("folded-pose tolerances must be positive")
+        if not args.folded_pose_json.is_file():
+            raise SystemExit(f"folded-pose reference not found: {args.folded_pose_json}")
     if not sys.stdin.isatty():
         raise SystemExit("interactive TTY required; use jetson_robot_exec.sh --interactive")
 
@@ -204,6 +286,8 @@ def main() -> int:
     white_connected = False
     white_enabled = False
     terminal_state = None
+    recorder = None
+    recorder_abort_reason = "process_ended_without_episode_decision"
     try:
         print(f"黑臂 leader（只读/松扭矩）：{black_port}")
         print(f"白臂 follower（执行）：{white_port}")
@@ -223,10 +307,51 @@ def main() -> int:
 
         black_start = positions(black.get_observation())
         white_start = positions(white.get_observation())
+        folded_reference = None
+        if args.record_root is not None:
+            folded_reference = load_folded_pose(args.folded_pose_json)
+            start_violations = folded_pose_violations(
+                white_start,
+                folded_reference,
+                args.folded_tolerance_deg,
+                args.folded_gripper_tolerance,
+            )
+            if start_violations:
+                detail = ", ".join(
+                    f"{joint}={error:+.1f}" for joint, error in start_violations.items()
+                )
+                raise RuntimeError(
+                    "white arm is not at the fixed folded start pose; "
+                    f"errors outside tolerance: {detail}"
+                )
+            print("固定收拢起点校验通过。")
         black_wrist_start = raw_wrist(black.bus)
         white_wrist_start = raw_wrist(white.bus)
         signs = {joint: (-1.0 if joint in args.invert else 1.0) for joint in ALL_JOINTS}
         bounds = {joint: normalized_bounds(white, joint) for joint in POSITION_JOINTS}
+
+        if args.record_root is not None:
+            from act_episode_recorder import ACTEpisodeRecorder
+
+            print("\n启动 ACT recorder：Gemini RGB + 白臂 wrist RGB + 白臂 state/action。")
+            print("此时只打开相机和数据集 writer；尚未给白臂上扭矩。")
+            recorder = ACTEpisodeRecorder(
+                root=args.record_root,
+                repo_id=args.record_repo_id,
+                task=args.task,
+                scene_version=args.scene_version,
+                fps=int(args.fps),
+                width=args.record_width,
+                height=args.record_height,
+                camera_fps=args.camera_fps,
+                white_wrist_device=args.white_wrist_device,
+                max_camera_age_s=args.max_camera_age_s,
+            )
+            recorder.start()
+            print(
+                f"Recorder ready: {args.record_root} | {args.record_width}x{args.record_height} "
+                f"| control={int(args.fps)} FPS | cameras={args.camera_fps} FPS"
+            )
 
         print("\n相对跟随：当前两臂姿态分别作为各自零点，不做绝对角度对齐。")
         print("肩/肘/腕俯仰/夹爪使用位置跟随；wrist_roll 使用跨圈安全速度闭环。")
@@ -320,6 +445,27 @@ def main() -> int:
                 )
 
             elapsed = time.monotonic() - started
+            if recorder is not None:
+                # Keep the cyclic joint continuous within the episode.  The
+                # corresponding action is the actual velocity sent to motor 5;
+                # the other five actions are the actual slewed position goals.
+                white_record_state = dict(white_now)
+                white_record_state[WRIST] = white_start[WRIST] + wrist_actual_deg
+                black_record_state = dict(black_now)
+                black_record_state[WRIST] = black_start[WRIST] + black_wrist_ticks * DEG_PER_TICK
+                sent_action = dict(command)
+                sent_action[WRIST] = wrist_velocity * DEG_PER_TICK
+                signed_tracking_error = {
+                    joint: command[joint] - white_now[joint] for joint in POSITION_JOINTS
+                }
+                signed_tracking_error[WRIST] = wrist_error
+                recorder.add_control_frame(
+                    white_state=white_record_state,
+                    action=sent_action,
+                    black_state=black_record_state,
+                    tracking_error=signed_tracking_error,
+                    control_elapsed_s=elapsed,
+                )
             if elapsed - last_print >= 0.5:
                 deltas = " ".join(
                     f"{joint}={command[joint] - white_start[joint]:+.1f}"
@@ -342,10 +488,56 @@ def main() -> int:
             if sleep_s > 0:
                 time.sleep(sleep_s)
         print("\n整臂相对跟随结束。")
+        # Stop all motion before any operator prompt, video encoding, or
+        # dataset reopen. Finalization may take seconds and must never leave
+        # the previous wrist velocity active during that work.
+        white.bus.write("Goal_Velocity", WRIST, 0, normalize=False, num_retry=3)
+        white_final = positions(white.get_observation())
+        if white_enabled:
+            white.bus.disable_torque(num_retry=3)
+            white_enabled = False
+        print("白腕已发送零速度；白臂已松开全部扭矩。")
+        if recorder is not None:
+            if terminal_state is not None:
+                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, terminal_state)
+                terminal_state = None
+            end_violations = folded_pose_violations(
+                white_final,
+                folded_reference,
+                args.folded_tolerance_deg,
+                args.folded_gripper_tolerance,
+            )
+            print(
+                "只有完整完成 固定收拢姿态→抓取→放置→回到固定收拢姿态，"
+                "且无碰撞/掉落/人工恢复的 episode 才能保存。"
+            )
+            if end_violations:
+                detail = ", ".join(
+                    f"{joint}={error:+.1f}" for joint, error in end_violations.items()
+                )
+                reason = f"end_pose_outside_tolerance: {detail}"
+                result = recorder.finish(success=False, failure_reason=reason)
+                print(f"终点没有回到固定收拢姿态；episode 已丢弃：{detail}")
+                return 0
+            decision = input("输入 SUCCESS 保存；其他输入丢弃本 episode：").strip()
+            if decision == "SUCCESS":
+                result = recorder.finish(success=True)
+                print(
+                    f"已 finalize 并重新打开验证：episode={result['saved_episode_index']} "
+                    f"frames={result['captured_frames']}"
+                )
+            else:
+                reason = input("失败原因（例如 drop/collision/timeout/operator）：").strip() or "rejected"
+                result = recorder.finish(success=False, failure_reason=reason)
+                print(f"本 episode 未进入训练数据；已写入失败 ledger：{reason}")
         return 0
     except KeyboardInterrupt:
         print("\nCtrl-C：停止并松扭矩。")
+        recorder_abort_reason = "keyboard_interrupt"
         return 130
+    except Exception as exc:
+        recorder_abort_reason = f"runtime_error: {exc}"
+        raise
     finally:
         if terminal_state is not None:
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, terminal_state)
@@ -369,6 +561,8 @@ def main() -> int:
             white.bus.disconnect(disable_torque=False)
         if black_connected:
             black.bus.disconnect(disable_torque=False)
+        if recorder is not None:
+            recorder.abort(recorder_abort_reason)
 
 
 if __name__ == "__main__":

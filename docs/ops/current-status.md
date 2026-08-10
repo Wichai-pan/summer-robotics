@@ -19,7 +19,7 @@
 
 ## Latest Verified Server State
 
-- Verified: 2026-08-09
+- Verified: 2026-08-10
 - Host/user: `jetsonl7-desktop` / `jetsonl7`
 - Network: Wi-Fi `192.168.0.48`; `.local` hostname is normally available on the same LAN.
 - Platform: Jetson Orin Nano Super, Ubuntu 22.04.5, L4T 36.4.4, aarch64.
@@ -40,11 +40,20 @@
 - Wrist validation: raw encoder wrap was crossed successfully without a long-path turn; a 45° trial reached leader `+42.4°` / follower `+37.0°` before the configured boundary and stopped with zero velocity and torque release.
 - Safe combined controller: `tools/black_leads_white_wrap_safe.py` was physically tested; the operator confirmed the wrist can now reach most required positions.
 - Closeout sync: local `main`, GitHub `origin/main`, and `/home/jetsonl7/summer-robotics-deploy` were aligned on 2026-08-09. The formal Jetson clone was clean and passed all 14 leader/follower unit tests in the production container.
+- ACT recorder candidate: a temporary Jetson image built from pinned LeRobot
+  `22bd7a2f489b367d8df42de803b1e8c4ca63a3f9` (0.6.2) passed synthetic
+  create -> save -> finalize -> reopen with 10 frames and two encoded videos.
+- ACT camera preflight: Gemini plus each wrist path independently delivered
+  60/60 unique 640x480 RGB samples with no duplicate control samples and
+  maximum observed frame age below 30 ms. No motor devices were mapped.
 
 ## Open Issues
 
-- Wrist cameras require stable names based on USB physical paths, not `/dev/videoN` or duplicate `by-id` names.
-- Wrist path `2.4.1` (A) still shows the previously observed fixed edge blemish and is therefore probably the white-arm camera; path `2.4.3` (B) has no comparable mark. Confirm the arm labels physically before making them stable aliases.
+- Wrist camera identity was confirmed on 2026-08-10 using the previously
+  observed fixed edge blemish on the white-arm camera: physical path `2.4.1`
+  (`--wrist-a`, container `/dev/wrist-2-4-1`) is white; `2.4.3`
+  (`--wrist-b`, `/dev/wrist-2-4-3`) is black. Continue using physical paths,
+  never `/dev/videoN` or duplicate `by-id` names.
 - Camera GUI tools still need headless/web alternatives for remote use; the primary arm keyboard controller no longer depends on `pynput` when run with `--terminal`.
 - The hardware lock only protects commands that use `scripts/jetson_robot_exec.sh`; direct `docker run` or host processes bypass it and are forbidden for team operation.
 - LeRobot calibration cache, LLM `.env`, and YOLO weights remain machine state outside Git, although they are present on this Jetson.
@@ -54,7 +63,7 @@
 
 ## Next Step
 
-1. Re-run `tools/black_leads_white_wrap_safe.py` from the formal Jetson deployment clone after Git sync.
-2. Connect the relative leader/follower stream to LeRobot dataset recording with synchronized observations, actions and cameras.
-3. Record short, fixed-table successful demonstrations for the same face-cream pickup and train an ACT baseline.
+1. Review and commit the ACT recorder changes, then fast-forward the formal Jetson deployment through Git.
+2. Rebuild the formal Jetson image with the pinned LeRobot dataset dependencies and repeat the no-hardware smoke.
+3. Record and inspect three fixed-scene pilot episodes before collecting the main corpus.
 4. Add per-person accounts plus a motor disconnect watchdog before any cross-internet physical operation.

@@ -2,9 +2,10 @@
 
 ## Scope And Baseline
 
-This branch develops an ACT baseline for one narrow task only: the black
-SO-101 arm picks the shallow blue face-cream jar from the fixed desk-edge
-scene, lifts it clear of the desk, and holds it. The mobile base, Gemini
+This branch develops an ACT baseline for one narrow task only: a torque-free
+black SO-101 leader teleoperates the white SO-101 follower from a fixed folded
+pose; the white arm picks the shallow blue face-cream jar from one fixed point,
+places it at one fixed target, and returns to the folded pose. The mobile base, Gemini
 gimbal, desk, black-arm base, lighting, jar type, and start pose are treated
 as controlled scene variables.
 
@@ -32,12 +33,12 @@ Baseline evidence and constraints:
 
 Status: confirmed on 2026-08-09.
 
-- **Task:** pick the shallow blue face-cream jar from the fixed desk-edge
-  scene with the black arm, lift it clear of the desk, and hold it.
+- **Task:** use the white follower to pick the jar from the fixed start marker,
+  place it at the fixed target, and return to the fixed folded pose.
 - **Success rule:** the intended jar is secured, visibly clear of the desk,
-  and held for a predeclared duration without collision or an operator
-  recovery. A drop, wrong target, collision, stale camera stream, or
-  interrupted trial is a failure.
+  released inside the target, and the arm returns to its folded pose without
+  collision or operator recovery. A drop, wrong target, collision, stale
+  camera stream, timeout, or interrupted trial is a failure.
 - **Dataset boundary:** every accepted demonstration uses the task string,
   six-joint state/action convention, one fixed Gemini RGB feature, and
   episode-level metadata defined below. Any feature, timing, or scene-hardware
@@ -58,15 +59,16 @@ dataset version.
 | Item | First ACT contract |
 |---|---|
 | Dataset format | LeRobotDataset, version reported by the installed Jetson container |
-| Task string | `Pick up the blue face-cream jar from the fixed desk-edge scene with the black arm.` |
-| Observation state | `observation.state`: six black-arm joint positions in the same calibrated LeRobot convention used for actions |
-| Action | `action`: six black-arm commanded joint positions, same ordered names and units as the follower robot |
-| Vision | `observation.images.gemini_rgb`: one fixed Gemini RGB stream; resolution, FPS, exposure and mount pose recorded in dataset metadata and the session log |
-| Episode unit | Reset scene -> approach -> close -> lift -> hold -> supervised return/reset; never splice episodes |
+| Task string | `Pick up the blue face-cream jar with the white arm, place it at the fixed target, and return to the folded pose.` |
+| Observation state | `observation.state`: six white-arm joint positions; wrist roll is unwrapped continuously within the episode |
+| Action | `action`: five actual white-arm position goals plus the actual wrap-safe `wrist_roll` velocity in degrees/second |
+| Vision | `observation.images.gemini_rgb` and `observation.images.white_wrist_rgb`, both fixed at 640x480 RGB; identities, FPS and mount pose recorded |
+| Episode unit | Folded pose -> approach -> close -> lift -> place -> release -> folded pose; never splice episodes |
 | Labels outside tensors | episode ID, operator, scene version, jar start-cell, result, failure reason, and reset notes in the session ledger |
 | Data location | Jetson `/home/jetsonl7/robot-data/act/`; Git stores only configs, schemas, QA reports and manifests |
 
-The Gemini depth stream may be saved as a separate diagnostic artifact, but is
+Black-leader state, follower tracking error, camera ages and sequences are
+diagnostic fields, not ACT policy inputs. The Gemini depth stream may be saved as a separate diagnostic artifact, but is
 not an ACT input for the first baseline. This keeps the training feature set
 small while retaining a stable RGB/state/action contract usable by later
 policies. A future branch may publish a new dataset version with explicitly
@@ -114,20 +116,18 @@ finalization requirements. Sources:
 - https://huggingface.co/docs/lerobot/lerobot-dataset-v3
 - https://huggingface.co/docs/lerobot/main/inference
 
-## Known Gaps Before Phase 2
+## Remaining Gates Before Main-Corpus Capture
 
-1. The black-arm terminal controller must be connected to a dataset recorder
-   through a small adapter. Reuse its terminal key mapping, calibration and P
-   control; do not create a competing controller.
-2. The Gemini RGB stream needs a LeRobot-compatible camera configuration or a
-   narrowly scoped adapter. Confirm actual feature names, image shape, FPS and
-   clock behavior in a no-motion integration check.
-3. The data collector must explicitly call dataset finalization and verify the
-   resulting dataset can be reopened before any data is trusted.
-4. The scene needs a versioned physical baseline: photos, mount positions,
+1. Promote the smoke-tested recorder dependencies and source into the formal
+   Jetson deployment image through the normal Git sync workflow.
+2. Record three supervised pilot episodes and inspect both videos, joint/action
+   traces, episode lengths, and finalize/reopen results.
+3. The scene needs a versioned physical baseline: photos, mount positions,
    lighting, jar orientation, start-cell grid and safe reset pose.
-5. A team owner must approve objective evaluation thresholds before collecting
+4. A team owner must approve objective evaluation thresholds before collecting
    the main corpus, so success labels are not chosen after training.
+
+See `docs/act/recording-runbook.md` for the exact Jetson commands.
 
 ## Confirmation Gates
 
