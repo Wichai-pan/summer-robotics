@@ -1,4 +1,7 @@
-from act_checkpoint_dry_run import bounds_status, parse_frame_indices
+import numpy as np
+import pytest
+
+from act_checkpoint_dry_run import bounds_status, parse_frame_indices, rgb_to_policy_tensor
 
 
 def test_bounds_status_is_inclusive_and_dimensionwise() -> None:
@@ -12,3 +15,10 @@ def test_bounds_status_is_inclusive_and_dimensionwise() -> None:
 def test_parse_frame_indices() -> None:
     assert parse_frame_indices(None, 7) == [7]
     assert parse_frame_indices("0, 12,24", 7) == [0, 12, 24]
+
+
+def test_rgb_to_policy_tensor() -> None:
+    rgb = np.full((2, 3, 3), 255, dtype=np.uint8)
+    tensor = rgb_to_policy_tensor(rgb)
+    assert tuple(tensor.shape) == (3, 2, 3)
+    assert tensor.min().item() == pytest.approx(1.0)

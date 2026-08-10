@@ -37,6 +37,16 @@ def parse_args() -> argparse.Namespace:
         help="comma-separated frame indices; overrides --frame-index",
     )
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--live-cameras",
+        action="store_true",
+        help="replace recorded images with one live Gemini+wrist pair; never opens motors",
+    )
+    parser.add_argument("--white-wrist-device", default="/dev/wrist-2-4-1")
+    parser.add_argument("--camera-width", type=int, default=640)
+    parser.add_argument("--camera-height", type=int, default=480)
+    parser.add_argument("--camera-fps", type=int, default=30)
+    parser.add_argument("--max-camera-age-s", type=float, default=0.5)
     return parser.parse_args()
 
 
@@ -64,6 +74,14 @@ def parse_frame_indices(value: str | None, fallback: int) -> list[int]:
     if not indices:
         raise ValueError("--frame-indices must contain at least one integer")
     return indices
+
+
+def rgb_to_policy_tensor(rgb: object) -> torch.Tensor:
+    """Convert an RGB uint8 HWC array into a normalized CHW torch tensor."""
+    tensor = torch.as_tensor(rgb)
+    if tensor.ndim != 3 or tensor.shape[2] != 3 or tensor.dtype != torch.uint8:
+        raise ValueError(f"expected RGB uint8 HWC image, got {tensor.shape}/{tensor.dtype}")
+    return tensor.permute(2, 0, 1).contiguous().float().div_(255.0)
 
 
 def main() -> int:
@@ -95,6 +113,8 @@ def main() -> int:
         raise SystemExit(
             f"frame indices {invalid} outside [0, {dataset.num_frames - 1}]"
         )
+    if args.live_cameras and len(frame_indices) != 1:
+        raise SystemExit("--live-cameras requires exactly one state frame index")
 
     config = PreTrainedConfig.from_pretrained(args.checkpoint)
     config.device = str(device)
@@ -120,53 +140,89 @@ def main() -> int:
     samples = []
     absolute_errors: list[list[float]] = []
     range_failures = [0] * len(action_names)
-    for frame_index in frame_indices:
-        frame = dataset[frame_index]
-        missing = [key for key in OBSERVATION_KEYS if key not in frame]
-        if missing:
-            raise RuntimeError(f"dataset frame is missing policy inputs: {missing}")
-        observation = {key: frame[key].unsqueeze(0) for key in OBSERVATION_KEYS}
+    live_sources = None
+    live_samples = None
+    try:
+        if args.live_cameras:
+            from act_episode_recorder import GeminiRGBSource, OpenCVRGBSource
 
-        # Sampled frames are independent deployment smoke tests. Reset ACT's
-        # action-chunk queue so unrelated episodes cannot affect one another.
-        policy.reset()
-        autocast = (
-            torch.autocast(device_type="cuda")
-            if device.type == "cuda" and config.use_amp
-            else nullcontext()
-        )
-        with torch.inference_mode(), autocast:
-            processed_observation = preprocessor(observation)
-            predicted = policy.select_action(processed_observation)
-            predicted = postprocessor(predicted)
-
-        predicted_values = [
-            float(value) for value in predicted.squeeze(0).cpu().tolist()
-        ]
-        recorded_values = [float(value) for value in frame["action"].cpu().tolist()]
-        if len(predicted_values) != len(recorded_values):
-            raise RuntimeError(
-                f"action dimension mismatch: predicted={len(predicted_values)}, "
-                f"recorded={len(recorded_values)}"
+            gemini = GeminiRGBSource(args.camera_width, args.camera_height, args.camera_fps)
+            wrist = OpenCVRGBSource(
+                args.white_wrist_device,
+                args.camera_width,
+                args.camera_height,
+                args.camera_fps,
             )
-        if not all(math.isfinite(value) for value in predicted_values):
-            raise RuntimeError(f"policy produced non-finite action: {predicted_values}")
-        within_training_range = bounds_status(predicted_values, minimum, maximum)
-        errors = [abs(a - b) for a, b in zip(predicted_values, recorded_values)]
-        absolute_errors.append(errors)
-        for dimension, within in enumerate(within_training_range):
-            range_failures[dimension] += int(not within)
-        samples.append(
-            {
-                "frame_index": frame_index,
-                "episode_index": scalar(frame["episode_index"]),
-                "predicted_action": dict(zip(action_names, predicted_values, strict=True)),
-                "recorded_action": dict(zip(action_names, recorded_values, strict=True)),
-                "within_training_min_max": dict(
-                    zip(action_names, within_training_range, strict=True)
-                ),
-            }
-        )
+            live_sources = (gemini, wrist)
+            gemini.start()
+            wrist.start()
+            live_samples = (
+                gemini.latest(args.max_camera_age_s),
+                wrist.latest(args.max_camera_age_s),
+            )
+
+        for frame_index in frame_indices:
+            frame = dataset[frame_index]
+            missing = [key for key in OBSERVATION_KEYS if key not in frame]
+            if missing:
+                raise RuntimeError(f"dataset frame is missing policy inputs: {missing}")
+            observation = {key: frame[key].unsqueeze(0) for key in OBSERVATION_KEYS}
+            if live_samples is not None:
+                observation["observation.images.gemini_rgb"] = rgb_to_policy_tensor(
+                    live_samples[0].rgb
+                ).unsqueeze(0)
+                observation["observation.images.white_wrist_rgb"] = rgb_to_policy_tensor(
+                    live_samples[1].rgb
+                ).unsqueeze(0)
+
+            # Sampled frames are independent deployment smoke tests. Reset ACT's
+            # action-chunk queue so unrelated episodes cannot affect one another.
+            policy.reset()
+            autocast = (
+                torch.autocast(device_type="cuda")
+                if device.type == "cuda" and config.use_amp
+                else nullcontext()
+            )
+            with torch.inference_mode(), autocast:
+                processed_observation = preprocessor(observation)
+                predicted = policy.select_action(processed_observation)
+                predicted = postprocessor(predicted)
+
+            predicted_values = [
+                float(value) for value in predicted.squeeze(0).cpu().tolist()
+            ]
+            recorded_values = [float(value) for value in frame["action"].cpu().tolist()]
+            if len(predicted_values) != len(recorded_values):
+                raise RuntimeError(
+                    f"action dimension mismatch: predicted={len(predicted_values)}, "
+                    f"recorded={len(recorded_values)}"
+                )
+            if not all(math.isfinite(value) for value in predicted_values):
+                raise RuntimeError(f"policy produced non-finite action: {predicted_values}")
+            within_training_range = bounds_status(predicted_values, minimum, maximum)
+            errors = [abs(a - b) for a, b in zip(predicted_values, recorded_values)]
+            absolute_errors.append(errors)
+            for dimension, within in enumerate(within_training_range):
+                range_failures[dimension] += int(not within)
+            samples.append(
+                {
+                    "frame_index": frame_index,
+                    "episode_index": scalar(frame["episode_index"]),
+                    "predicted_action": dict(
+                        zip(action_names, predicted_values, strict=True)
+                    ),
+                    "recorded_action_reference_only": dict(
+                        zip(action_names, recorded_values, strict=True)
+                    ),
+                    "within_training_min_max": dict(
+                        zip(action_names, within_training_range, strict=True)
+                    ),
+                }
+            )
+    finally:
+        if live_sources is not None:
+            live_sources[0].close()
+            live_sources[1].close()
 
     mae = [
         sum(row[i] for row in absolute_errors) / len(samples)
@@ -178,7 +234,11 @@ def main() -> int:
 
     result = {
         "status": "PASS",
-        "hardware_access": False,
+        "hardware_access": {
+            "cameras": args.live_cameras,
+            "serial_or_motors": False,
+        },
+        "input_mode": "live_cameras_recorded_state" if args.live_cameras else "recorded",
         "device": str(device),
         "torch": torch.__version__,
         "policy_type": config.type,
