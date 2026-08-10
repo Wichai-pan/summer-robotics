@@ -56,6 +56,19 @@
 - ACT formal camera smoke: Gemini and white wrist (`2.4.1`) each produced
   60/60 unique RGB samples with no duplicates; maximum ages were 25 ms and
   35 ms. No motor device was mapped.
+- ACT pilot corpus: 11 successful episodes / 9,563 frames at 20 FPS are stored
+  on Jetson under `/home/jetsonl7/robot-data/act/fixed_pick_place_v1`.
+- ACT training: Roihu job `572912` produced checkpoint step 6,000. The durable
+  `/projappl` copy is backup only; Jetson inference reads
+  `/home/jetsonl7/robot-data/models/act_fixed_pick_place_572912_006000`.
+- ACT Jetson deployment gate: checkpoint loading, dataset/video decoding and
+  CUDA inference passed on 11 recorded frames without mapping any USB device.
+  Mean absolute errors were 1.91° shoulder pan, 0.84° shoulder lift, 4.26°
+  elbow, 1.76° wrist flex, 0.004°/s wrist roll and 1.77 gripper units.
+- ACT live-camera gate: one Gemini + white-wrist RGB pair entered ACT on the
+  Jetson and produced a finite six-dimensional action. No serial/motor device
+  was mapped. This test deliberately reused a recorded state vector and was
+  not a physical rollout.
 
 ## Open Issues
 
@@ -70,11 +83,22 @@
 - Cross-internet access exists through Tailscale, but remote physical control still lacks a disconnect watchdog and remains prohibited without an on-site operator.
 - The two arms use different calibrated numerical zero references. Automatic absolute-angle alignment is not trusted; the current controller uses per-session relative zero points.
 - The legacy `tools/black_leads_white_smoke.py` is motion-locked after a wrist overload caused by position control across the 0/4095 encoder wrap.
+- ACT predictions sometimes slightly exceed the pilot corpus min/max (in the
+  11-frame check: shoulder lift 1, elbow 3, wrist flex 4, gripper 2). A live
+  executor must clamp to trusted bounds and enforce rate/step limits.
+- The fixed-pose JSON wrist angle and the recorder's velocity-mode wrist state
+  can use different numeric branches around the 0/4095 wrap. Do not feed the
+  JSON wrist value directly into ACT; reconstruct state using the same mode and
+  branch semantics as the recorder.
 
 ## Next Step
 
-1. Save the white arm's fixed folded-pose reference with the torque-free tool.
-2. Record one supervised fixed-scene pilot episode and inspect both videos,
-   frame count, start/end-pose gates, and action/state traces.
-3. Record and inspect three fixed-scene pilot episodes before collecting the main corpus.
-4. Add per-person accounts plus a motor disconnect watchdog before any cross-internet physical operation.
+1. Add a torque-free white-arm state reader that reproduces the recorder's
+   wrist branch semantics; combine it with live cameras for a no-motion test.
+2. Add per-joint training-range clamps, rate/step limits, stale-frame stops,
+   hardware locking and an on-site dead-man confirmation to the ACT executor.
+3. Run a torque-enabled hold-only test, then a bounded one-step test from the
+   fixed folded pose; do not start a continuous rollout first.
+4. Expand the dataset after reviewing the first bounded physical behavior;
+   11 highly similar episodes are enough for a pipeline smoke test, not robust
+   generalization.
