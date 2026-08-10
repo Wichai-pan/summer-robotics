@@ -121,6 +121,10 @@ Operation:
    drop, stale video, timeout, or operator recovery.  Any other answer discards
    the episode buffer and records only a failure ledger row.
 
+The recorder tolerates brief camera-thread scheduling jitter up to the declared
+freshness window (default 0.25 s). It still aborts when a frame exceeds that
+age or the same sequence persists for the full freshness window.
+
 Every accepted invocation finalizes the dataset and immediately reopens it.
 Do not collect the main corpus until 3 pilot episodes have been visually and
 numerically inspected.

@@ -6,6 +6,7 @@ from act_episode_recorder import (
     CameraSample,
     build_control_frame,
     dataset_features,
+    duplicate_frame_limit,
     feature_specs_match,
 )
 
@@ -27,6 +28,11 @@ def test_feature_comparison_accepts_json_list_shape() -> None:
     expected = dataset_features(width=640, height=480)["action"]
     loaded = {**expected, "shape": [6]}
     assert feature_specs_match(loaded, expected)
+
+
+def test_duplicate_limit_defers_to_camera_freshness_window() -> None:
+    assert duplicate_frame_limit(control_fps=20, max_camera_age_s=0.25) == 5
+    assert duplicate_frame_limit(control_fps=10, max_camera_age_s=0.05) == 2
 
 
 def test_build_control_frame_has_synchronized_numeric_and_rgb_values() -> None:

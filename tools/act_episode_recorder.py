@@ -11,6 +11,7 @@ local LeRobotDataset.
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 import threading
 import time
@@ -42,6 +43,11 @@ ACTION_NAMES = (
     "gripper.pos",
 )
 CAMERA_NAMES = ("gemini_rgb", "white_wrist_rgb")
+
+
+def duplicate_frame_limit(control_fps: int, max_camera_age_s: float) -> int:
+    """Let freshness, not ordinary scheduler jitter, define stream failure."""
+    return max(2, math.ceil(control_fps * max_camera_age_s))
 
 
 def feature_specs_match(actual: dict[str, Any] | None, expected: dict[str, Any]) -> bool:
@@ -377,7 +383,7 @@ class ACTEpisodeRecorder:
         camera_fps: int,
         white_wrist_device: str,
         max_camera_age_s: float = 0.25,
-        max_duplicate_control_frames: int = 2,
+        max_duplicate_control_frames: int | None = None,
     ) -> None:
         self.root = root
         self.repo_id = repo_id
@@ -387,7 +393,11 @@ class ACTEpisodeRecorder:
         self.width = width
         self.height = height
         self.max_camera_age_s = max_camera_age_s
-        self.max_duplicate_control_frames = max_duplicate_control_frames
+        self.max_duplicate_control_frames = (
+            duplicate_frame_limit(fps, max_camera_age_s)
+            if max_duplicate_control_frames is None
+            else max_duplicate_control_frames
+        )
         self.gemini = GeminiRGBSource(width, height, camera_fps)
         self.wrist = OpenCVRGBSource(white_wrist_device, width, height, camera_fps)
         self.dataset: Any = None
