@@ -110,7 +110,7 @@ def cyclic_angle_error_deg(current: float, reference: float) -> float:
     return (current - reference + 180.0) % 360.0 - 180.0
 
 
-def load_folded_pose(path: Path) -> dict[str, float]:
+def load_folded_pose(path: Path) -> tuple[dict[str, float], int]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schema") != "forestbridge_white_folded_pose/v1":
         raise RuntimeError(f"unsupported folded-pose schema in {path}")
@@ -120,7 +120,10 @@ def load_folded_pose(path: Path) -> dict[str, float]:
     result = {joint: float(pose[joint]) for joint in ALL_JOINTS}
     if any(not math.isfinite(value) for value in result.values()):
         raise RuntimeError(f"folded-pose file contains a non-finite value: {path}")
-    return result
+    wrist_raw = int(payload.get("wrist_raw_diagnostic", -1))
+    if not 0 <= wrist_raw < ENCODER_TICKS:
+        raise RuntimeError(f"folded-pose file has no valid wrist_raw_diagnostic: {path}")
+    return result, wrist_raw
 
 
 def folded_pose_violations(
@@ -128,11 +131,23 @@ def folded_pose_violations(
     reference: dict[str, float],
     arm_tolerance_deg: float,
     gripper_tolerance: float,
+    *,
+    current_wrist_raw: int | None = None,
+    reference_wrist_raw: int | None = None,
 ) -> dict[str, float]:
     violations = {}
     for joint in ALL_JOINTS:
         if joint == WRIST:
-            error = cyclic_angle_error_deg(current[joint], reference[joint])
+            if (current_wrist_raw is None) != (reference_wrist_raw is None):
+                raise ValueError("both wrist raw values must be supplied together")
+            if current_wrist_raw is not None:
+                # The calibrated wrist angle is not stable around raw 4095/0:
+                # reconnecting can represent one physical pose in a different
+                # normalized branch. Raw ticks plus wrapped shortest distance
+                # are the authoritative fixed-pose comparison.
+                error = wrapped_tick_delta(current_wrist_raw, reference_wrist_raw) * DEG_PER_TICK
+            else:
+                error = cyclic_angle_error_deg(current[joint], reference[joint])
         else:
             error = current[joint] - reference[joint]
         tolerance = gripper_tolerance if joint == "gripper" else arm_tolerance_deg
@@ -307,14 +322,19 @@ def main() -> int:
 
         black_start = positions(black.get_observation())
         white_start = positions(white.get_observation())
+        black_wrist_start = raw_wrist(black.bus)
+        white_wrist_start = raw_wrist(white.bus)
         folded_reference = None
+        folded_wrist_raw = None
         if args.record_root is not None:
-            folded_reference = load_folded_pose(args.folded_pose_json)
+            folded_reference, folded_wrist_raw = load_folded_pose(args.folded_pose_json)
             start_violations = folded_pose_violations(
                 white_start,
                 folded_reference,
                 args.folded_tolerance_deg,
                 args.folded_gripper_tolerance,
+                current_wrist_raw=white_wrist_start,
+                reference_wrist_raw=folded_wrist_raw,
             )
             if start_violations:
                 detail = ", ".join(
@@ -325,8 +345,6 @@ def main() -> int:
                     f"errors outside tolerance: {detail}"
                 )
             print("固定收拢起点校验通过。")
-        black_wrist_start = raw_wrist(black.bus)
-        white_wrist_start = raw_wrist(white.bus)
         signs = {joint: (-1.0 if joint in args.invert else 1.0) for joint in ALL_JOINTS}
         bounds = {joint: normalized_bounds(white, joint) for joint in POSITION_JOINTS}
 
@@ -493,6 +511,7 @@ def main() -> int:
         # the previous wrist velocity active during that work.
         white.bus.write("Goal_Velocity", WRIST, 0, normalize=False, num_retry=3)
         white_final = positions(white.get_observation())
+        white_final_wrist_raw = raw_wrist(white.bus)
         if white_enabled:
             white.bus.disable_torque(num_retry=3)
             white_enabled = False
@@ -506,6 +525,8 @@ def main() -> int:
                 folded_reference,
                 args.folded_tolerance_deg,
                 args.folded_gripper_tolerance,
+                current_wrist_raw=white_final_wrist_raw,
+                reference_wrist_raw=folded_wrist_raw,
             )
             print(
                 "只有完整完成 固定收拢姿态→抓取→放置→回到固定收拢姿态，"

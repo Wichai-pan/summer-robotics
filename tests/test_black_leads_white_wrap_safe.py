@@ -65,6 +65,21 @@ def test_folded_pose_wrist_uses_shortest_cyclic_difference() -> None:
     assert folded_pose_violations(current, reference, 3.0, 3.0) == {}
 
 
+def test_folded_pose_wrist_uses_raw_ticks_across_encoder_wrap() -> None:
+    current = pose(0.0)
+    reference = pose(0.0)
+    # Saved at raw 4054 and re-read just across the 4095/0 boundary. This is
+    # only 47 ticks (~4.1 deg), not a long-path turn or a normalized-angle jump.
+    assert folded_pose_violations(
+        current,
+        reference,
+        5.0,
+        5.0,
+        current_wrist_raw=5,
+        reference_wrist_raw=4054,
+    ) == {}
+
+
 def test_folded_pose_reports_only_values_outside_tolerance() -> None:
     current = pose(0.0)
     reference = pose(0.0)
