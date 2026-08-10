@@ -31,6 +31,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--repo-id", default="forestbridge/fixed-pick-place-v1")
     parser.add_argument("--frame-index", type=int, default=0)
+    parser.add_argument(
+        "--frame-indices",
+        type=str,
+        help="comma-separated frame indices; overrides --frame-index",
+    )
     parser.add_argument("--device", default="cuda")
     return parser.parse_args()
 
@@ -47,6 +52,18 @@ def bounds_status(
     if not (len(values) == len(minimum) == len(maximum)):
         raise ValueError("values and bounds must have the same length")
     return [lo <= value <= hi for value, lo, hi in zip(values, minimum, maximum)]
+
+
+def parse_frame_indices(value: str | None, fallback: int) -> list[int]:
+    if value is None:
+        return [fallback]
+    try:
+        indices = [int(item.strip()) for item in value.split(",") if item.strip()]
+    except ValueError as exc:
+        raise ValueError("--frame-indices must be comma-separated integers") from exc
+    if not indices:
+        raise ValueError("--frame-indices must contain at least one integer")
+    return indices
 
 
 def main() -> int:
@@ -69,17 +86,25 @@ def main() -> int:
         video_backend="pyav",
         download_videos=False,
     )
-    if not 0 <= args.frame_index < dataset.num_frames:
+    try:
+        frame_indices = parse_frame_indices(args.frame_indices, args.frame_index)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    invalid = [index for index in frame_indices if not 0 <= index < dataset.num_frames]
+    if invalid:
         raise SystemExit(
-            f"frame index {args.frame_index} outside [0, {dataset.num_frames - 1}]"
+            f"frame indices {invalid} outside [0, {dataset.num_frames - 1}]"
         )
 
     config = PreTrainedConfig.from_pretrained(args.checkpoint)
     config.device = str(device)
+    # The checkpoint already contains the backbone. Avoid an unrelated network
+    # download when an ephemeral deployment container constructs the ACT model.
+    if hasattr(config, "pretrained_backbone_weights"):
+        config.pretrained_backbone_weights = None
     policy_class = get_policy_class(config.type)
     policy = policy_class.from_pretrained(args.checkpoint, config=config).to(device)
     policy.eval()
-    policy.reset()
 
     preprocessor, postprocessor = make_pre_post_processors(
         policy_cfg=config,
@@ -87,38 +112,69 @@ def main() -> int:
         preprocessor_overrides={"device_processor": {"device": str(device)}},
     )
 
-    frame = dataset[args.frame_index]
-    missing = [key for key in OBSERVATION_KEYS if key not in frame]
-    if missing:
-        raise RuntimeError(f"dataset frame is missing policy inputs: {missing}")
-    observation = {key: frame[key].unsqueeze(0) for key in OBSERVATION_KEYS}
-
-    autocast = (
-        torch.autocast(device_type="cuda")
-        if device.type == "cuda" and config.use_amp
-        else nullcontext()
-    )
-    with torch.inference_mode(), autocast:
-        processed_observation = preprocessor(observation)
-        predicted = policy.select_action(processed_observation)
-        predicted = postprocessor(predicted)
-
-    predicted_values = [float(value) for value in predicted.squeeze(0).cpu().tolist()]
-    recorded_values = [float(value) for value in frame["action"].cpu().tolist()]
-    if len(predicted_values) != len(recorded_values):
-        raise RuntimeError(
-            f"action dimension mismatch: predicted={len(predicted_values)}, "
-            f"recorded={len(recorded_values)}"
-        )
-    if not all(math.isfinite(value) for value in predicted_values):
-        raise RuntimeError(f"policy produced non-finite action: {predicted_values}")
-
     action_feature = dataset.meta.features["action"]
     action_names = list(action_feature["names"])
     stats = dataset.meta.stats["action"]
     minimum = [float(value) for value in stats["min"]]
     maximum = [float(value) for value in stats["max"]]
-    within_training_range = bounds_status(predicted_values, minimum, maximum)
+    samples = []
+    absolute_errors: list[list[float]] = []
+    range_failures = [0] * len(action_names)
+    for frame_index in frame_indices:
+        frame = dataset[frame_index]
+        missing = [key for key in OBSERVATION_KEYS if key not in frame]
+        if missing:
+            raise RuntimeError(f"dataset frame is missing policy inputs: {missing}")
+        observation = {key: frame[key].unsqueeze(0) for key in OBSERVATION_KEYS}
+
+        # Sampled frames are independent deployment smoke tests. Reset ACT's
+        # action-chunk queue so unrelated episodes cannot affect one another.
+        policy.reset()
+        autocast = (
+            torch.autocast(device_type="cuda")
+            if device.type == "cuda" and config.use_amp
+            else nullcontext()
+        )
+        with torch.inference_mode(), autocast:
+            processed_observation = preprocessor(observation)
+            predicted = policy.select_action(processed_observation)
+            predicted = postprocessor(predicted)
+
+        predicted_values = [
+            float(value) for value in predicted.squeeze(0).cpu().tolist()
+        ]
+        recorded_values = [float(value) for value in frame["action"].cpu().tolist()]
+        if len(predicted_values) != len(recorded_values):
+            raise RuntimeError(
+                f"action dimension mismatch: predicted={len(predicted_values)}, "
+                f"recorded={len(recorded_values)}"
+            )
+        if not all(math.isfinite(value) for value in predicted_values):
+            raise RuntimeError(f"policy produced non-finite action: {predicted_values}")
+        within_training_range = bounds_status(predicted_values, minimum, maximum)
+        errors = [abs(a - b) for a, b in zip(predicted_values, recorded_values)]
+        absolute_errors.append(errors)
+        for dimension, within in enumerate(within_training_range):
+            range_failures[dimension] += int(not within)
+        samples.append(
+            {
+                "frame_index": frame_index,
+                "episode_index": scalar(frame["episode_index"]),
+                "predicted_action": dict(zip(action_names, predicted_values, strict=True)),
+                "recorded_action": dict(zip(action_names, recorded_values, strict=True)),
+                "within_training_min_max": dict(
+                    zip(action_names, within_training_range, strict=True)
+                ),
+            }
+        )
+
+    mae = [
+        sum(row[i] for row in absolute_errors) / len(samples)
+        for i in range(len(action_names))
+    ]
+    max_error = [
+        max(row[i] for row in absolute_errors) for i in range(len(action_names))
+    ]
 
     result = {
         "status": "PASS",
@@ -130,11 +186,16 @@ def main() -> int:
         "dataset_root": str(args.dataset_root),
         "dataset_episodes": dataset.num_episodes,
         "dataset_frames": dataset.num_frames,
-        "frame_index": args.frame_index,
-        "episode_index": scalar(frame["episode_index"]),
-        "predicted_action": dict(zip(action_names, predicted_values, strict=True)),
-        "recorded_action": dict(zip(action_names, recorded_values, strict=True)),
-        "within_training_min_max": dict(zip(action_names, within_training_range, strict=True)),
+        "sample_count": len(samples),
+        "frame_indices": frame_indices,
+        "summary": {
+            "mae": dict(zip(action_names, mae, strict=True)),
+            "max_absolute_error": dict(zip(action_names, max_error, strict=True)),
+            "out_of_training_range_count": dict(
+                zip(action_names, range_failures, strict=True)
+            ),
+        },
+        "samples": samples,
     }
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0

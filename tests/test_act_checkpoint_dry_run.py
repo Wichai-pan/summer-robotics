@@ -1,4 +1,4 @@
-from act_checkpoint_dry_run import bounds_status
+from act_checkpoint_dry_run import bounds_status, parse_frame_indices
 
 
 def test_bounds_status_is_inclusive_and_dimensionwise() -> None:
@@ -7,3 +7,8 @@ def test_bounds_status_is_inclusive_and_dimensionwise() -> None:
         True,
         False,
     ]
+
+
+def test_parse_frame_indices() -> None:
+    assert parse_frame_indices(None, 7) == [7]
+    assert parse_frame_indices("0, 12,24", 7) == [0, 12, 24]
