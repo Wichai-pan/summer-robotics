@@ -77,6 +77,29 @@ def test_total_envelope_clamps_command_before_transmission() -> None:
     assert joints == ["shoulder_pan", "shoulder_lift", "gripper"]
 
 
+def test_elbow_can_use_a_separate_total_travel_limit() -> None:
+    start = {
+        "shoulder_pan": 0.0,
+        "shoulder_lift": 0.0,
+        "elbow_flex": 95.0,
+        "wrist_flex": 0.0,
+        "gripper": 0.0,
+    }
+    command = dict(start)
+    command["shoulder_pan"] = -110.0
+    command["elbow_flex"] = -25.0
+    bounded, joints = clamp_position_to_total_envelope(
+        command,
+        start,
+        arm_limit=100.0,
+        gripper_limit=60.0,
+        elbow_limit=125.0,
+    )
+    assert bounded["shoulder_pan"] == -100.0
+    assert bounded["elbow_flex"] == -25.0
+    assert joints == ["shoulder_pan"]
+
+
 def test_rollout_guard_slews_command_and_bounds_feedback_error() -> None:
     guarded, reasons = rollout_guarded_action(
         predicted=[70.0, 5.0, 80.0],

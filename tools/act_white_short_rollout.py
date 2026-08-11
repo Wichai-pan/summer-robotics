@@ -74,6 +74,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-gripper-step", type=float, default=2.0)
     parser.add_argument("--max-wrist-speed-deg-s", type=float, default=1.0)
     parser.add_argument("--max-total-arm-travel-deg", type=float, default=12.0)
+    parser.add_argument(
+        "--max-total-elbow-travel-deg",
+        type=float,
+        help="optional elbow_flex-only travel override; other arm joints keep the arm limit",
+    )
     parser.add_argument("--max-total-gripper-travel", type=float, default=24.0)
     parser.add_argument("--tracking-error-deg", type=float, default=4.0)
     parser.add_argument("--tracking-error-gripper", type=float, default=8.0)
@@ -88,12 +93,15 @@ def total_travel_violations(
     gripper_limit: float,
     arm_feedback_slack: float = 0.0,
     gripper_feedback_slack: float = 0.0,
+    elbow_limit: float | None = None,
 ) -> dict[str, float]:
     """Find measured travel beyond the command envelope plus tracking slack."""
     violations = {}
     for joint in POSITION_JOINTS:
         delta = current[joint] - start[joint]
         limit = gripper_limit if joint == "gripper" else arm_limit
+        if joint == "elbow_flex" and elbow_limit is not None:
+            limit = elbow_limit
         limit += (
             gripper_feedback_slack if joint == "gripper" else arm_feedback_slack
         )
@@ -115,12 +123,15 @@ def clamp_position_to_total_envelope(
     start: dict[str, float],
     arm_limit: float,
     gripper_limit: float,
+    elbow_limit: float | None = None,
 ) -> tuple[dict[str, float], list[str]]:
     """Ensure even the final transmitted command stays inside total travel."""
     result = {}
     clamped = []
     for joint in POSITION_JOINTS:
         limit = gripper_limit if joint == "gripper" else arm_limit
+        if joint == "elbow_flex" and elbow_limit is not None:
+            limit = elbow_limit
         lower = start[joint] - limit
         upper = start[joint] + limit
         value = max(lower, min(upper, command[joint]))
@@ -333,6 +344,11 @@ def main() -> int:
         raise SystemExit("steps, rates and safety limits must be positive")
     if args.wrist_support_recovery_deg_s > args.max_wrist_speed_deg_s:
         raise SystemExit("wrist recovery speed cannot exceed the wrist speed limit")
+    if args.max_total_elbow_travel_deg is not None and (
+        not math.isfinite(args.max_total_elbow_travel_deg)
+        or args.max_total_elbow_travel_deg <= 0
+    ):
+        raise SystemExit("elbow travel override must be positive")
     if not args.checkpoint.is_dir() or not args.dataset_root.is_dir():
         raise SystemExit("checkpoint and dataset root must exist")
     if args.device.startswith("cuda") and not torch.cuda.is_available():
@@ -549,6 +565,15 @@ def main() -> int:
                     "planned_policy_chunks": math.ceil(
                         args.steps / int(config.n_action_steps)
                     ),
+                    "total_travel_limits_deg": {
+                        "arm_default": args.max_total_arm_travel_deg,
+                        "elbow_flex": (
+                            args.max_total_elbow_travel_deg
+                            if args.max_total_elbow_travel_deg is not None
+                            else args.max_total_arm_travel_deg
+                        ),
+                        "gripper": args.max_total_gripper_travel,
+                    },
                     "start_state": start_state,
                     "first_predicted": action_dict(action_names, first_predicted),
                     "first_guarded": first_guarded,
@@ -606,6 +631,7 @@ def main() -> int:
                     start_state,
                     args.max_total_arm_travel_deg,
                     args.max_total_gripper_travel,
+                    args.max_total_elbow_travel_deg,
                 )
             )
             for joint in total_envelope_clamps:
@@ -644,6 +670,7 @@ def main() -> int:
                 args.max_total_gripper_travel,
                 args.tracking_error_deg,
                 args.tracking_error_gripper,
+                args.max_total_elbow_travel_deg,
             )
             if violations:
                 detail = ", ".join(
@@ -694,6 +721,7 @@ def main() -> int:
             args.max_total_gripper_travel,
             args.tracking_error_deg,
             args.tracking_error_gripper,
+            args.max_total_elbow_travel_deg,
         )
         if final_violations:
             detail = ", ".join(
