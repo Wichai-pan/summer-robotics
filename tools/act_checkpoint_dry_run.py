@@ -70,6 +70,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-gripper-step", type=float, default=2.0)
     parser.add_argument("--max-wrist-speed-deg-s", type=float, default=1.0)
     parser.add_argument("--max-state-range-tolerance", type=float, default=1.0)
+    parser.add_argument(
+        "--plan-output",
+        type=Path,
+        help=(
+            "atomically save the one guarded live action for a separate supervised "
+            "executor; requires --preview-guarded-action"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -369,6 +377,8 @@ def main() -> int:
         raise SystemExit("--live-state must be paired with --live-cameras")
     if args.preview_guarded_action and not args.live_state:
         raise SystemExit("--preview-guarded-action requires --live-state")
+    if args.plan_output is not None and not args.preview_guarded_action:
+        raise SystemExit("--plan-output requires --preview-guarded-action")
     if min(
         args.max_arm_step_deg,
         args.max_gripper_step,
@@ -584,6 +594,35 @@ def main() -> int:
         "samples": samples,
         "live_state_diagnostic": live_state_diagnostic,
     }
+    if args.plan_output is not None:
+        guarded = samples[0]["guarded_action_no_command"]
+        assert guarded is not None and live_state_diagnostic is not None
+        plan = {
+            "schema": "forestbridge_act_guarded_step/v1",
+            "created_unix_s": time.time(),
+            "checkpoint": str(args.checkpoint),
+            "dataset_root": str(args.dataset_root),
+            "robot_id": args.white_id,
+            "live_state": dict(zip(state_names, live_state_values, strict=True)),
+            "recorder_branch_wrist_raw": live_state_diagnostic[
+                "recorder_branch_wrist_raw"
+            ],
+            "guarded_action": guarded,
+            "guard_reasons": samples[0]["guard_reasons"],
+            "limits": {
+                "max_arm_step_deg": args.max_arm_step_deg,
+                "max_gripper_step": args.max_gripper_step,
+                "max_wrist_speed_deg_s": args.max_wrist_speed_deg_s,
+            },
+            "hardware_access_when_planned": result["hardware_access"],
+        }
+        args.plan_output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = args.plan_output.with_suffix(args.plan_output.suffix + ".tmp")
+        temporary.write_text(
+            json.dumps(plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        temporary.replace(args.plan_output)
+        result["plan_output"] = str(args.plan_output)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
