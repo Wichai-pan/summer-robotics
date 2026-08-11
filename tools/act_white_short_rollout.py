@@ -270,10 +270,8 @@ def main() -> int:
     if int(dataset.fps) != int(args.fps):
         raise SystemExit(f"dataset is {dataset.fps} FPS, requested rollout is {args.fps} FPS")
     config = PreTrainedConfig.from_pretrained(args.checkpoint)
-    if args.steps > int(config.n_action_steps):
-        raise SystemExit(
-            f"--steps {args.steps} exceeds checkpoint n_action_steps={config.n_action_steps}"
-        )
+    if args.steps > 2000:
+        raise SystemExit("--steps above 2000 requires a separately reviewed long-rollout gate")
     device = torch.device(args.device)
     config.device = str(device)
     if hasattr(config, "pretrained_backbone_weights"):
@@ -436,6 +434,9 @@ def main() -> int:
                     ),
                     "chunk_size": int(config.chunk_size),
                     "n_action_steps": int(config.n_action_steps),
+                    "planned_policy_chunks": math.ceil(
+                        args.steps / int(config.n_action_steps)
+                    ),
                     "start_state": start_state,
                     "first_predicted": action_dict(action_names, first_predicted),
                     "first_guarded": first_guarded,
