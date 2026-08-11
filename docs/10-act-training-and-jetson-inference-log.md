@@ -4,7 +4,7 @@
 - **平台**：Roihu GPU 集群 + Jetson Orin Nano Super
 - **数据**：固定场景白臂面霜拿取与放置，Gemini RGB、白臂腕部 RGB、白臂状态与实际发送动作
 - **目标**：确认录制数据能够训练 ACT，并把 checkpoint 部署到 Jetson 完成离线与实时相机推理。
-- **结果**：✅ Roihu 训练产生 step 6,000 checkpoint；✅ Jetson CUDA 完成 11 帧离线推理；✅ 实时 Gemini + 白臂腕部图像进入 ACT 并产生六维动作；✅ 全程未映射电机串口、未产生物理动作；⚠️ 部分输出略超训练数据范围，尚未批准真实机器人 rollout。
+- **结果**：✅ Roihu 训练产生 step 6,000 checkpoint；✅ Jetson CUDA 完成离线与实时双相机推理；✅ 现场监督 rollout 已完成面霜抓取、向左搬移约 2–3 cm 与放置；⚠️ 当前仅有 11 条固定场景示范，仍需重复试验统计成功率。
 
 ## 1. 数据与训练产物
 
@@ -118,9 +118,9 @@ checkpoint + LeRobotDataset + 双路视频解码
 
 该测试的关节状态仍来自数据集 frame 0，因此只能证明实时视觉接线正确，不能称为完整在线策略。输出中的 `recorded_action_reference_only` 与当前实时画面不对应，不应当作为实时精度指标。
 
-## 4. 当前安全边界
+## 4. 物理执行安全边界
 
-现在可以说“ACT 模型已经在 Jetson 上运行”，但不能说“ACT 已经可以自主抓取”。物理执行前仍缺少：
+首次物理执行前依次完成了以下门槛：
 
 1. 松扭矩读取白臂实时状态，并复现录制时的 `wrist_roll` 跨圈数值分支；
 2. 将实时状态与实时双相机图像共同输入策略；
@@ -131,6 +131,32 @@ checkpoint + LeRobotDataset + 双路视频解码
 
 腕部特别需要谨慎：固定姿态 JSON 在位置模式下的角度，和录制器切换到速度模式后的连续 wrist state 可能位于不同的数值分支。不能直接把 JSON 的腕部角度送给 ACT。
 
-## 5. 同步状态
+物理 rollout 继续保留训练范围、单周期步长、跟踪误差、总行程、腕部训练区间保持器和现场 `ROLLOUT` 确认。录制控制器使用手臂 30°/s、夹爪 60/s；20 FPS 推理对应每周期 1.5° 与 3。此前更保守的 1° 与 2 会改变抓取时序，匹配录制速度后首次完成真实抓取和放置。
+
+## 5. 重复试验与自动日志
+
+`scripts/jetson_act_trial.sh` 固定当前已验证的执行参数。每次运行会：
+
+1. 请求 `RETURN`，监督式回到固定收拢姿态；
+2. 等待现场人员复位面霜、相机、光照和工作空间；
+3. 请求 `ROLLOUT`，执行默认 600 帧（30 秒）策略；
+4. 要求现场人员标记 `SUCCESS`、`PARTIAL`、`FAIL` 或 `UNKNOWN`；
+5. 保存独立时间戳日志并更新 `act_rollout_latest.log`。
+
+```bash
+cd /home/jetsonl7/summer-robotics-deploy
+./scripts/jetson_act_trial.sh --label repeat01
+```
+
+日志位于：
+
+```text
+/home/jetsonl7/robot-data/logs/YYYYMMDD_HHMMSS_repeat01.log
+/home/jetsonl7/robot-data/logs/act_rollout_latest.log
+```
+
+重复试验不要覆盖旧日志，也不要在试验之间改变目标点、垫高、相机角度或光照。每轮分别记录是否抓住、是否搬移、是否放置、是否需要人工恢复。当前成功只证明固定场景链路成立，不代表对目标位置变化具有泛化能力。
+
+## 6. 同步状态
 
 本地、GitHub `origin/main` 与 Jetson `/home/jetsonl7/summer-robotics-deploy` 均通过 fast-forward 同步。Git 只保存代码、测试和文档；训练数据、checkpoint、校准缓存与密钥继续作为 Jetson/集群机器状态管理。
