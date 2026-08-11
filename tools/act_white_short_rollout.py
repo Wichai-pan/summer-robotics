@@ -47,6 +47,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--white-port")
     parser.add_argument("--white-id", default="white_arm_leader_follow")
     parser.add_argument(
+        "--start-from-current",
+        action="store_true",
+        help=(
+            "continue a later ACT chunk from the current pose instead of requiring "
+            "the saved folded start; live state must still be inside training support"
+        ),
+    )
+    parser.add_argument(
         "--folded-pose-json",
         type=Path,
         default=Path("/data/act/config/white_folded_pose_v1.json"),
@@ -287,22 +295,30 @@ def main() -> int:
         robot.bus.disable_torque()
         if not robot.is_calibrated:
             raise RuntimeError(f"white motor registers do not match {args.white_id}")
-        folded_reference, folded_wrist_raw = load_folded_pose(args.folded_pose_json)
         position_state = positions(robot.get_observation())
         position_wrist_raw = raw_wrist(robot.bus)
-        violations = folded_pose_violations(
-            position_state,
-            folded_reference,
-            args.folded_tolerance_deg,
-            args.folded_gripper_tolerance,
-            current_wrist_raw=position_wrist_raw,
-            reference_wrist_raw=folded_wrist_raw,
-        )
-        if violations:
-            detail = ", ".join(
-                f"{joint}={error:+.1f}" for joint, error in violations.items()
+        if args.start_from_current:
+            print(
+                "CONTINUATION MODE：跳过 folded 起点检查；将使用当前姿态和最新画面"
+                "生成下一个 ACT 动作块。"
             )
-            raise RuntimeError(f"white arm is not at folded start pose: {detail}")
+        else:
+            folded_reference, folded_wrist_raw = load_folded_pose(
+                args.folded_pose_json
+            )
+            violations = folded_pose_violations(
+                position_state,
+                folded_reference,
+                args.folded_tolerance_deg,
+                args.folded_gripper_tolerance,
+                current_wrist_raw=position_wrist_raw,
+                reference_wrist_raw=folded_wrist_raw,
+            )
+            if violations:
+                detail = ", ".join(
+                    f"{joint}={error:+.1f}" for joint, error in violations.items()
+                )
+                raise RuntimeError(f"white arm is not at folded start pose: {detail}")
 
         configure_white_torque_free(robot)
         wrist_velocity_mode = True
@@ -371,6 +387,11 @@ def main() -> int:
                 {
                     "steps": args.steps,
                     "duration_s": args.steps / args.fps,
+                    "start_mode": (
+                        "current_continuation"
+                        if args.start_from_current
+                        else "saved_folded_pose"
+                    ),
                     "chunk_size": int(config.chunk_size),
                     "n_action_steps": int(config.n_action_steps),
                     "start_state": start_state,
@@ -385,9 +406,11 @@ def main() -> int:
         if not args.execute:
             print("DRY RUN：未启用扭矩或发送动作。添加 --execute 才允许短 rollout。")
             return 0
+        confirmation = "CONTINUE" if args.start_from_current else "ROLLOUT"
         if input(
-            "清空白臂全程运动空间并保持可立即断开12V；输入 ROLLOUT 执行："
-        ).strip() != "ROLLOUT":
+            "清空白臂全程运动空间并保持可立即断开12V；"
+            f"输入 {confirmation} 执行："
+        ).strip() != confirmation:
             print("已取消；没有启用扭矩或发送动作。")
             return 0
 
