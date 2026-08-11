@@ -36,6 +36,21 @@ def test_total_travel_violations_uses_gripper_limit() -> None:
     }
 
 
+def test_total_travel_allows_only_existing_tracking_slack() -> None:
+    start = {joint: 0.0 for joint in (
+        "shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "gripper"
+    )}
+    current = dict(start)
+    current["elbow_flex"] = -70.2
+    assert total_travel_violations(
+        start, current, 70.0, 60.0, arm_feedback_slack=4.0
+    ) == {}
+    current["elbow_flex"] = -74.1
+    assert total_travel_violations(
+        start, current, 70.0, 60.0, arm_feedback_slack=4.0
+    ) == {"elbow_flex": pytest.approx(-74.1)}
+
+
 def test_total_envelope_clamps_command_before_transmission() -> None:
     start = {
         "shoulder_pan": 0.0,

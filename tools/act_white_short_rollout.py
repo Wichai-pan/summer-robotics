@@ -86,11 +86,17 @@ def total_travel_violations(
     current: dict[str, float],
     arm_limit: float,
     gripper_limit: float,
+    arm_feedback_slack: float = 0.0,
+    gripper_feedback_slack: float = 0.0,
 ) -> dict[str, float]:
+    """Find measured travel beyond the command envelope plus tracking slack."""
     violations = {}
     for joint in POSITION_JOINTS:
         delta = current[joint] - start[joint]
         limit = gripper_limit if joint == "gripper" else arm_limit
+        limit += (
+            gripper_feedback_slack if joint == "gripper" else arm_feedback_slack
+        )
         if abs(delta) > limit:
             violations[joint] = delta
     return violations
@@ -636,6 +642,8 @@ def main() -> int:
                 current_state,
                 args.max_total_arm_travel_deg,
                 args.max_total_gripper_travel,
+                args.tracking_error_deg,
+                args.tracking_error_gripper,
             )
             if violations:
                 detail = ", ".join(
@@ -684,6 +692,8 @@ def main() -> int:
             final_state,
             args.max_total_arm_travel_deg,
             args.max_total_gripper_travel,
+            args.tracking_error_deg,
+            args.tracking_error_gripper,
         )
         if final_violations:
             detail = ", ".join(
