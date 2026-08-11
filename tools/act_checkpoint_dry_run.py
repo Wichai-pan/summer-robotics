@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Load a trained ACT checkpoint and infer on recorded frames without hardware.
+"""Load a trained ACT checkpoint and run bounded deployment smoke tests.
 
-This program never opens a camera, serial port, or motor bus.  It is the first
-deployment gate after training: checkpoint loading, saved normalization,
-dataset decoding, CUDA inference, and action ordering must all work before a
-live-camera or physical rollout is considered.
+By default this program uses only recorded data. Optional live modes can open
+the two RGB cameras and read a torque-free white-arm state, but this tool never
+enables torque and never sends a position or velocity motion command.
 """
 
 from __future__ import annotations
@@ -47,6 +46,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera-height", type=int, default=480)
     parser.add_argument("--camera-fps", type=int, default=30)
     parser.add_argument("--max-camera-age-s", type=float, default=0.5)
+    parser.add_argument(
+        "--live-state",
+        action="store_true",
+        help="read the torque-free white-arm state using recorder wrist semantics",
+    )
+    parser.add_argument("--white-port")
+    parser.add_argument("--white-id", default="white_arm_leader_follow")
+    parser.add_argument(
+        "--folded-pose-json",
+        type=Path,
+        default=Path("/data/act/config/white_folded_pose_v1.json"),
+    )
+    parser.add_argument("--folded-tolerance-deg", type=float, default=8.0)
+    parser.add_argument("--folded-gripper-tolerance", type=float, default=10.0)
     return parser.parse_args()
 
 
@@ -84,6 +97,111 @@ def rgb_to_policy_tensor(rgb: object) -> torch.Tensor:
     return tensor.permute(2, 0, 1).contiguous().float().div_(255.0)
 
 
+def state_values(state: dict[str, float], names: list[str]) -> list[float]:
+    """Order joint values according to the checkpoint's state feature names."""
+    values = []
+    for name in names:
+        joint = name.removesuffix(".pos")
+        if joint not in state:
+            raise ValueError(f"live state is missing joint {joint!r}")
+        values.append(float(state[joint]))
+    return values
+
+
+def read_torque_free_white_state(
+    args: argparse.Namespace, state_names: list[str]
+) -> tuple[list[float], dict[str, object]]:
+    """Read the same wrist-state branch used at ACT recording start.
+
+    Register writes are limited to disabling torque, selecting the recorder's
+    operating modes and forcing wrist goal velocity to zero.  The wrist is
+    restored to position mode before disconnecting.
+    """
+    from black_leads_white_wrap_safe import (
+        WRIST,
+        configure_white_torque_free,
+        folded_pose_violations,
+        load_folded_pose,
+        positions,
+        raw_wrist,
+    )
+    from portutil import BOARDS, PortResolutionError, resolve_port
+
+    try:
+        port = resolve_port(BOARDS["white"], override=args.white_port)
+    except PortResolutionError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+    from lerobot.motors.feetech import OperatingMode
+    from lerobot.robots.so_follower.config_so_follower import SO100FollowerConfig
+    from lerobot.robots.so_follower.so_follower import SO100Follower
+
+    if not args.folded_pose_json.is_file():
+        raise RuntimeError(f"folded-pose reference not found: {args.folded_pose_json}")
+    robot = SO100Follower(
+        SO100FollowerConfig(
+            port=port,
+            id=args.white_id,
+            disable_torque_on_disconnect=True,
+            max_relative_target=None,
+        )
+    )
+    connected = False
+    wrist_velocity_mode = False
+    try:
+        robot.bus.connect()
+        connected = True
+        robot.bus.disable_torque()
+        if not robot.is_calibrated:
+            raise RuntimeError(f"white motor registers do not match {args.white_id}")
+
+        folded_reference, folded_wrist_raw = load_folded_pose(args.folded_pose_json)
+        position_mode_state = positions(robot.get_observation())
+        position_mode_wrist_raw = raw_wrist(robot.bus)
+        violations = folded_pose_violations(
+            position_mode_state,
+            folded_reference,
+            args.folded_tolerance_deg,
+            args.folded_gripper_tolerance,
+            current_wrist_raw=position_mode_wrist_raw,
+            reference_wrist_raw=folded_wrist_raw,
+        )
+        if violations:
+            detail = ", ".join(
+                f"{joint}={error:+.1f}" for joint, error in violations.items()
+            )
+            raise RuntimeError(
+                "white arm is not at the saved folded pose; "
+                f"torque remains disabled ({detail})"
+            )
+
+        configure_white_torque_free(robot)
+        wrist_velocity_mode = True
+        recorder_branch_state = positions(robot.get_observation())
+        recorder_branch_wrist_raw = raw_wrist(robot.bus)
+        return state_values(recorder_branch_state, state_names), {
+            "port": port,
+            "robot_id": args.white_id,
+            "torque_enabled": False,
+            "motion_command_sent": False,
+            "position_mode_wrist_raw": position_mode_wrist_raw,
+            "recorder_branch_wrist_raw": recorder_branch_wrist_raw,
+            "position_mode_state": position_mode_state,
+            "recorder_branch_state": recorder_branch_state,
+        }
+    finally:
+        if connected:
+            try:
+                robot.bus.disable_torque(num_retry=3)
+                if wrist_velocity_mode:
+                    robot.bus.write(
+                        "Goal_Velocity", WRIST, 0, normalize=False, num_retry=3
+                    )
+                robot.bus.write("Operating_Mode", WRIST, OperatingMode.POSITION.value)
+            finally:
+                robot.bus.disconnect(disable_torque=False)
+
+
 def main() -> int:
     args = parse_args()
     if not args.checkpoint.is_dir():
@@ -115,6 +233,10 @@ def main() -> int:
         )
     if args.live_cameras and len(frame_indices) != 1:
         raise SystemExit("--live-cameras requires exactly one state frame index")
+    if args.live_state and len(frame_indices) != 1:
+        raise SystemExit("--live-state requires exactly one reference frame index")
+    if args.live_state and not args.live_cameras:
+        raise SystemExit("--live-state must be paired with --live-cameras")
 
     config = PreTrainedConfig.from_pretrained(args.checkpoint)
     config.device = str(device)
@@ -134,6 +256,8 @@ def main() -> int:
 
     action_feature = dataset.meta.features["action"]
     action_names = list(action_feature["names"])
+    state_feature = dataset.meta.features["observation.state"]
+    state_names = list(state_feature["names"])
     stats = dataset.meta.stats["action"]
     minimum = [float(value) for value in stats["min"]]
     maximum = [float(value) for value in stats["max"]]
@@ -142,7 +266,25 @@ def main() -> int:
     range_failures = [0] * len(action_names)
     live_sources = None
     live_samples = None
+    live_state_tensor = None
+    live_state_diagnostic = None
+    state_stats = dataset.meta.stats["observation.state"]
+    state_minimum = [float(value) for value in state_stats["min"]]
+    state_maximum = [float(value) for value in state_stats["max"]]
     try:
+        if args.live_state:
+            live_state_values, live_state_diagnostic = read_torque_free_white_state(
+                args, state_names
+            )
+            live_state_tensor = torch.tensor(live_state_values, dtype=torch.float32)
+            live_state_diagnostic["within_training_min_max"] = dict(
+                zip(
+                    state_names,
+                    bounds_status(live_state_values, state_minimum, state_maximum),
+                    strict=True,
+                )
+            )
+
         if args.live_cameras:
             from act_episode_recorder import GeminiRGBSource, OpenCVRGBSource
 
@@ -167,6 +309,8 @@ def main() -> int:
             if missing:
                 raise RuntimeError(f"dataset frame is missing policy inputs: {missing}")
             observation = {key: frame[key].unsqueeze(0) for key in OBSERVATION_KEYS}
+            if live_state_tensor is not None:
+                observation["observation.state"] = live_state_tensor.unsqueeze(0)
             if live_samples is not None:
                 observation["observation.images.gemini_rgb"] = rgb_to_policy_tensor(
                     live_samples[0].rgb
@@ -236,9 +380,17 @@ def main() -> int:
         "status": "PASS",
         "hardware_access": {
             "cameras": args.live_cameras,
-            "serial_or_motors": False,
+            "serial_read_only": args.live_state,
+            "torque_enabled": False,
+            "motion_command_sent": False,
         },
-        "input_mode": "live_cameras_recorded_state" if args.live_cameras else "recorded",
+        "input_mode": (
+            "live_cameras_live_state"
+            if args.live_state
+            else "live_cameras_recorded_state"
+            if args.live_cameras
+            else "recorded"
+        ),
         "device": str(device),
         "torch": torch.__version__,
         "policy_type": config.type,
@@ -256,6 +408,7 @@ def main() -> int:
             ),
         },
         "samples": samples,
+        "live_state_diagnostic": live_state_diagnostic,
     }
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
