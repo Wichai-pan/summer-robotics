@@ -30,7 +30,7 @@ Robotics Nation 主办的 3 个月具身智能机器人挑战赛。平台：**XL
 - Orbbec Gemini 335 —— 深度相机
 - Anker SOLIX C300X —— 电源
 
-> 当前状态：机器人全部 USB 已迁移到 Jetson，GPU 容器、Gemini RGB-D、两只手腕相机、控制板稳定识别和跨进程硬件锁均已验证；11 条固定场景示教已训练 ACT，checkpoint 已在 Jetson CUDA 上通过录制帧和实时双相机的无电机推理门槛。真实机器人 rollout 尚未开放。见 [实验记录 08](docs/08-jetson-migration-log.md)、[实验记录 09](docs/09-leader-follower-wrap-safe-log.md) 与 [实验记录 10](docs/10-act-training-and-jetson-inference-log.md)。
+> 当前状态：机器人全部 USB 已迁移到 Jetson，GPU 容器、Gemini RGB-D、两只手腕相机、控制板稳定识别和跨进程硬件锁均已验证；11 条固定场景示教已训练 ACT，checkpoint 已在 Jetson CUDA 上完成真实抓取、短距离搬运和放置。重复试验仍不稳定，下一步加入夹爪电流/负载与腕部视觉构成的抓取反馈监督器。见 [实验记录 08](docs/08-jetson-migration-log.md)、[实验记录 09](docs/09-leader-follower-wrap-safe-log.md)、[实验记录 10](docs/10-act-training-and-jetson-inference-log.md) 与 [实验记录 11](docs/11-act-grasp-feedback-log.md)。
 
 ## 算力架构（三段，别混）
 
@@ -54,13 +54,13 @@ bash scripts/bootstrap_external.sh
 
 ## 当前阶段 & 下一步
 
-平台上手期。已完成相机、双臂、底盘、实时深度检查点，以及安全监督式的 LLM 目标接近闭环；Gemini RGB-D 对浅蓝桌面物体定位和黑臂人工抓取也已分别验证。下一阶段转向相机到机械臂标定、遥操作数据采集与抓取策略训练。
+固定场景 ACT 已完成从数据采集、Roihu 训练、Jetson CUDA 推理到真实抓取/搬运/放置的端到端链路，但四次重复试验只有一次部分成功。当前重点从“链路是否能运行”转向“如何可靠判断已经夹住”。
 
-1. 规划抓取窄任务，确认物体、放置区、相机视角和评价标准
-2. 使用双臂遥操作采集一小段抓取示范数据
-3. 在 V100 训练 ACT 基线并部署回本地/Jetson 测试
+1. 标定白臂夹爪空抓、实抓和滑落时的位置、电流与负载
+2. 用腕部相机完成抬升后的抓取视觉确认，并嵌入 ACT rollout
+3. 限制单轮重试次数，再补录干净示范并评估是否重新训练 ACT
 
-近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md) · [06 RGB-D 抓取准备](docs/06-rgbd-grasp-bringup.md) · [07 Jetson 机载部署](docs/07-jetson-deployment.md) · [08 迁移总日志](docs/08-jetson-migration-log.md) · [09 主从臂与腕部跨圈](docs/09-leader-follower-wrap-safe-log.md) · [10 ACT 训练与 Jetson 推理](docs/10-act-training-and-jetson-inference-log.md)
+近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md) · [06 RGB-D 抓取准备](docs/06-rgbd-grasp-bringup.md) · [07 Jetson 机载部署](docs/07-jetson-deployment.md) · [08 迁移总日志](docs/08-jetson-migration-log.md) · [09 主从臂与腕部跨圈](docs/09-leader-follower-wrap-safe-log.md) · [10 ACT 训练与 Jetson 推理](docs/10-act-training-and-jetson-inference-log.md) · [11 ACT 重复抓取与反馈分析](docs/11-act-grasp-feedback-log.md)
 
 > 业务场景（养老 / 桌面整理 / 垃圾分拣 / 药品识别提醒…）暂不锁定。先把闭环跑通，**换场景 = 换数据**。打法：窄任务 + 稳 demo + 硬付费方 + 营销视频。
 

@@ -13,13 +13,14 @@
 
 ## Current Focus
 
-- Use the black arm as a torque-free leader and the white arm as a follower for ACT/VLA demonstration collection.
+- Improve the fixed-scene ACT grasp by adding deterministic grasp-success feedback around the current policy.
+- Use gripper position/current/load plus the white-wrist RGB stream to distinguish grasp, empty close, slip and jam before allowing transport.
 - Keep all robot USB ownership and execution on the onboard Jetson.
 - Keep GitHub `main` as the code source of truth; treat `/robot-data/tmp` only as an experiment area.
 
 ## Latest Verified Server State
 
-- Verified: 2026-08-10
+- Verified: 2026-08-11
 - Host/user: `jetsonl7-desktop` / `jetsonl7`
 - Network: Wi-Fi `192.168.0.48`; `.local` hostname is normally available on the same LAN.
 - Platform: Jetson Orin Nano Super, Ubuntu 22.04.5, L4T 36.4.4, aarch64.
@@ -69,6 +70,16 @@
   Jetson and produced a finite six-dimensional action. No serial/motor device
   was mapped. This test deliberately reused a recorded state vector and was
   not a physical rollout.
+- ACT physical rollout: matching the recorded 30°/s arm and 60 units/s gripper
+  rates produced the first real face-cream pick, short transport and place.
+- ACT repeatability: four controlled 30-second trials produced 0/4 strict
+  successes, 1/4 partial success and 3/4 failures. All four executors completed
+  600/600 steps without a hardware or inference abort.
+- ACT long diagnostic: one 45-second run completed 900/900 steps but repeated
+  approach/close/retract cycles and ended in another grasp pose. More rollout
+  time does not supply the missing grasp-success signal.
+- ACT trial logs: timestamped raw logs are under
+  `/home/jetsonl7/robot-data/logs`; code, data and model remain separated.
 
 ## Open Issues
 
@@ -90,15 +101,19 @@
   can use different numeric branches around the 0/4095 wrap. Do not feed the
   JSON wrist value directly into ACT; reconstruct state using the same mode and
   branch semantics as the recorder.
+- The current ACT observation does not include `Present_Load` or
+  `Present_Current`. Wrist RGB can suggest whether the jar is present, but the
+  checkpoint has no explicit contact or success signal and may restart the
+  grasp after an unsuccessful partial return.
 
 ## Next Step
 
-1. Add a torque-free white-arm state reader that reproduces the recorder's
-   wrist branch semantics; combine it with live cameras for a no-motion test.
-2. Add per-joint training-range clamps, rate/step limits, stale-frame stops,
-   hardware locking and an on-site dead-man confirmation to the ACT executor.
-3. Run a torque-enabled hold-only test, then a bounded one-step test from the
-   fixed folded pose; do not start a continuous rollout first.
-4. Expand the dataset after reviewing the first bounded physical behavior;
-   11 highly similar episodes are enough for a pipeline smoke test, not robust
-   generalization.
+1. Measure white-gripper position, velocity, load and current for open, empty
+   close, correct jar grasp and slip/jam cases without changing torque limits.
+2. Define and validate a deterministic contact threshold on repeated samples.
+3. Add a grasp supervisor around ACT: verify contact, lift 3–5 cm, confirm with
+   white-wrist RGB, hold on success and permit at most 1–2 retries on failure.
+4. Stop one trial after one completed attempt/return transition instead of
+   extending rollout time into repeated grasp cycles.
+5. After the supervisor is stable, collect additional clean demonstrations and
+   decide whether load/current should become learned observation features.

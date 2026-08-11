@@ -66,3 +66,21 @@
 - Only operator-approved complete episodes enter LeRobotDataset. Failed or
   interrupted trials go to a separate ledger, and every accepted episode must
   finalize and reopen successfully.
+
+## 2026-08-11 — Deterministic grasp feedback around ACT
+
+- Do not treat a longer rollout as a grasp-success mechanism. A 45-second
+  physical diagnostic repeated approach/close/retract cycles because the
+  current checkpoint has no explicit success or termination state.
+- Keep ACT responsible for visual motion generation, but put the contact and
+  success decision in a deterministic supervisor for the next MVP iteration.
+- Calibrate the supervisor from the real white gripper using position,
+  velocity, load and current in open, empty-close, correct-grasp and slip/jam
+  cases. Do not raise torque limits before measuring these baselines.
+- After contact, lift only 3–5 cm and use the white-wrist camera to verify that
+  the target remains between the fingers and moves with the gripper.
+- On verified success, hold the close command and permit transport. On failure,
+  reopen and permit at most 1–2 retries. On jam or overload, stop immediately.
+- Keep the current ACT checkpoint unchanged during this first supervisor
+  validation. Adding load/current to learned observations requires a new data
+  schema, new demonstrations and retraining.
