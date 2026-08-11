@@ -101,7 +101,7 @@ def state_values(state: dict[str, float], names: list[str]) -> list[float]:
     """Order joint values according to the checkpoint's state feature names."""
     values = []
     for name in names:
-        joint = name.removesuffix(".pos")
+        joint = name[:-4] if name.endswith(".pos") else name
         if joint not in state:
             raise ValueError(f"live state is missing joint {joint!r}")
         values.append(float(state[joint]))
