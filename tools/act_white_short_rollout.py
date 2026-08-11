@@ -92,6 +92,26 @@ def action_dict(names: list[str], values: list[float]) -> dict[str, float]:
     return dict(zip(names, values, strict=True))
 
 
+def clamp_position_to_total_envelope(
+    command: dict[str, float],
+    start: dict[str, float],
+    arm_limit: float,
+    gripper_limit: float,
+) -> tuple[dict[str, float], list[str]]:
+    """Ensure even the final transmitted command stays inside total travel."""
+    result = {}
+    clamped = []
+    for joint in POSITION_JOINTS:
+        limit = gripper_limit if joint == "gripper" else arm_limit
+        lower = start[joint] - limit
+        upper = start[joint] + limit
+        value = max(lower, min(upper, command[joint]))
+        result[joint] = value
+        if value != command[joint]:
+            clamped.append(joint)
+    return result, clamped
+
+
 def main() -> int:
     args = parse_args()
     positive = (
@@ -344,6 +364,17 @@ def main() -> int:
             position_command = {
                 joint: command[f"{joint}.pos"] for joint in POSITION_JOINTS
             }
+            position_command, total_envelope_clamps = (
+                clamp_position_to_total_envelope(
+                    position_command,
+                    start_state,
+                    args.max_total_arm_travel_deg,
+                    args.max_total_gripper_travel,
+                )
+            )
+            for joint in total_envelope_clamps:
+                command[f"{joint}.pos"] = position_command[joint]
+                reasons.setdefault(f"{joint}.pos", []).append("total_travel")
             wrist_speed = command["wrist_roll.vel_deg_s"]
             wrist_velocity_raw = velocity_command_raw(
                 wrist_speed,
