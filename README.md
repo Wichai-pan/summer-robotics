@@ -60,7 +60,7 @@ bash scripts/bootstrap_external.sh
 2. 用腕部相机完成抬升后的抓取视觉确认，并嵌入 ACT rollout
 3. 限制单轮重试次数，再补录干净示范并评估是否重新训练 ACT
 
-近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md) · [06 RGB-D 抓取准备](docs/06-rgbd-grasp-bringup.md) · [07 Jetson 机载部署](docs/07-jetson-deployment.md) · [08 迁移总日志](docs/08-jetson-migration-log.md) · [09 主从臂与腕部跨圈](docs/09-leader-follower-wrap-safe-log.md) · [10 ACT 训练与 Jetson 推理](docs/10-act-training-and-jetson-inference-log.md) · [11 ACT 重复抓取与反馈分析](docs/11-act-grasp-feedback-log.md)
+近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md) · [06 RGB-D 抓取准备](docs/06-rgbd-grasp-bringup.md) · [07 Jetson 机载部署](docs/07-jetson-deployment.md) · [08 迁移总日志](docs/08-jetson-migration-log.md) · [09 主从臂与腕部跨圈](docs/09-leader-follower-wrap-safe-log.md) · [10 ACT 训练与 Jetson 推理](docs/10-act-training-and-jetson-inference-log.md) · [11 ACT 重复抓取与反馈分析](docs/11-act-grasp-feedback-log.md) · [SLAM 路线与当前记录](docs/slam/README.md)
 
 > 业务场景（养老 / 桌面整理 / 垃圾分拣 / 药品识别提醒…）暂不锁定。先把闭环跑通，**换场景 = 换数据**。打法：窄任务 + 稳 demo + 硬付费方 + 营销视频。
 
