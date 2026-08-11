@@ -65,6 +65,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-total-arm-travel-deg", type=float, default=12.0)
     parser.add_argument("--max-total-gripper-travel", type=float, default=24.0)
     parser.add_argument("--tracking-error-deg", type=float, default=4.0)
+    parser.add_argument("--tracking-error-gripper", type=float, default=8.0)
     parser.add_argument("--execute", action="store_true")
     return parser.parse_args()
 
@@ -112,6 +113,60 @@ def clamp_position_to_total_envelope(
     return result, clamped
 
 
+def rollout_guarded_action(
+    predicted: list[float],
+    action_names: list[str],
+    action_minimum: list[float],
+    action_maximum: list[float],
+    previous_command: dict[str, float],
+    feedback: dict[str, float],
+    arm_step: float,
+    gripper_step: float,
+    wrist_speed_limit: float,
+    arm_tracking_limit: float,
+    gripper_tracking_limit: float,
+) -> tuple[dict[str, float], dict[str, list[str]]]:
+    """Guard a chunk action using the command-slew semantics used in recording."""
+    raw = action_dict(action_names, predicted)
+    result: dict[str, float] = {}
+    reasons: dict[str, list[str]] = {}
+    for name, lower, upper in zip(
+        action_names, action_minimum, action_maximum, strict=True
+    ):
+        requested = raw[name]
+        guarded = max(lower, min(upper, requested))
+        changes: list[str] = []
+        if guarded != requested:
+            changes.append("training_range")
+        if name == "wrist_roll.vel_deg_s":
+            limited = max(-wrist_speed_limit, min(wrist_speed_limit, guarded))
+            if limited != guarded:
+                changes.append("wrist_speed")
+            guarded = limited
+        else:
+            joint = name.removesuffix(".pos")
+            step = gripper_step if joint == "gripper" else arm_step
+            tracking = (
+                gripper_tracking_limit if joint == "gripper" else arm_tracking_limit
+            )
+            slewed = previous_command[joint] + max(
+                -step, min(step, guarded - previous_command[joint])
+            )
+            if slewed != guarded:
+                changes.append("command_slew")
+            feedback_bounded = max(
+                feedback[joint] - tracking,
+                min(feedback[joint] + tracking, slewed),
+            )
+            if feedback_bounded != slewed:
+                changes.append("tracking_envelope")
+            guarded = feedback_bounded
+        result[name] = guarded
+        if changes:
+            reasons[name] = changes
+    return result, reasons
+
+
 def main() -> int:
     args = parse_args()
     positive = (
@@ -126,6 +181,7 @@ def main() -> int:
         args.max_total_arm_travel_deg,
         args.max_total_gripper_travel,
         args.tracking_error_deg,
+        args.tracking_error_gripper,
     )
     if args.steps <= 0 or any(
         not math.isfinite(value) or value <= 0 for value in positive
@@ -140,7 +196,6 @@ def main() -> int:
 
     from act_checkpoint_dry_run import (
         clamp_live_state_to_training_range,
-        guarded_action,
         positions_from_single_raw_sync,
         rgb_to_policy_tensor,
         state_values,
@@ -297,16 +352,18 @@ def main() -> int:
             return [float(value) for value in predicted.squeeze(0).cpu().tolist()]
 
         first_predicted = next_policy_action(initial_observation)
-        first_guarded, first_reasons = guarded_action(
+        first_guarded, first_reasons = rollout_guarded_action(
             first_predicted,
             action_names,
             action_minimum,
             action_maximum,
-            state_values(start_state, state_names),
-            state_names,
+            {joint: start_state[joint] for joint in POSITION_JOINTS},
+            start_state,
             args.max_arm_step_deg,
             args.max_gripper_step,
             args.max_wrist_speed_deg_s,
+            args.tracking_error_deg,
+            args.tracking_error_gripper,
         )
         print("ACT 短 rollout 已准备；目前仍为松扭矩。")
         print(
@@ -318,7 +375,7 @@ def main() -> int:
                     "n_action_steps": int(config.n_action_steps),
                     "start_state": start_state,
                     "first_predicted": action_dict(action_names, first_predicted),
-                    "first_guarded": action_dict(action_names, first_guarded),
+                    "first_guarded": first_guarded,
                     "first_guard_reasons": first_reasons,
                 },
                 indent=2,
@@ -349,18 +406,19 @@ def main() -> int:
                 if step_index == 0
                 else next_policy_action(observation_from_live(current_state))
             )
-            guarded, reasons = guarded_action(
+            command, reasons = rollout_guarded_action(
                 predicted,
                 action_names,
                 action_minimum,
                 action_maximum,
-                state_values(current_state, state_names),
-                state_names,
+                last_command,
+                current_state,
                 args.max_arm_step_deg,
                 args.max_gripper_step,
                 args.max_wrist_speed_deg_s,
+                args.tracking_error_deg,
+                args.tracking_error_gripper,
             )
-            command = action_dict(action_names, guarded)
             position_command = {
                 joint: command[f"{joint}.pos"] for joint in POSITION_JOINTS
             }
@@ -412,10 +470,14 @@ def main() -> int:
                 maximum_tracking_error[joint] = max(
                     maximum_tracking_error[joint], error
                 )
-                if joint != "gripper" and error > args.tracking_error_deg:
+                limit = (
+                    args.tracking_error_gripper
+                    if joint == "gripper"
+                    else args.tracking_error_deg
+                )
+                if error > limit + 1e-6:
                     raise RuntimeError(
-                        f"tracking error {error:.1f}° on {joint} exceeds "
-                        f"{args.tracking_error_deg:.1f}°"
+                        f"tracking error {error:.1f} on {joint} exceeds {limit:.1f}"
                     )
             trace.append(
                 {
