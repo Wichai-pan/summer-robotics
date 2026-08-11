@@ -188,18 +188,25 @@ def clamp_live_state_to_training_range(
     minimum: list[float],
     maximum: list[float],
     tolerance: float,
+    names: list[str] | None = None,
 ) -> tuple[list[float], list[float]]:
     """Allow tiny encoder jitter outside the corpus, but reject a wrong branch."""
     if not (len(values) == len(minimum) == len(maximum)):
         raise ValueError("state vectors must have equal length")
     clamped = []
     outside = []
-    for value, lower, upper in zip(values, minimum, maximum):
+    labels = names if names is not None else [f"state[{i}]" for i in range(len(values))]
+    if len(labels) != len(values):
+        raise ValueError("state names and values must have equal length")
+    for value, lower, upper, label in zip(
+        values, minimum, maximum, labels, strict=True
+    ):
         distance = max(lower - value, value - upper, 0.0)
         if distance > tolerance:
             raise ValueError(
-                f"live state is {distance:.3f} outside training range, "
-                f"exceeding tolerance {tolerance:.3f}"
+                f"{label} live value {value:.3f} is {distance:.3f} outside "
+                f"training range [{lower:.3f}, {upper:.3f}], exceeding "
+                f"tolerance {tolerance:.3f}"
             )
         outside.append(distance)
         clamped.append(max(lower, min(upper, value)))
@@ -431,6 +438,7 @@ def main() -> int:
                     state_minimum,
                     state_maximum,
                     args.max_state_range_tolerance,
+                    state_names,
                 )
             )
             live_state_tensor = torch.tensor(model_state_values, dtype=torch.float32)

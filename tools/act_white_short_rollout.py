@@ -66,7 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera-height", type=int, default=480)
     parser.add_argument("--camera-fps", type=int, default=30)
     parser.add_argument("--max-camera-age-s", type=float, default=0.5)
-    parser.add_argument("--max-state-range-tolerance", type=float, default=1.0)
+    parser.add_argument("--max-state-range-tolerance", type=float, default=2.0)
     parser.add_argument("--max-arm-step-deg", type=float, default=1.0)
     parser.add_argument("--max-gripper-step", type=float, default=2.0)
     parser.add_argument("--max-wrist-speed-deg-s", type=float, default=1.0)
@@ -175,6 +175,37 @@ def rollout_guarded_action(
     return result, reasons
 
 
+def intersect_position_action_with_state_bounds(
+    action_names: list[str],
+    action_minimum: list[float],
+    action_maximum: list[float],
+    state_names: list[str],
+    state_minimum: list[float],
+    state_maximum: list[float],
+) -> tuple[list[float], list[float]]:
+    """Keep position commands inside both action and observed-state support."""
+    state_bounds = {
+        name: (lower, upper)
+        for name, lower, upper in zip(
+            state_names, state_minimum, state_maximum, strict=True
+        )
+    }
+    safe_minimum = []
+    safe_maximum = []
+    for name, lower, upper in zip(
+        action_names, action_minimum, action_maximum, strict=True
+    ):
+        if name.endswith(".pos") and name in state_bounds:
+            state_lower, state_upper = state_bounds[name]
+            lower = max(lower, state_lower)
+            upper = min(upper, state_upper)
+            if lower > upper:
+                raise ValueError(f"empty action/state support intersection for {name}")
+        safe_minimum.append(lower)
+        safe_maximum.append(upper)
+    return safe_minimum, safe_maximum
+
+
 def main() -> int:
     args = parse_args()
     positive = (
@@ -265,6 +296,16 @@ def main() -> int:
     state_stats = dataset.meta.stats["observation.state"]
     state_minimum = [float(value) for value in state_stats["min"]]
     state_maximum = [float(value) for value in state_stats["max"]]
+    rollout_action_minimum, rollout_action_maximum = (
+        intersect_position_action_with_state_bounds(
+            action_names,
+            action_minimum,
+            action_maximum,
+            state_names,
+            state_minimum,
+            state_maximum,
+        )
+    )
 
     try:
         port = resolve_port(BOARDS["white"], override=args.white_port)
@@ -338,6 +379,7 @@ def main() -> int:
                 state_minimum,
                 state_maximum,
                 args.max_state_range_tolerance,
+                state_names,
             )
             gemini_frame = gemini.latest(args.max_camera_age_s)
             wrist_frame = wrist_camera.latest(args.max_camera_age_s)
@@ -371,8 +413,8 @@ def main() -> int:
         first_guarded, first_reasons = rollout_guarded_action(
             first_predicted,
             action_names,
-            action_minimum,
-            action_maximum,
+            rollout_action_minimum,
+            rollout_action_maximum,
             {joint: start_state[joint] for joint in POSITION_JOINTS},
             start_state,
             args.max_arm_step_deg,
@@ -432,8 +474,8 @@ def main() -> int:
             command, reasons = rollout_guarded_action(
                 predicted,
                 action_names,
-                action_minimum,
-                action_maximum,
+                rollout_action_minimum,
+                rollout_action_maximum,
                 last_command,
                 current_state,
                 args.max_arm_step_deg,

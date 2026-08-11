@@ -3,6 +3,7 @@ import pytest
 from act_white_short_rollout import (
     action_dict,
     clamp_position_to_total_envelope,
+    intersect_position_action_with_state_bounds,
     rollout_guarded_action,
     total_travel_violations,
 )
@@ -100,3 +101,16 @@ def test_rollout_guard_slews_command_and_bounds_feedback_error() -> None:
     assert reasons == {
         "elbow_flex.pos": ["command_slew", "tracking_envelope"]
     }
+
+
+def test_position_action_bounds_intersect_observed_state_support() -> None:
+    minimum, maximum = intersect_position_action_with_state_bounds(
+        action_names=["shoulder_lift.pos", "wrist_roll.vel_deg_s"],
+        action_minimum=[-30.0, -8.0],
+        action_maximum=[30.0, 8.0],
+        state_names=["shoulder_lift.pos", "wrist_roll.pos"],
+        state_minimum=[-15.0, 20.0],
+        state_maximum=[25.0, 40.0],
+    )
+    assert minimum == [-15.0, -8.0]
+    assert maximum == [25.0, 8.0]
