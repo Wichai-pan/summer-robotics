@@ -67,6 +67,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera-fps", type=int, default=30)
     parser.add_argument("--max-camera-age-s", type=float, default=0.5)
     parser.add_argument("--max-state-range-tolerance", type=float, default=2.0)
+    parser.add_argument("--max-wrist-state-range-tolerance", type=float, default=8.0)
+    parser.add_argument("--wrist-support-margin-deg", type=float, default=0.75)
+    parser.add_argument("--wrist-support-recovery-deg-s", type=float, default=0.5)
     parser.add_argument("--max-arm-step-deg", type=float, default=1.0)
     parser.add_argument("--max-gripper-step", type=float, default=2.0)
     parser.add_argument("--max-wrist-speed-deg-s", type=float, default=1.0)
@@ -206,6 +209,55 @@ def intersect_position_action_with_state_bounds(
     return safe_minimum, safe_maximum
 
 
+def clamp_rollout_live_state(
+    values: list[float],
+    minimum: list[float],
+    maximum: list[float],
+    names: list[str],
+    default_tolerance: float,
+    wrist_tolerance: float,
+) -> tuple[list[float], list[float]]:
+    """Clamp model input while giving the cyclic wrist its own recovery window."""
+    if not (len(values) == len(minimum) == len(maximum) == len(names)):
+        raise ValueError("state vectors and names must have equal length")
+    clamped: list[float] = []
+    outside: list[float] = []
+    for value, lower, upper, name in zip(
+        values, minimum, maximum, names, strict=True
+    ):
+        distance = max(lower - value, value - upper, 0.0)
+        tolerance = wrist_tolerance if name == "wrist_roll.pos" else default_tolerance
+        if distance > tolerance:
+            raise ValueError(
+                f"{name} live value {value:.3f} is {distance:.3f} outside "
+                f"training range [{lower:.3f}, {upper:.3f}], exceeding "
+                f"tolerance {tolerance:.3f}"
+            )
+        outside.append(distance)
+        clamped.append(max(lower, min(upper, value)))
+    return clamped, outside
+
+
+def keep_wrist_velocity_inside_state_support(
+    requested_speed: float,
+    current_position: float,
+    lower: float,
+    upper: float,
+    margin: float,
+    recovery_speed: float,
+) -> tuple[float, str | None]:
+    """Prevent velocity-mode wrist drift from leaving observed training support."""
+    if current_position < lower:
+        return max(requested_speed, recovery_speed), "wrist_support_recovery"
+    if current_position > upper:
+        return min(requested_speed, -recovery_speed), "wrist_support_recovery"
+    if current_position <= lower + margin and requested_speed < 0.0:
+        return 0.0, "wrist_support_margin"
+    if current_position >= upper - margin and requested_speed > 0.0:
+        return 0.0, "wrist_support_margin"
+    return requested_speed, None
+
+
 def summarize_policy_chunks(
     trace: list[dict[str, object]],
     n_action_steps: int,
@@ -258,6 +310,9 @@ def main() -> int:
         args.folded_gripper_tolerance,
         args.max_camera_age_s,
         args.max_state_range_tolerance,
+        args.max_wrist_state_range_tolerance,
+        args.wrist_support_margin_deg,
+        args.wrist_support_recovery_deg_s,
         args.max_arm_step_deg,
         args.max_gripper_step,
         args.max_wrist_speed_deg_s,
@@ -270,6 +325,8 @@ def main() -> int:
         not math.isfinite(value) or value <= 0 for value in positive
     ):
         raise SystemExit("steps, rates and safety limits must be positive")
+    if args.wrist_support_recovery_deg_s > args.max_wrist_speed_deg_s:
+        raise SystemExit("wrist recovery speed cannot exceed the wrist speed limit")
     if not args.checkpoint.is_dir() or not args.dataset_root.is_dir():
         raise SystemExit("checkpoint and dataset root must exist")
     if args.device.startswith("cuda") and not torch.cuda.is_available():
@@ -278,7 +335,6 @@ def main() -> int:
         raise SystemExit("interactive TTY required for --execute")
 
     from act_checkpoint_dry_run import (
-        clamp_live_state_to_training_range,
         positions_from_single_raw_sync,
         rgb_to_policy_tensor,
         state_values,
@@ -338,6 +394,11 @@ def main() -> int:
     state_stats = dataset.meta.stats["observation.state"]
     state_minimum = [float(value) for value in state_stats["min"]]
     state_maximum = [float(value) for value in state_stats["max"]]
+    wrist_state_index = state_names.index("wrist_roll.pos")
+    wrist_state_lower = state_minimum[wrist_state_index]
+    wrist_state_upper = state_maximum[wrist_state_index]
+    if args.wrist_support_margin_deg * 2 >= wrist_state_upper - wrist_state_lower:
+        raise SystemExit("wrist support margin leaves no usable training interval")
     rollout_action_minimum, rollout_action_maximum = (
         intersect_position_action_with_state_bounds(
             action_names,
@@ -416,12 +477,13 @@ def main() -> int:
 
         def observation_from_live(current_state: dict[str, float]) -> dict[str, torch.Tensor]:
             values = state_values(current_state, state_names)
-            model_values, _ = clamp_live_state_to_training_range(
+            model_values, _ = clamp_rollout_live_state(
                 values,
                 state_minimum,
                 state_maximum,
-                args.max_state_range_tolerance,
                 state_names,
+                args.max_state_range_tolerance,
+                args.max_wrist_state_range_tolerance,
             )
             gemini_frame = gemini.latest(args.max_camera_age_s)
             wrist_frame = wrist_camera.latest(args.max_camera_age_s)
@@ -544,6 +606,19 @@ def main() -> int:
                 command[f"{joint}.pos"] = position_command[joint]
                 reasons.setdefault(f"{joint}.pos", []).append("total_travel")
             wrist_speed = command["wrist_roll.vel_deg_s"]
+            wrist_speed, wrist_support_reason = keep_wrist_velocity_inside_state_support(
+                wrist_speed,
+                current_state[WRIST],
+                wrist_state_lower,
+                wrist_state_upper,
+                args.wrist_support_margin_deg,
+                args.wrist_support_recovery_deg_s,
+            )
+            if wrist_support_reason is not None:
+                command["wrist_roll.vel_deg_s"] = wrist_speed
+                reasons.setdefault("wrist_roll.vel_deg_s", []).append(
+                    wrist_support_reason
+                )
             wrist_velocity_raw = velocity_command_raw(
                 wrist_speed,
                 gain=1.0,

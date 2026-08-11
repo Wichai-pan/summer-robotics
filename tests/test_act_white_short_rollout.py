@@ -3,7 +3,9 @@ import pytest
 from act_white_short_rollout import (
     action_dict,
     clamp_position_to_total_envelope,
+    clamp_rollout_live_state,
     intersect_position_action_with_state_bounds,
+    keep_wrist_velocity_inside_state_support,
     rollout_guarded_action,
     summarize_policy_chunks,
     total_travel_violations,
@@ -153,3 +155,38 @@ def test_chunk_summary_uses_next_chunk_state_as_boundary() -> None:
     assert summaries[0]["state_delta"]["elbow_flex"] == -2.0
     assert summaries[0]["guard_reason_counts"] == {"command_slew": 1}
     assert summaries[1]["end_state"]["elbow_flex"] == 6.0
+
+
+def test_wrist_state_has_separate_recovery_tolerance() -> None:
+    clamped, outside = clamp_rollout_live_state(
+        values=[-1.0, 24.4],
+        minimum=[-2.0, 26.6],
+        maximum=[2.0, 32.7],
+        names=["elbow_flex.pos", "wrist_roll.pos"],
+        default_tolerance=2.0,
+        wrist_tolerance=8.0,
+    )
+    assert clamped == [-1.0, 26.6]
+    assert outside[1] == pytest.approx(2.2)
+
+    with pytest.raises(ValueError, match="elbow_flex.pos"):
+        clamp_rollout_live_state(
+            values=[-4.1, 30.0],
+            minimum=[-2.0, 26.6],
+            maximum=[2.0, 32.7],
+            names=["elbow_flex.pos", "wrist_roll.pos"],
+            default_tolerance=2.0,
+            wrist_tolerance=8.0,
+        )
+
+
+def test_wrist_support_guard_blocks_outward_motion_and_recovers() -> None:
+    assert keep_wrist_velocity_inside_state_support(
+        -0.2, 24.4, 26.6, 32.7, 0.75, 0.5
+    ) == (0.5, "wrist_support_recovery")
+    assert keep_wrist_velocity_inside_state_support(
+        -0.2, 26.8, 26.6, 32.7, 0.75, 0.5
+    ) == (0.0, "wrist_support_margin")
+    assert keep_wrist_velocity_inside_state_support(
+        0.2, 30.0, 26.6, 32.7, 0.75, 0.5
+    ) == (0.2, None)
