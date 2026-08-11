@@ -60,6 +60,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--folded-tolerance-deg", type=float, default=8.0)
     parser.add_argument("--folded-gripper-tolerance", type=float, default=10.0)
+    parser.add_argument(
+        "--preview-guarded-action",
+        action="store_true",
+        help="print a range/rate-limited action from live state; still sends nothing",
+    )
+    parser.add_argument("--max-arm-step-deg", type=float, default=1.0)
+    parser.add_argument("--max-gripper-step", type=float, default=2.0)
+    parser.add_argument("--max-wrist-speed-deg-s", type=float, default=1.0)
     return parser.parse_args()
 
 
@@ -106,6 +114,63 @@ def state_values(state: dict[str, float], names: list[str]) -> list[float]:
             raise ValueError(f"live state is missing joint {joint!r}")
         values.append(float(state[joint]))
     return values
+
+
+def guarded_action(
+    predicted: list[float],
+    action_names: list[str],
+    action_minimum: list[float],
+    action_maximum: list[float],
+    live_state: list[float],
+    state_names: list[str],
+    max_arm_step_deg: float,
+    max_gripper_step: float,
+    max_wrist_speed_deg_s: float,
+) -> tuple[list[float], dict[str, list[str]]]:
+    """Clamp policy output to training support and one bounded control step."""
+    if not (
+        len(predicted)
+        == len(action_names)
+        == len(action_minimum)
+        == len(action_maximum)
+    ):
+        raise ValueError("action vectors and action names must have equal length")
+    if len(state_names) != len(live_state):
+        raise ValueError("live state values and names must have equal length")
+    state_by_name = dict(zip(state_names, live_state))
+    result: list[float] = []
+    reasons: dict[str, list[str]] = {}
+    for value, name, lower, upper in zip(
+        predicted,
+        action_names,
+        action_minimum,
+        action_maximum,
+    ):
+        guarded = max(lower, min(upper, value))
+        changes: list[str] = []
+        if guarded != value:
+            changes.append("training_range")
+        if name == "wrist_roll.vel_deg_s":
+            limited = max(
+                -max_wrist_speed_deg_s,
+                min(max_wrist_speed_deg_s, guarded),
+            )
+            if limited != guarded:
+                changes.append("wrist_speed")
+            guarded = limited
+        elif name.endswith(".pos"):
+            if name not in state_by_name:
+                raise ValueError(f"no matching live state for action {name!r}")
+            step = max_gripper_step if name == "gripper.pos" else max_arm_step_deg
+            current = state_by_name[name]
+            limited = max(current - step, min(current + step, guarded))
+            if limited != guarded:
+                changes.append("single_step")
+            guarded = limited
+        result.append(guarded)
+        if changes:
+            reasons[name] = changes
+    return result, reasons
 
 
 def read_torque_free_white_state(
@@ -237,6 +302,14 @@ def main() -> int:
         raise SystemExit("--live-state requires exactly one reference frame index")
     if args.live_state and not args.live_cameras:
         raise SystemExit("--live-state must be paired with --live-cameras")
+    if args.preview_guarded_action and not args.live_state:
+        raise SystemExit("--preview-guarded-action requires --live-state")
+    if min(
+        args.max_arm_step_deg,
+        args.max_gripper_step,
+        args.max_wrist_speed_deg_s,
+    ) <= 0:
+        raise SystemExit("guard step and speed limits must be positive")
 
     config = PreTrainedConfig.from_pretrained(args.checkpoint)
     config.device = str(device)
@@ -344,6 +417,21 @@ def main() -> int:
             if not all(math.isfinite(value) for value in predicted_values):
                 raise RuntimeError(f"policy produced non-finite action: {predicted_values}")
             within_training_range = bounds_status(predicted_values, minimum, maximum)
+            guarded_values = None
+            guard_reasons = None
+            if args.preview_guarded_action:
+                assert live_state_values is not None
+                guarded_values, guard_reasons = guarded_action(
+                    predicted_values,
+                    action_names,
+                    minimum,
+                    maximum,
+                    live_state_values,
+                    state_names,
+                    args.max_arm_step_deg,
+                    args.max_gripper_step,
+                    args.max_wrist_speed_deg_s,
+                )
             errors = [abs(a - b) for a, b in zip(predicted_values, recorded_values)]
             absolute_errors.append(errors)
             for dimension, within in enumerate(within_training_range):
@@ -361,6 +449,12 @@ def main() -> int:
                     "within_training_min_max": dict(
                         zip(action_names, within_training_range, strict=True)
                     ),
+                    "guarded_action_no_command": (
+                        dict(zip(action_names, guarded_values, strict=True))
+                        if guarded_values is not None
+                        else None
+                    ),
+                    "guard_reasons": guard_reasons,
                 }
             )
     finally:
