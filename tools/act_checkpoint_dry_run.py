@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import time
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -68,6 +69,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-arm-step-deg", type=float, default=1.0)
     parser.add_argument("--max-gripper-step", type=float, default=2.0)
     parser.add_argument("--max-wrist-speed-deg-s", type=float, default=1.0)
+    parser.add_argument("--max-state-range-tolerance", type=float, default=1.0)
     return parser.parse_args()
 
 
@@ -173,6 +175,61 @@ def guarded_action(
     return result, reasons
 
 
+def clamp_live_state_to_training_range(
+    values: list[float],
+    minimum: list[float],
+    maximum: list[float],
+    tolerance: float,
+) -> tuple[list[float], list[float]]:
+    """Allow tiny encoder jitter outside the corpus, but reject a wrong branch."""
+    if not (len(values) == len(minimum) == len(maximum)):
+        raise ValueError("state vectors must have equal length")
+    clamped = []
+    outside = []
+    for value, lower, upper in zip(values, minimum, maximum):
+        distance = max(lower - value, value - upper, 0.0)
+        if distance > tolerance:
+            raise ValueError(
+                f"live state is {distance:.3f} outside training range, "
+                f"exceeding tolerance {tolerance:.3f}"
+            )
+        outside.append(distance)
+        clamped.append(max(lower, min(upper, value)))
+    return clamped, outside
+
+
+def wait_for_stable_wrist_raw(bus: object, timeout_s: float = 1.5) -> int:
+    """Wait until the velocity-mode position representation has settled."""
+    from black_leads_white_wrap_safe import raw_wrist
+
+    deadline = time.monotonic() + timeout_s
+    recent: list[int] = []
+    time.sleep(0.1)
+    while time.monotonic() < deadline:
+        recent.append(raw_wrist(bus))
+        recent = recent[-4:]
+        if len(recent) == 4 and max(recent) - min(recent) <= 2:
+            return int(round(sum(recent) / len(recent)))
+        time.sleep(0.05)
+    raise RuntimeError(f"wrist raw position did not stabilize after mode switch: {recent}")
+
+
+def positions_from_single_raw_sync(robot: object) -> tuple[dict[str, float], dict[str, int]]:
+    """Normalize one raw sync-read so wrist raw and angle cannot cross modes."""
+    raw_by_name = robot.bus.sync_read("Present_Position", normalize=False)
+    raw_by_id = {
+        robot.bus.motors[name].id: int(value) for name, value in raw_by_name.items()
+    }
+    # Use the pinned LeRobot bus calibration on this exact raw sample. Calling
+    # get_observation() would perform a second read that can straddle a mode switch.
+    normalized_by_id = robot.bus._normalize(raw_by_id)
+    normalized = {
+        name: float(normalized_by_id[robot.bus.motors[name].id])
+        for name in raw_by_name
+    }
+    return normalized, {name: int(value) for name, value in raw_by_name.items()}
+
+
 def read_torque_free_white_state(
     args: argparse.Namespace, state_names: list[str]
 ) -> tuple[list[float], dict[str, object]]:
@@ -189,6 +246,7 @@ def read_torque_free_white_state(
         load_folded_pose,
         positions,
         raw_wrist,
+        wrapped_tick_delta,
     )
     from portutil import BOARDS, PortResolutionError, resolve_port
 
@@ -242,8 +300,14 @@ def read_torque_free_white_state(
 
         configure_white_torque_free(robot)
         wrist_velocity_mode = True
-        recorder_branch_state = positions(robot.get_observation())
-        recorder_branch_wrist_raw = raw_wrist(robot.bus)
+        stable_wrist_raw = wait_for_stable_wrist_raw(robot.bus)
+        recorder_branch_state, recorder_raw_positions = positions_from_single_raw_sync(robot)
+        recorder_branch_wrist_raw = recorder_raw_positions[WRIST] % 4096
+        if abs(wrapped_tick_delta(recorder_branch_wrist_raw, stable_wrist_raw)) > 3:
+            raise RuntimeError(
+                "wrist raw changed between stabilization and synchronized state read: "
+                f"{stable_wrist_raw} -> {recorder_branch_wrist_raw}"
+            )
         return state_values(recorder_branch_state, state_names), {
             "port": port,
             "robot_id": args.white_id,
@@ -251,6 +315,7 @@ def read_torque_free_white_state(
             "motion_command_sent": False,
             "position_mode_wrist_raw": position_mode_wrist_raw,
             "recorder_branch_wrist_raw": recorder_branch_wrist_raw,
+            "stable_wrist_raw": stable_wrist_raw,
             "position_mode_state": position_mode_state,
             "recorder_branch_state": recorder_branch_state,
         }
@@ -308,6 +373,7 @@ def main() -> int:
         args.max_arm_step_deg,
         args.max_gripper_step,
         args.max_wrist_speed_deg_s,
+        args.max_state_range_tolerance,
     ) <= 0:
         raise SystemExit("guard step and speed limits must be positive")
 
@@ -349,7 +415,21 @@ def main() -> int:
             live_state_values, live_state_diagnostic = read_torque_free_white_state(
                 args, state_names
             )
-            live_state_tensor = torch.tensor(live_state_values, dtype=torch.float32)
+            model_state_values, state_outside_distance = (
+                clamp_live_state_to_training_range(
+                    live_state_values,
+                    state_minimum,
+                    state_maximum,
+                    args.max_state_range_tolerance,
+                )
+            )
+            live_state_tensor = torch.tensor(model_state_values, dtype=torch.float32)
+            live_state_diagnostic["model_input_state"] = dict(
+                zip(state_names, model_state_values, strict=True)
+            )
+            live_state_diagnostic["outside_training_range_distance"] = dict(
+                zip(state_names, state_outside_distance, strict=True)
+            )
             live_state_diagnostic["within_training_min_max"] = dict(
                 zip(
                     state_names,

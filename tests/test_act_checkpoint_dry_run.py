@@ -3,6 +3,7 @@ import pytest
 
 from act_checkpoint_dry_run import (
     bounds_status,
+    clamp_live_state_to_training_range,
     guarded_action,
     parse_frame_indices,
     rgb_to_policy_tensor,
@@ -53,3 +54,15 @@ def test_guarded_action_limits_training_range_and_step() -> None:
         "wrist_roll.vel_deg_s": ["wrist_speed"],
         "gripper.pos": ["single_step"],
     }
+
+
+def test_live_state_clamp_allows_jitter_but_rejects_wrong_branch() -> None:
+    values, outside = clamp_live_state_to_training_range(
+        [0.0, 31.0], [0.5, 26.0], [10.0, 33.0], tolerance=1.0
+    )
+    assert values == [0.5, 31.0]
+    assert outside == [0.5, 0.0]
+    with pytest.raises(ValueError, match="exceeding tolerance"):
+        clamp_live_state_to_training_range(
+            [177.0], [26.0], [33.0], tolerance=1.0
+        )
