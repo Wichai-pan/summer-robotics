@@ -5,6 +5,7 @@ from act_white_short_rollout import (
     clamp_position_to_total_envelope,
     intersect_position_action_with_state_bounds,
     rollout_guarded_action,
+    summarize_policy_chunks,
     total_travel_violations,
 )
 
@@ -114,3 +115,41 @@ def test_position_action_bounds_intersect_observed_state_support() -> None:
     )
     assert minimum == [-15.0, -8.0]
     assert maximum == [25.0, 8.0]
+
+
+def test_chunk_summary_uses_next_chunk_state_as_boundary() -> None:
+    def record(step: int, elbow: float, guarded: bool = False) -> dict:
+        state = {
+            "shoulder_pan": 0.0,
+            "shoulder_lift": 0.0,
+            "elbow_flex": elbow,
+            "wrist_flex": 0.0,
+            "wrist_roll": 0.0,
+            "gripper": 0.0,
+        }
+        return {
+            "step": step,
+            "state": state,
+            "predicted": {"elbow_flex.pos": elbow - 1.0},
+            "command": {"elbow_flex.pos": elbow - 0.5},
+            "guard_reasons": (
+                {"elbow_flex.pos": ["command_slew"]} if guarded else {}
+            ),
+        }
+
+    trace = [
+        record(0, 10.0, guarded=True),
+        record(1, 9.0),
+        record(2, 8.0),
+        record(3, 7.0),
+    ]
+    final_state = dict(trace[-1]["state"])
+    final_state["elbow_flex"] = 6.0
+    summaries = summarize_policy_chunks(trace, 2, final_state)
+
+    assert len(summaries) == 2
+    assert summaries[0]["steps"] == [0, 1]
+    assert summaries[0]["end_state"]["elbow_flex"] == 8.0
+    assert summaries[0]["state_delta"]["elbow_flex"] == -2.0
+    assert summaries[0]["guard_reason_counts"] == {"command_slew": 1}
+    assert summaries[1]["end_state"]["elbow_flex"] == 6.0

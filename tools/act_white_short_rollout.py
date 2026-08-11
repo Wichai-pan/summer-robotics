@@ -206,6 +206,50 @@ def intersect_position_action_with_state_bounds(
     return safe_minimum, safe_maximum
 
 
+def summarize_policy_chunks(
+    trace: list[dict[str, object]],
+    n_action_steps: int,
+    final_state: dict[str, float],
+) -> list[dict[str, object]]:
+    """Summarize each ACT replan window without changing rollout behavior."""
+    if n_action_steps <= 0:
+        raise ValueError("n_action_steps must be positive")
+    summaries: list[dict[str, object]] = []
+    state_joints = (*POSITION_JOINTS, WRIST)
+    for chunk_index, start in enumerate(range(0, len(trace), n_action_steps)):
+        stop = min(start + n_action_steps, len(trace))
+        records = trace[start:stop]
+        start_state = records[0]["state"]
+        end_state = trace[stop]["state"] if stop < len(trace) else final_state
+        guard_reason_counts: dict[str, int] = {}
+        guarded_steps = 0
+        for record in records:
+            reasons = record["guard_reasons"]
+            if reasons:
+                guarded_steps += 1
+            for action_reasons in reasons.values():
+                for reason in action_reasons:
+                    guard_reason_counts[reason] = guard_reason_counts.get(reason, 0) + 1
+        summaries.append(
+            {
+                "chunk_index": chunk_index,
+                "steps": [start, stop - 1],
+                "start_state": start_state,
+                "end_state": end_state,
+                "state_delta": {
+                    joint: end_state[joint] - start_state[joint]
+                    for joint in state_joints
+                },
+                "first_predicted": records[0]["predicted"],
+                "first_command": records[0]["command"],
+                "last_command": records[-1]["command"],
+                "guarded_steps": guarded_steps,
+                "guard_reason_counts": guard_reason_counts,
+            }
+        )
+    return summaries
+
+
 def main() -> int:
     args = parse_args()
     positive = (
@@ -549,6 +593,7 @@ def main() -> int:
                 {
                     "step": step_index,
                     "state": current_state,
+                    "predicted": action_dict(action_names, predicted),
                     "command": command,
                     "guard_reasons": reasons,
                 }
@@ -570,6 +615,11 @@ def main() -> int:
                 f"{joint}={delta:+.1f}" for joint, delta in final_violations.items()
             )
             raise RuntimeError(f"final rollout travel limit exceeded: {detail}")
+        chunk_summaries = summarize_policy_chunks(
+            trace,
+            int(config.n_action_steps),
+            final_state,
+        )
         print(
             json.dumps(
                 {
@@ -584,6 +634,7 @@ def main() -> int:
                         final_raw[WRIST] % 4096, start_wrist_raw
                     )
                     * DEG_PER_TICK,
+                    "chunk_summaries": chunk_summaries,
                     "trace_first": trace[0],
                     "trace_last": trace[-1],
                 },
