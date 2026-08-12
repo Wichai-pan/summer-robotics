@@ -37,7 +37,7 @@ three signals hold:
 - current > 15 raw.
 
 After 0.3 seconds of continuous evidence, latch contact and replace further
-closing commands by `contact_position - 1.25`. ACT continues to control all
+closing commands by `contact_position - 0.5`. ACT continues to control all
 arm joints. A later ACT gripper request >= 20 for 0.2 seconds is interpreted as
 deliberate release and clears the latch. A latch lasting over 15 seconds aborts rather
 than holding indefinitely.
@@ -61,7 +61,7 @@ cleanup.
 - A collision with the table can produce load/current like a grasp. Position
   plus later lift/vision confirmation is needed to distinguish it.
 - Too small a hold offset may slip; too large an offset may overload. The first
-  trial uses the conservative 1.25 normalized-unit default.
+  trial uses the conservative 0.5 normalized-unit default.
 - If ACT never requests release, the 15 second hold timeout aborts.
 - Serial reads may reduce loop rate; logs must show whether the 20 Hz control
   loop remains practical.

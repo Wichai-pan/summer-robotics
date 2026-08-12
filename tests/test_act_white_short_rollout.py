@@ -19,7 +19,7 @@ def test_gripper_supervisor_latches_contact_holds_then_releases() -> None:
         minimum_load_percent=15.0,
         minimum_current_raw=15,
         confirmation_s=0.3,
-        hold_offset=1.25,
+        hold_offset=0.5,
         release_position=20.0,
         release_confirmation_s=0.2,
         maximum_hold_s=15.0,
@@ -42,7 +42,7 @@ def test_gripper_supervisor_latches_contact_holds_then_releases() -> None:
         current_raw=33,
     )
     assert latched["event"] == "contact_latched"
-    assert latched["guarded_position"] == pytest.approx(7.95)
+    assert latched["guarded_position"] == pytest.approx(8.7)
     held = supervisor.update(
         now_s=1.0,
         present_position=9.0,
@@ -52,7 +52,7 @@ def test_gripper_supervisor_latches_contact_holds_then_releases() -> None:
         current_raw=30,
     )
     assert held["guard_reason"] == "grasp_contact_hold"
-    assert held["guarded_position"] == pytest.approx(7.95)
+    assert held["guarded_position"] == pytest.approx(8.7)
     release_candidate = supervisor.update(
         now_s=2.0,
         present_position=9.0,
@@ -73,7 +73,7 @@ def test_gripper_supervisor_latches_contact_holds_then_releases() -> None:
     )
     assert released["event"] == "contact_released"
     assert released["latched"] is False
-    assert released["guarded_position"] == 10.0
+    assert released["guarded_position"] == 12.0
 
 
 def test_gripper_supervisor_rejects_empty_close_baseline() -> None:
@@ -82,7 +82,7 @@ def test_gripper_supervisor_rejects_empty_close_baseline() -> None:
         minimum_load_percent=15.0,
         minimum_current_raw=15,
         confirmation_s=0.3,
-        hold_offset=1.25,
+        hold_offset=0.5,
         release_position=20.0,
         release_confirmation_s=0.2,
         maximum_hold_s=15.0,

@@ -94,7 +94,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--grasp-contact-load-percent", type=float, default=15.0)
     parser.add_argument("--grasp-contact-current-raw", type=int, default=15)
     parser.add_argument("--grasp-contact-confirm-s", type=float, default=0.3)
-    parser.add_argument("--grasp-hold-offset", type=float, default=1.25)
+    parser.add_argument("--grasp-hold-offset", type=float, default=0.5)
     parser.add_argument("--grasp-release-position", type=float, default=20.0)
     parser.add_argument("--grasp-release-confirm-s", type=float, default=0.2)
     parser.add_argument("--grasp-max-hold-s", type=float, default=15.0)
