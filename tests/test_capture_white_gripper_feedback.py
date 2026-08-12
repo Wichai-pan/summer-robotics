@@ -1,10 +1,19 @@
 import pytest
 
 from capture_white_gripper_feedback import (
+    LABEL_TARGETS,
     converted_feedback,
     slew_value,
     summarize_samples,
 )
+
+
+def test_physical_white_gripper_direction_matches_field_observation() -> None:
+    assert LABEL_TARGETS["open"] == 60.0
+    assert LABEL_TARGETS["empty_close"] == 5.0
+    assert LABEL_TARGETS["grasp"] == 5.0
+    assert LABEL_TARGETS["slip"] == 5.0
+    assert LABEL_TARGETS["open"] > LABEL_TARGETS["empty_close"]
 
 
 def test_feedback_unit_conversions_preserve_sign_where_applicable() -> None:

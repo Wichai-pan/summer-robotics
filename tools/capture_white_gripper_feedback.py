@@ -22,10 +22,13 @@ from pathlib import Path
 
 GRIPPER = "gripper"
 LABEL_TARGETS = {
-    "open": 5.0,
-    "empty_close": 60.0,
-    "grasp": 60.0,
-    "slip": 60.0,
+    # Verified on the physical white gripper on 2026-08-12: larger normalized
+    # values open the fingers and smaller values close them. These are LeRobot
+    # normalized positions, not motor angles.
+    "open": 60.0,
+    "empty_close": 5.0,
+    "grasp": 5.0,
+    "slip": 5.0,
 }
 LABEL_INSTRUCTIONS = {
     "open": "两指之间保持完全清空；夹爪应处于张开状态。",
@@ -377,7 +380,7 @@ def main() -> int:
         robot.bus.write("Goal_Position", GRIPPER, final_raw, normalize=False, num_retry=2)
         print()
         payload = {
-            "schema": "forestbridge_white_gripper_feedback/v1",
+            "schema": "forestbridge_white_gripper_feedback/v2",
             "label": args.label,
             "operator_note": args.note,
             "started_at_utc": started_at.isoformat(),
@@ -391,6 +394,12 @@ def main() -> int:
                 "controller_registers": controller_registers,
                 "torque_limits_changed": False,
                 "target_normalized": target,
+                "physical_direction": (
+                    "open" if args.label == "open" else "close"
+                ),
+                "normalized_position_semantics": (
+                    "larger opens; smaller closes; value is not an angle"
+                ),
                 "speed_per_s": args.speed_per_s,
                 "hold_s": args.hold_s,
             },
