@@ -93,6 +93,7 @@ run_logged \
   --max-total-arm-travel-deg 100 \
   --max-total-elbow-travel-deg 130 \
   --max-total-gripper-travel 60 \
+  --grasp-supervisor \
   --execute
 
 echo

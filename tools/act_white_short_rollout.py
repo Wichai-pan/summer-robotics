@@ -82,8 +82,168 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-total-gripper-travel", type=float, default=24.0)
     parser.add_argument("--tracking-error-deg", type=float, default=4.0)
     parser.add_argument("--tracking-error-gripper", type=float, default=8.0)
+    parser.add_argument(
+        "--grasp-supervisor",
+        action="store_true",
+        help=(
+            "use gripper position/load/current as a side-channel contact guard; "
+            "does not change the ACT observation vector"
+        ),
+    )
+    parser.add_argument("--grasp-contact-min-position", type=float, default=7.0)
+    parser.add_argument("--grasp-contact-load-percent", type=float, default=15.0)
+    parser.add_argument("--grasp-contact-current-raw", type=int, default=15)
+    parser.add_argument("--grasp-contact-confirm-s", type=float, default=0.3)
+    parser.add_argument("--grasp-hold-offset", type=float, default=1.25)
+    parser.add_argument("--grasp-release-position", type=float, default=20.0)
+    parser.add_argument("--grasp-release-confirm-s", type=float, default=0.2)
+    parser.add_argument("--grasp-max-hold-s", type=float, default=15.0)
+    parser.add_argument("--grasp-max-temperature-c", type=float, default=60.0)
     parser.add_argument("--execute", action="store_true")
     return parser.parse_args()
+
+
+class GripperContactSupervisor:
+    """Latch physical contact and replace further closing with a gentle hold.
+
+    The physical white gripper was verified on 2026-08-12: larger normalized
+    positions open the fingers and smaller positions close them.  A contact is
+    therefore only considered while the requested position is below feedback.
+    """
+
+    def __init__(
+        self,
+        *,
+        minimum_position: float,
+        minimum_load_percent: float,
+        minimum_current_raw: int,
+        confirmation_s: float,
+        hold_offset: float,
+        release_position: float,
+        release_confirmation_s: float,
+        maximum_hold_s: float,
+    ) -> None:
+        self.minimum_position = minimum_position
+        self.minimum_load_percent = minimum_load_percent
+        self.minimum_current_raw = minimum_current_raw
+        self.confirmation_s = confirmation_s
+        self.hold_offset = hold_offset
+        self.release_position = release_position
+        self.release_confirmation_s = release_confirmation_s
+        self.maximum_hold_s = maximum_hold_s
+        self.candidate_since: float | None = None
+        self.latched_at: float | None = None
+        self.contact_position: float | None = None
+        self.hold_target: float | None = None
+        self.release_candidate_since: float | None = None
+
+    @property
+    def latched(self) -> bool:
+        return self.latched_at is not None
+
+    def update(
+        self,
+        *,
+        now_s: float,
+        present_position: float,
+        requested_position: float,
+        policy_requested_position: float,
+        load_raw: int,
+        current_raw: int,
+    ) -> dict[str, object]:
+        load_percent = abs(load_raw) / 10.0
+        closing = (
+            requested_position < present_position - 0.25
+            and policy_requested_position < present_position - 0.25
+        )
+        contact_signal = (
+            closing
+            and present_position > self.minimum_position
+            and load_percent >= self.minimum_load_percent
+            and current_raw >= self.minimum_current_raw
+        )
+        event: str | None = None
+
+        if not self.latched:
+            if contact_signal:
+                if self.candidate_since is None:
+                    self.candidate_since = now_s
+                if now_s - self.candidate_since >= self.confirmation_s:
+                    self.latched_at = now_s
+                    self.contact_position = present_position
+                    self.hold_target = max(0.0, present_position - self.hold_offset)
+                    event = "contact_latched"
+            else:
+                self.candidate_since = None
+
+        guarded_position = requested_position
+        guard_reason: str | None = None
+        if self.latched:
+            assert self.latched_at is not None
+            assert self.hold_target is not None
+            if now_s - self.latched_at > self.maximum_hold_s:
+                raise RuntimeError(
+                    f"gripper contact hold exceeded {self.maximum_hold_s:.1f}s"
+                )
+            if policy_requested_position >= self.release_position:
+                if self.release_candidate_since is None:
+                    self.release_candidate_since = now_s
+                if (
+                    now_s - self.release_candidate_since
+                    >= self.release_confirmation_s
+                ):
+                    self.candidate_since = None
+                    self.latched_at = None
+                    self.contact_position = None
+                    self.hold_target = None
+                    self.release_candidate_since = None
+                    event = "contact_released"
+                else:
+                    guarded_position = self.hold_target
+                    guard_reason = "grasp_contact_hold"
+            else:
+                self.release_candidate_since = None
+                guarded_position = self.hold_target
+                guard_reason = "grasp_contact_hold"
+
+        return {
+            "requested_position": requested_position,
+            "policy_requested_position": policy_requested_position,
+            "guarded_position": guarded_position,
+            "present_position": present_position,
+            "load_raw": load_raw,
+            "load_abs_percent": load_percent,
+            "current_raw": current_raw,
+            "closing": closing,
+            "contact_signal": contact_signal,
+            "latched": self.latched,
+            "contact_position": self.contact_position,
+            "hold_target": self.hold_target,
+            "release_candidate": self.release_candidate_since is not None,
+            "event": event,
+            "guard_reason": guard_reason,
+        }
+
+
+def read_gripper_side_channel(bus: object, *, health: bool) -> dict[str, int | None]:
+    result: dict[str, int | None] = {
+        "load_raw": int(
+            bus.read("Present_Load", "gripper", normalize=False, num_retry=2)
+        ),
+        "current_raw": int(
+            bus.read("Present_Current", "gripper", normalize=False, num_retry=2)
+        ),
+        "temperature_c": None,
+        "status_raw": None,
+    }
+    if health:
+        result["temperature_c"] = int(
+            bus.read("Present_Temperature", "gripper", normalize=False, num_retry=2)
+        )
+        result["status_raw"] = int(
+            bus.read("Status", "gripper", normalize=False, num_retry=2)
+        )
+    return result
 
 
 def total_travel_violations(
@@ -337,6 +497,14 @@ def main() -> int:
         args.max_total_gripper_travel,
         args.tracking_error_deg,
         args.tracking_error_gripper,
+        args.grasp_contact_min_position,
+        args.grasp_contact_load_percent,
+        args.grasp_contact_confirm_s,
+        args.grasp_hold_offset,
+        args.grasp_release_position,
+        args.grasp_release_confirm_s,
+        args.grasp_max_hold_s,
+        args.grasp_max_temperature_c,
     )
     if args.steps <= 0 or any(
         not math.isfinite(value) or value <= 0 for value in positive
@@ -344,6 +512,10 @@ def main() -> int:
         raise SystemExit("steps, rates and safety limits must be positive")
     if args.wrist_support_recovery_deg_s > args.max_wrist_speed_deg_s:
         raise SystemExit("wrist recovery speed cannot exceed the wrist speed limit")
+    if args.grasp_contact_current_raw < 0:
+        raise SystemExit("grasp contact current threshold cannot be negative")
+    if args.grasp_release_position <= args.grasp_contact_min_position:
+        raise SystemExit("grasp release position must exceed contact position threshold")
     if args.max_total_elbow_travel_deg is not None and (
         not math.isfinite(args.max_total_elbow_travel_deg)
         or args.max_total_elbow_travel_deg <= 0
@@ -492,6 +664,25 @@ def main() -> int:
         seed_position_goals_from_feedback(robot)
         start_state, start_raw = positions_from_single_raw_sync(robot)
         start_wrist_raw = start_raw[WRIST] % 4096
+        initial_gripper_health: dict[str, int | None] | None = None
+        if args.grasp_supervisor:
+            initial_gripper_health = read_gripper_side_channel(
+                robot.bus, health=True
+            )
+            if initial_gripper_health["status_raw"] != 0:
+                raise RuntimeError(
+                    "gripper status register is nonzero before rollout "
+                    f"({initial_gripper_health['status_raw']})"
+                )
+            if (
+                initial_gripper_health["temperature_c"] is not None
+                and initial_gripper_health["temperature_c"]
+                >= args.grasp_max_temperature_c
+            ):
+                raise RuntimeError(
+                    "gripper temperature is already "
+                    f"{initial_gripper_health['temperature_c']}°C"
+                )
 
         gemini.start()
         wrist_camera.start()
@@ -578,6 +769,18 @@ def main() -> int:
                     "first_predicted": action_dict(action_names, first_predicted),
                     "first_guarded": first_guarded,
                     "first_guard_reasons": first_reasons,
+                    "grasp_supervisor": {
+                        "enabled": args.grasp_supervisor,
+                        "minimum_position": args.grasp_contact_min_position,
+                        "minimum_load_percent": args.grasp_contact_load_percent,
+                        "minimum_current_raw": args.grasp_contact_current_raw,
+                        "confirmation_s": args.grasp_contact_confirm_s,
+                        "hold_offset": args.grasp_hold_offset,
+                        "release_position": args.grasp_release_position,
+                        "release_confirmation_s": args.grasp_release_confirm_s,
+                        "maximum_hold_s": args.grasp_max_hold_s,
+                        "initial_health": initial_gripper_health,
+                    },
                 },
                 indent=2,
                 ensure_ascii=False,
@@ -599,8 +802,23 @@ def main() -> int:
         robot.bus.enable_torque(WRIST)
         period = 1.0 / args.fps
         trace = []
+        grasp_supervisor = (
+            GripperContactSupervisor(
+                minimum_position=args.grasp_contact_min_position,
+                minimum_load_percent=args.grasp_contact_load_percent,
+                minimum_current_raw=args.grasp_contact_current_raw,
+                confirmation_s=args.grasp_contact_confirm_s,
+                hold_offset=args.grasp_hold_offset,
+                release_position=args.grasp_release_position,
+                release_confirmation_s=args.grasp_release_confirm_s,
+                maximum_hold_s=args.grasp_max_hold_s,
+            )
+            if args.grasp_supervisor
+            else None
+        )
         last_command = {joint: start_state[joint] for joint in POSITION_JOINTS}
         maximum_tracking_error = {joint: 0.0 for joint in POSITION_JOINTS}
+        grasp_event_counts = {"contact_latched": 0, "contact_released": 0}
         for step_index in range(args.steps):
             loop_started = time.monotonic()
             current_state, current_raw = positions_from_single_raw_sync(robot)
@@ -637,6 +855,55 @@ def main() -> int:
             for joint in total_envelope_clamps:
                 command[f"{joint}.pos"] = position_command[joint]
                 reasons.setdefault(f"{joint}.pos", []).append("total_travel")
+            gripper_side_channel: dict[str, int | None] | None = None
+            grasp_supervisor_state: dict[str, object] | None = None
+            if grasp_supervisor is not None:
+                gripper_side_channel = read_gripper_side_channel(
+                    robot.bus,
+                    health=step_index % max(1, int(args.fps)) == 0,
+                )
+                if (
+                    gripper_side_channel["temperature_c"] is not None
+                    and gripper_side_channel["temperature_c"]
+                    >= args.grasp_max_temperature_c
+                ):
+                    raise RuntimeError(
+                        "gripper temperature reached "
+                        f"{gripper_side_channel['temperature_c']}°C"
+                    )
+                if gripper_side_channel["status_raw"] not in (None, 0):
+                    raise RuntimeError(
+                        "gripper status register became nonzero "
+                        f"({gripper_side_channel['status_raw']})"
+                    )
+                grasp_supervisor_state = grasp_supervisor.update(
+                    now_s=time.monotonic(),
+                    present_position=current_state["gripper"],
+                    requested_position=position_command["gripper"],
+                    policy_requested_position=action_dict(
+                        action_names, predicted
+                    )["gripper.pos"],
+                    load_raw=int(gripper_side_channel["load_raw"]),
+                    current_raw=int(gripper_side_channel["current_raw"]),
+                )
+                position_command["gripper"] = float(
+                    grasp_supervisor_state["guarded_position"]
+                )
+                command["gripper.pos"] = position_command["gripper"]
+                if grasp_supervisor_state["guard_reason"] is not None:
+                    reasons.setdefault("gripper.pos", []).append(
+                        str(grasp_supervisor_state["guard_reason"])
+                    )
+                if grasp_supervisor_state["event"] is not None:
+                    grasp_event_counts[str(grasp_supervisor_state["event"])] += 1
+                    print(
+                        "\nGRASP_CONTACT_"
+                        + str(grasp_supervisor_state["event"])
+                        .removeprefix("contact_")
+                        .upper()
+                        + " "
+                        + json.dumps(grasp_supervisor_state, ensure_ascii=False)
+                    )
             wrist_speed = command["wrist_roll.vel_deg_s"]
             wrist_speed, wrist_support_reason = keep_wrist_velocity_inside_state_support(
                 wrist_speed,
@@ -706,6 +973,8 @@ def main() -> int:
                     "predicted": action_dict(action_names, predicted),
                     "command": command,
                     "guard_reasons": reasons,
+                    "gripper_side_channel": gripper_side_channel,
+                    "grasp_supervisor": grasp_supervisor_state,
                 }
             )
             sleep_s = period - (time.monotonic() - loop_started)
@@ -748,6 +1017,20 @@ def main() -> int:
                     )
                     * DEG_PER_TICK,
                     "chunk_summaries": chunk_summaries,
+                    "grasp_supervisor_summary": {
+                        "enabled": grasp_supervisor is not None,
+                        "event_counts": grasp_event_counts,
+                        "latched_at_end": (
+                            grasp_supervisor.latched
+                            if grasp_supervisor is not None
+                            else False
+                        ),
+                        "contact_position_at_end": (
+                            grasp_supervisor.contact_position
+                            if grasp_supervisor is not None
+                            else None
+                        ),
+                    },
                     "trace_first": trace[0],
                     "trace_last": trace[-1],
                 },
