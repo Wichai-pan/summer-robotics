@@ -62,8 +62,9 @@ cd /home/jetsonl7/summer-robotics-deploy
 ```
 
 该模式只把仓库只读挂入一次性 SLAM 容器，不映射 `/data`、Gemini、控制板，
-也不获取硬件锁。它验证 ROS 包、`OdomInfo.lost` 字段、采集器 dry-run、指标
-工具和最终 `rgbd_odometry` 参数；RTAB-Map 节点会在无输入状态下探针运行 3 秒。
+也不获取硬件锁。它使用独立的 ROS domain，验证 ROS 包、`OdomInfo` 字段、采集器
+dry-run、指标工具和最终 `rgbd_odometry` 参数；RTAB-Map 节点会在无输入状态下
+探针运行 3 秒。
 
 未来获批的真实静止测试：
 
@@ -92,17 +93,21 @@ cd /home/jetsonl7/summer-robotics-deploy
 - `rtabmap-rgbd-odometry.log`；
 - `nodes.txt`、topic publisher/subscriber 信息；
 - `tf-topic-info.txt`、`tf-static-topic-info.txt` 及各自的一帧样本。
+- `tf-odom-camera-link.txt`：`tf2_echo` 实测的 `odom -> camera_link` 链。
+
+采集开始前先写入 `INCOMPLETE` 报告；正常分析会覆盖它。采集或分析失败时仍保留
+机器可读的 `INCOMPLETE`/`FAIL` 报告，不能打印 PASS。
 
 第一轮门槛：
 
 | 指标 | 门槛 |
 | --- | ---: |
-| 有效时长 | 至少命令时长的 80% |
-| odometry 平均频率 | >= 5 Hz |
-| 最大时间戳间隔 | <= 0.5 s |
-| 最大单调接收间隔 | <= 0.5 s |
+| 消息与实际接收时长 | 均至少达到命令时长的 80% |
+| odometry 消息与接收频率 | 均 >= 5 Hz |
+| odometry/OdomInfo 最大消息间隔 | <= 0.5 s |
+| odometry/OdomInfo 最大单调接收间隔 | <= 0.5 s |
 | `OdomInfo` | 持续存在，>= 5 Hz |
-| frame contract | `odom -> camera_link` |
+| frame/TF contract | Odometry header 和 `tf2_echo` 均为 `odom -> camera_link` |
 | TF ownership | `/tf` 仅由 `rgbd_odometry` 发布；`/tf_static` 仅由 `camera` 发布 |
 | 最大平移偏移 | <= 0.020 m |
 | 最大旋转偏移 | <= 1.0 deg |
@@ -115,8 +120,8 @@ cd /home/jetsonl7/summer-robotics-deploy
 2026-08-12 已完成：
 
 - Python 编译通过；
-- 七组纯指标测试通过：稳定轨迹、漂移/丢失、消息时间戳断档、odometry 接收
-  停顿、`OdomInfo` 接收停顿、`OdomInfo`/frame 契约缺失、四元数符号；
+- 九组纯指标测试通过：稳定轨迹、漂移/丢失、odometry/OdomInfo 消息时间戳断档、
+  odometry/OdomInfo 接收停顿、压缩接收窗口、`OdomInfo`/frame 契约缺失、四元数符号；
 - 两个 shell 脚本 `bash -n` 通过；
 - 目标 Jetson SLAM 镜像内的 3 秒 RTAB-Map 参数探针通过；
 - dry-run 结束后无容器残留，全局硬件锁为空。

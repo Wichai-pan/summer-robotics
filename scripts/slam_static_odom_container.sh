@@ -55,6 +55,7 @@ odom_command=(
 
 if [[ "$dry_run" == true ]]; then
   ros2 pkg prefix rtabmap_odom >/dev/null
+  ros2 pkg prefix tf2_ros >/dev/null
   interface_probe="$(mktemp)"
   ros2 interface show rtabmap_msgs/msg/OdomInfo >"$interface_probe"
   for required_field in \
@@ -103,6 +104,9 @@ odom_log="$output_dir/rtabmap-rgbd-odometry.log"
 samples_file="$output_dir/static-odom.jsonl"
 report_file="$output_dir/static-odom-report.json"
 process_pids=()
+printf '%s\n' \
+  '{"status":"INCOMPLETE","failures":["static odometry run did not finalize"]}' \
+  >"$report_file"
 
 stop_process_group() {
   local pid="$1"
@@ -193,18 +197,50 @@ grep -q 'Publisher count: 1' "$output_dir/tf-topic-info.txt"
 grep -q 'Node name: rgbd_odometry' "$output_dir/tf-topic-info.txt"
 grep -q 'Publisher count: 1' "$output_dir/tf-static-topic-info.txt"
 grep -q 'Node name: camera' "$output_dir/tf-static-topic-info.txt"
+grep -q 'Publisher count: 1' "$output_dir/odom-topic-info.txt"
+grep -q 'Node name: rgbd_odometry' "$output_dir/odom-topic-info.txt"
+grep -q 'Publisher count: 1' "$output_dir/odom-info-topic-info.txt"
+grep -q 'Node name: rgbd_odometry' "$output_dir/odom-info-topic-info.txt"
 timeout 10 ros2 topic echo --once /tf >"$output_dir/tf-sample.txt"
 timeout 10 ros2 topic echo --once /tf_static >"$output_dir/tf-static-sample.txt"
 
+set +e
+timeout --signal=INT --kill-after=1 5 \
+  ros2 run tf2_ros tf2_echo odom camera_link \
+  >"$output_dir/tf-odom-camera-link.txt" 2>&1
+tf_status=$?
+set -e
+if [[ $tf_status -ne 124 && $tf_status -ne 130 ]]; then
+  cat "$output_dir/tf-odom-camera-link.txt" >&2
+  exit "$tf_status"
+fi
+grep -q '^At time' "$output_dir/tf-odom-camera-link.txt"
+
+set +e
 python3 tools/capture_static_odom.py \
   --duration "$duration" \
   --output "$samples_file"
+capture_status=$?
+set -e
 
 kill -0 "$camera_pid"
 kill -0 "$odom_pid"
 minimum_duration=$(((duration * 8 + 9) / 10))
+upstream_failure=()
+if [[ $capture_status -ne 0 ]]; then
+  upstream_failure=(--upstream-failure "capture exited with status $capture_status")
+fi
+set +e
 python3 tools/slam_static_odom_metrics.py "$samples_file" \
   --output "$report_file" \
-  --minimum-duration-s "$minimum_duration"
+  --minimum-duration-s "$minimum_duration" \
+  "${upstream_failure[@]}"
+analysis_status=$?
+set -e
+
+if [[ $capture_status -ne 0 || $analysis_status -ne 0 ]]; then
+  echo "FAIL camera-only static RGB-D odometry; see $report_file" >&2
+  exit 1
+fi
 
 printf 'PASS camera-only static RGB-D odometry\nArtifacts: %s\n' "$output_dir"

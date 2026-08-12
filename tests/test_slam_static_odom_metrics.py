@@ -95,6 +95,28 @@ def test_quality_receive_stall_fails_when_message_stamps_look_continuous() -> No
     )
 
 
+def test_compressed_receive_window_fails_even_with_continuous_gaps() -> None:
+    records = synthetic_records(duration_s=6.0, rate_hz=10.0)
+    for record in records:
+        record["receive_monotonic_s"] = 100.0 + record["stamp_s"] * 0.1
+    report = analyze_records(records, Thresholds(minimum_duration_s=5.0))
+    assert report["status"] == "FAIL"
+    assert report["receive_duration_s"] == 0.6
+    assert report["odom_info_receive_duration_s"] == 0.6
+    assert any("receive duration" in failure for failure in report["failures"])
+
+
+def test_quality_message_timestamp_gap_fails() -> None:
+    records = synthetic_records(duration_s=6.0, rate_hz=10.0)
+    info = [record for record in records if record["type"] == "odom_info"]
+    for record in info[30:]:
+        record["stamp_s"] += 1.0
+    report = analyze_records(records, Thresholds(minimum_duration_s=5.0))
+    assert report["status"] == "FAIL"
+    assert report["maximum_odom_info_gap_s"] == 1.1
+    assert any("maximum odometry-info gap" in failure for failure in report["failures"])
+
+
 def test_missing_quality_stream_and_wrong_frames_fail() -> None:
     records = synthetic_records()
     odom = [record for record in records if record["type"] == "odom"]
