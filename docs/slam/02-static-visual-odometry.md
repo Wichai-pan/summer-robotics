@@ -94,6 +94,8 @@ dry-run、指标工具和最终 `rgbd_odometry` 参数；RTAB-Map 节点会在�
 - `nodes.txt`、topic publisher/subscriber 信息；
 - `tf-topic-info.txt`、`tf-static-topic-info.txt` 及各自的一帧样本。
 - `tf-odom-camera-link.txt`：`tf2_echo` 实测的 `odom -> camera_link` 链。
+- `ros-graph-contract.json` 与 `ros-graph-contract-post.json`：采集前后 topic
+  发布者集合与 TF 链的机器可读验收结果。
 
 采集开始前先写入 `INCOMPLETE` 报告；正常分析会覆盖它。采集或分析失败时仍保留
 机器可读的 `INCOMPLETE`/`FAIL` 报告，不能打印 PASS。
@@ -108,7 +110,7 @@ dry-run、指标工具和最终 `rgbd_odometry` 参数；RTAB-Map 节点会在�
 | odometry/OdomInfo 最大单调接收间隔 | <= 0.5 s |
 | `OdomInfo` | 持续存在，>= 5 Hz |
 | frame/TF contract | Odometry header 和 `tf2_echo` 均为 `odom -> camera_link` |
-| TF ownership | `/tf` 仅由 `rgbd_odometry` 发布；`/tf_static` 仅由 `camera` 发布 |
+| TF ownership | `/tf` 仅由 `camera` 与 `rgbd_odometry` 发布；`/tf_static` 仅由 `camera` 发布 |
 | 最大平移偏移 | <= 0.020 m |
 | 最大旋转偏移 | <= 1.0 deg |
 | tracking-loss transition | 0 |

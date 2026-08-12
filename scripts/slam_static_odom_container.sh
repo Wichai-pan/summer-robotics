@@ -71,6 +71,7 @@ if [[ "$dry_run" == true ]]; then
   rm -f "$interface_probe"
   python3 tools/capture_static_odom.py --duration "$duration" --dry-run
   python3 tools/slam_static_odom_metrics.py --help >/dev/null
+  python3 tools/slam_ros_graph_contract.py --help >/dev/null
   printf 'ODOM COMMAND:'
   printf ' %q' "${odom_command[@]}"
   printf '\n'
@@ -163,6 +164,42 @@ wait_for_topics() {
   return 1
 }
 
+capture_graph_contract() {
+  local suffix="$1"
+  local odom_info_file="$output_dir/odom-topic-info${suffix}.txt"
+  local quality_info_file="$output_dir/odom-info-topic-info${suffix}.txt"
+  local tf_info_file="$output_dir/tf-topic-info${suffix}.txt"
+  local tf_static_info_file="$output_dir/tf-static-topic-info${suffix}.txt"
+  local tf_chain_file="$output_dir/tf-odom-camera-link${suffix}.txt"
+  local contract_file="$output_dir/ros-graph-contract${suffix}.json"
+  local tf_status
+
+  ros2 topic info --verbose /rtabmap/odom >"$odom_info_file"
+  ros2 topic info --verbose /rtabmap/odom_info >"$quality_info_file"
+  ros2 topic info --verbose /tf >"$tf_info_file"
+  ros2 topic info --verbose /tf_static >"$tf_static_info_file"
+
+  set +e
+  timeout --signal=INT --kill-after=1 5 \
+    ros2 run tf2_ros tf2_echo odom camera_link \
+    >"$tf_chain_file" 2>&1
+  tf_status=$?
+  set -e
+  if [[ $tf_status -ne 124 && $tf_status -ne 130 ]]; then
+    cat "$tf_chain_file" >&2
+    echo "tf2_echo exited unexpectedly with status $tf_status" >&2
+    return 1
+  fi
+
+  python3 tools/slam_ros_graph_contract.py \
+    --odom-topic-info "$odom_info_file" \
+    --odom-info-topic-info "$quality_info_file" \
+    --tf-topic-info "$tf_info_file" \
+    --tf-static-topic-info "$tf_static_info_file" \
+    --tf-chain "$tf_chain_file" \
+    --output "$contract_file"
+}
+
 setsid ros2 launch orbbec_camera gemini_330_series.launch.py \
   enable_color:=true \
   enable_depth:=true \
@@ -189,32 +226,9 @@ process_pids+=("$odom_pid")
 
 wait_for_topics "$odom_pid" "$odom_log" /rtabmap/odom /rtabmap/odom_info
 ros2 node list | sort -u >"$output_dir/nodes.txt"
-ros2 topic info --verbose /rtabmap/odom >"$output_dir/odom-topic-info.txt"
-ros2 topic info --verbose /rtabmap/odom_info >"$output_dir/odom-info-topic-info.txt"
-ros2 topic info --verbose /tf >"$output_dir/tf-topic-info.txt"
-ros2 topic info --verbose /tf_static >"$output_dir/tf-static-topic-info.txt"
-grep -q 'Publisher count: 1' "$output_dir/tf-topic-info.txt"
-grep -q 'Node name: rgbd_odometry' "$output_dir/tf-topic-info.txt"
-grep -q 'Publisher count: 1' "$output_dir/tf-static-topic-info.txt"
-grep -q 'Node name: camera' "$output_dir/tf-static-topic-info.txt"
-grep -q 'Publisher count: 1' "$output_dir/odom-topic-info.txt"
-grep -q 'Node name: rgbd_odometry' "$output_dir/odom-topic-info.txt"
-grep -q 'Publisher count: 1' "$output_dir/odom-info-topic-info.txt"
-grep -q 'Node name: rgbd_odometry' "$output_dir/odom-info-topic-info.txt"
 timeout 10 ros2 topic echo --once /tf >"$output_dir/tf-sample.txt"
 timeout 10 ros2 topic echo --once /tf_static >"$output_dir/tf-static-sample.txt"
-
-set +e
-timeout --signal=INT --kill-after=1 5 \
-  ros2 run tf2_ros tf2_echo odom camera_link \
-  >"$output_dir/tf-odom-camera-link.txt" 2>&1
-tf_status=$?
-set -e
-if [[ $tf_status -ne 124 && $tf_status -ne 130 ]]; then
-  cat "$output_dir/tf-odom-camera-link.txt" >&2
-  exit "$tf_status"
-fi
-grep -q '^At time' "$output_dir/tf-odom-camera-link.txt"
+capture_graph_contract ""
 
 set +e
 python3 tools/capture_static_odom.py \
@@ -223,6 +237,7 @@ python3 tools/capture_static_odom.py \
 capture_status=$?
 set -e
 
+capture_graph_contract "-post"
 kill -0 "$camera_pid"
 kill -0 "$odom_pid"
 minimum_duration=$(((duration * 8 + 9) / 10))

@@ -1,0 +1,11 @@
+[INFO] [1786537258.000000000] [tf2_echo]: Waiting for transform odom -> camera_link: Invalid frame ID "odom" passed to canTransform argument target_frame - frame does not exist
+At time 1786537258.260540
+- Translation: [0.001, -0.002, 0.003]
+- Rotation: in Quaternion (xyzw) [0.000, 0.000, 0.000, 1.000]
+- Rotation: in RPY (radian) [0.000, -0.000, 0.000]
+- Rotation: in RPY (degree) [0.000, -0.000, 0.000]
+- Matrix:
+  1.000  0.000  0.000  0.001
+  0.000  1.000  0.000 -0.002
+  0.000  0.000  1.000  0.003
+  0.000  0.000  0.000  1.000
