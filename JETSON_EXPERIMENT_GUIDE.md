@@ -314,6 +314,15 @@ cd /home/jetsonl7/summer-robotics-deploy
 
 STS3215 安装 `homing_offset` 后，位置模式与速度模式的 `Present_Position` 数字表示会不同。工具会在松扭矩、零速度状态切换模式，实测每个轴的坐标偏移并同步转换目标；不要把这个数值跳变误认为云台真实旋转。最终复核仍在位置模式下使用保存的原始编码器值。
 
+手动记录左右/上下四个安全端点（程序不会命令云台运动）：
+
+```bash
+./scripts/jetson_robot_exec.sh --black --interactive -- \
+  python3 tools/calibrate_gemini_gimbal_limits.py
+```
+
+输入 `RECORD` 后，ID 7/8 会松扭矩。按提示把云台缓慢摆到左、右、上、下四个位置，每次按 Enter 记录编码器。结果保存在主机 `/home/jetsonl7/robot-data/config/gemini_gimbal_manual_limits_v1.json`，不会写舵机硬限位。完成后运行 `return --execute` 回到固定抓取视角。
+
 原始编码器读数是回归依据。界面显示的 `one-turn` 角度只是 `raw × 360/4096`，不是相对于地面或机器人坐标系标定过的世界 yaw/pitch 角。
 
 ## 8. 当前实验代码在哪里
