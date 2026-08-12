@@ -4,7 +4,9 @@
 # The dataset copy and all outputs stay on Roihu; this script is safe to commit.
 #SBATCH --job-name=xlerobot-act-v2-28ep
 #SBATCH --account=project_2016517
-#SBATCH --partition=gpumedium
+# gpumedium currently has a per-user submit limit of zero for this account.
+# gpularge provides the same GH200 GPU class and accepts this one-GPU job.
+#SBATCH --partition=gpularge
 #SBATCH --time=02:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
