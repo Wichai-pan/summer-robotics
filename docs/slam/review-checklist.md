@@ -91,14 +91,28 @@ find /home/jetsonl7/robot-data/slam/preflight \
 - `orbbec-camera.log` 没有 warning/error；
 - 退出后 `docker ps` 无 SLAM 容器，硬件锁可重新获取。
 
-以上项目只证明相机链路预检通过。关闭 Phase 1 前还必须记录：
+新版预检还会保存：
+
+- `nodes.txt`；
+- RGB / Depth 的 `*_info.txt`，且 `Publisher count` 必须为 1；
+- RGB / Depth / IMU 的 `*_hz.txt`；
+- `depth-scale-parameter.txt`。
+
+相机链路 QA 应记录：
 
 - 已知距离下的深度单位与误差；
 - RGB 与对齐 Depth 的时间戳差分布；
-- 一段固定时长内的实际帧率和掉帧；
+- 一段固定时长内的实际帧率、P95/最大间隔和掉帧；
 - ROS graph 中相机驱动节点唯一，没有重复 owner。
 
-缺少这些量化结果时，不得将 Phase 1 整体标为完成，也不得进入 Phase 2。
+2026-08-11 已关闭后三项；证据见
+`/home/jetsonl7/robot-data/slam/preflight/20260811T131318Z/` 和
+`20260811T172703Z/`。第一项目前只确认驱动启用深度缩放、默认精度为 1 mm，
+还必须用卷尺和已知距离平面完成物理准确度检查。
+
+现有结果足以进入 camera-only 静止视觉里程计。物理深度准确度和实测
+`base_link -> camera_link` 不阻塞静止诊断，但缺少时不得验收移动地图的米制
+结果，也不得进入导航或自主运动。
 
 ## 6. 必须阻止合并的情况
 

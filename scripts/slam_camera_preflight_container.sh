@@ -85,6 +85,39 @@ for topic in "${required_topics[@]}"; do
   timeout 15 ros2 topic echo --once "$topic" >"$output_dir/${safe_name}.txt"
 done
 
+ros2 node list | sort -u >"$output_dir/nodes.txt"
+for topic in /camera/color/image_raw /camera/depth/image_raw; do
+  safe_name="${topic//\//_}"
+  ros2 topic info --verbose "$topic" >"$output_dir/${safe_name}_info.txt"
+  grep -q 'Publisher count: 1' "$output_dir/${safe_name}_info.txt"
+done
+
+ros2 param get /camera/camera enable_depth_scale \
+  >"$output_dir/depth-scale-parameter.txt"
+ros2 param get /camera/camera depth_precision \
+  >>"$output_dir/depth-scale-parameter.txt"
+
+capture_rate() {
+  local topic="$1"
+  local safe_name="${topic//\//_}"
+  local status
+  set +e
+  timeout --signal=INT --kill-after=2 8 \
+    ros2 topic hz --window 300 "$topic" \
+    >"$output_dir/${safe_name}_hz.txt" 2>&1
+  status=$?
+  set -e
+  if [[ $status -ne 0 && $status -ne 124 && $status -ne 130 ]]; then
+    cat "$output_dir/${safe_name}_hz.txt" >&2
+    return "$status"
+  fi
+  grep -q 'average rate:' "$output_dir/${safe_name}_hz.txt"
+}
+
+capture_rate /camera/color/image_raw
+capture_rate /camera/depth/image_raw
+capture_rate /camera/gyro_accel/sample
+
 if (( record_seconds > 0 )); then
   set +e
   timeout --signal=INT --kill-after=5 "$record_seconds" \
