@@ -76,6 +76,12 @@ def analyze_records(records: Iterable[dict], thresholds: Thresholds | None = Non
     ]
     duration_s = stamps[-1] - stamps[0]
     rate_hz = (len(stamps) - 1) / duration_s if duration_s > 0.0 else 0.0
+    receive_duration_s = receive_stamps[-1] - receive_stamps[0]
+    receive_rate_hz = (
+        (len(receive_stamps) - 1) / receive_duration_s
+        if receive_duration_s > 0.0
+        else 0.0
+    )
     maximum_gap_s = max(gaps)
     maximum_receive_gap_s = max(receive_gaps)
 
@@ -119,10 +125,24 @@ def analyze_records(records: Iterable[dict], thresholds: Thresholds | None = Non
     info_rate_hz = (
         (len(info_stamps) - 1) / info_duration_s if info_duration_s > 0.0 else 0.0
     )
+    info_receive_duration_s = (
+        info_receive_stamps[-1] - info_receive_stamps[0]
+        if len(info_receive_stamps) >= 2
+        else 0.0
+    )
+    info_receive_rate_hz = (
+        (len(info_receive_stamps) - 1) / info_receive_duration_s
+        if info_receive_duration_s > 0.0
+        else 0.0
+    )
+    info_gaps = [
+        current - previous for previous, current in zip(info_stamps, info_stamps[1:])
+    ]
     info_receive_gaps = [
         current - previous
         for previous, current in zip(info_receive_stamps, info_receive_stamps[1:])
     ]
+    maximum_info_gap_s = max(info_gaps) if info_gaps else 0.0
     maximum_info_receive_gap_s = max(info_receive_gaps) if info_receive_gaps else 0.0
 
     if not monotonic:
@@ -141,6 +161,16 @@ def analyze_records(records: Iterable[dict], thresholds: Thresholds | None = Non
         )
     if rate_hz < limits.minimum_rate_hz:
         failures.append(f"rate {rate_hz:.3f}Hz is below {limits.minimum_rate_hz:.3f}Hz")
+    if receive_duration_s < limits.minimum_duration_s:
+        failures.append(
+            "receive duration "
+            f"{receive_duration_s:.3f}s is below {limits.minimum_duration_s:.3f}s"
+        )
+    if receive_rate_hz < limits.minimum_rate_hz:
+        failures.append(
+            f"receive rate {receive_rate_hz:.3f}Hz is below "
+            f"{limits.minimum_rate_hz:.3f}Hz"
+        )
     if maximum_gap_s > limits.maximum_gap_s:
         failures.append(
             f"maximum gap {maximum_gap_s:.3f}s exceeds {limits.maximum_gap_s:.3f}s"
@@ -163,6 +193,21 @@ def analyze_records(records: Iterable[dict], thresholds: Thresholds | None = Non
         failures.append(
             f"odometry-info rate {info_rate_hz:.3f}Hz is below "
             f"{limits.minimum_info_rate_hz:.3f}Hz"
+        )
+    if info_receive_duration_s < limits.minimum_duration_s:
+        failures.append(
+            "odometry-info receive duration "
+            f"{info_receive_duration_s:.3f}s is below {limits.minimum_duration_s:.3f}s"
+        )
+    if info_receive_rate_hz < limits.minimum_info_rate_hz:
+        failures.append(
+            f"odometry-info receive rate {info_receive_rate_hz:.3f}Hz is below "
+            f"{limits.minimum_info_rate_hz:.3f}Hz"
+        )
+    if maximum_info_gap_s > limits.maximum_gap_s:
+        failures.append(
+            "maximum odometry-info gap "
+            f"{maximum_info_gap_s:.3f}s exceeds {limits.maximum_gap_s:.3f}s"
         )
     if maximum_info_receive_gap_s > limits.maximum_gap_s:
         failures.append(
@@ -197,6 +242,8 @@ def analyze_records(records: Iterable[dict], thresholds: Thresholds | None = Non
         "child_frame_ids": sorted(child_frame_ids),
         "duration_s": round(duration_s, 6),
         "rate_hz": round(rate_hz, 3),
+        "receive_duration_s": round(receive_duration_s, 6),
+        "receive_rate_hz": round(receive_rate_hz, 3),
         "median_gap_s": round(statistics.median(gaps), 6),
         "maximum_gap_s": round(maximum_gap_s, 6),
         "maximum_receive_gap_s": round(maximum_receive_gap_s, 6),
@@ -204,6 +251,9 @@ def analyze_records(records: Iterable[dict], thresholds: Thresholds | None = Non
         "odom_info_receive_times_strictly_monotonic": info_receive_monotonic,
         "odom_info_duration_s": round(info_duration_s, 6),
         "odom_info_rate_hz": round(info_rate_hz, 3),
+        "odom_info_receive_duration_s": round(info_receive_duration_s, 6),
+        "odom_info_receive_rate_hz": round(info_receive_rate_hz, 3),
+        "maximum_odom_info_gap_s": round(maximum_info_gap_s, 6),
         "maximum_odom_info_receive_gap_s": round(maximum_info_receive_gap_s, 6),
         "translation_drift_m": round(translation_drift_m, 6),
         "maximum_translation_excursion_m": round(maximum_translation_excursion_m, 6),
@@ -228,6 +278,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--maximum-translation-drift-m", type=float, default=0.02)
     parser.add_argument("--maximum-rotation-drift-deg", type=float, default=1.0)
     parser.add_argument("--maximum-lost-events", type=int, default=0)
+    parser.add_argument(
+        "--upstream-failure",
+        help="force a FAIL report when capture or another upstream step failed",
+    )
     return parser.parse_args()
 
 
@@ -245,6 +299,9 @@ def main() -> int:
     with args.input.open("r", encoding="utf-8") as handle:
         records = [json.loads(line) for line in handle if line.strip()]
     report = analyze_records(records, thresholds)
+    if args.upstream_failure:
+        report["status"] = "FAIL"
+        report.setdefault("failures", []).insert(0, args.upstream_failure)
     rendered = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,5 @@
 import sys
+import signal
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -151,3 +152,87 @@ def test_shutdown_attempts_all_actions_after_individual_failures() -> None:
     ]
     assert events[-1] == ("close", None)
     assert len(errors) == 3
+
+
+def test_sigterm_requests_zero_speed_and_torque_off() -> None:
+    writes: list[tuple[int, int, int]] = []
+    handlers: dict[int, object] = {}
+    signal_calls: list[tuple[int, object]] = []
+    term_sent = False
+
+    class FakePort:
+        def openPort(self) -> bool:
+            return True
+
+        def setBaudRate(self, _baud: int) -> bool:
+            return True
+
+        def closePort(self) -> None:
+            pass
+
+    class FakePacket:
+        def ping(self, _port: FakePort, _motor_id: int) -> tuple[int, int, int]:
+            return 0, 0, 0
+
+        def read1ByteTxRx(
+            self, _port: FakePort, _motor_id: int, _address: int
+        ) -> tuple[int, int, int]:
+            return base_keyboard.MODE_VELOCITY, 0, 0
+
+        def write1ByteTxRx(
+            self, _port: FakePort, motor_id: int, address: int, value: int
+        ) -> tuple[int, int]:
+            writes.append((motor_id, address, value))
+            return 0, 0
+
+        def write2ByteTxRx(
+            self, _port: FakePort, motor_id: int, address: int, value: int
+        ) -> tuple[int, int]:
+            nonlocal term_sent
+            writes.append((motor_id, address, value))
+            if address == base_keyboard.GOAL_VEL and value != 0 and not term_sent:
+                term_sent = True
+                handler = handlers[signal.SIGTERM]
+                assert callable(handler)
+                handler(signal.SIGTERM, None)
+            return 0, 0
+
+    class FakeInput:
+        def connect(self) -> None:
+            pass
+
+        def disconnect(self) -> None:
+            pass
+
+        def pressed(self) -> set[str]:
+            return {"w"}
+
+        def should_exit(self) -> bool:
+            return False
+
+    def fake_signal(signum: int, handler: object) -> object:
+        previous = handlers.get(signum, f"original-{signum}")
+        handlers[signum] = handler
+        signal_calls.append((signum, handler))
+        return previous
+
+    fake_sdk = SimpleNamespace(
+        COMM_SUCCESS=0,
+        PacketHandler=lambda _protocol: FakePacket(),
+        PortHandler=lambda _port: FakePort(),
+    )
+    with (
+        patch.object(sys, "argv", ["base_keyboard.py"]),
+        patch.dict(sys.modules, {"scservo_sdk": fake_sdk}),
+        patch.object(base_keyboard, "PynputInput", lambda: FakeInput()),
+        patch.object(base_keyboard, "resolve_port", return_value="fake-port"),
+        patch.object(base_keyboard.signal, "signal", side_effect=fake_signal),
+        patch.object(base_keyboard.time, "sleep"),
+        patch("builtins.input", return_value="BASE"),
+    ):
+        assert base_keyboard.main() == 128 + signal.SIGTERM
+
+    for motor_id in base_keyboard.WHEEL_IDS:
+        assert (motor_id, base_keyboard.GOAL_VEL, 0) in writes
+        assert (motor_id, base_keyboard.TORQUE, 0) in writes
+    assert len(signal_calls) >= 4

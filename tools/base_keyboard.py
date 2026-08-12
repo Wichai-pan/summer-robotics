@@ -12,6 +12,7 @@ import argparse
 import math
 import os
 import select
+import signal
 import sys
 import time
 from typing import Protocol
@@ -327,6 +328,12 @@ def main() -> int:
     input_connected = False
     result = 1
     shutdown_errors: list[str] = []
+    termination_signal: int | None = None
+    previous_signal_handlers: dict[int, object] = {}
+
+    def request_shutdown(signum: int, _frame: object) -> None:
+        nonlocal termination_signal
+        termination_signal = signum
 
     try:
         missing = []
@@ -346,6 +353,14 @@ def main() -> int:
         else:
             input_backend.connect()
             input_connected = True
+
+            managed_signals = [signal.SIGINT, signal.SIGTERM]
+            if hasattr(signal, "SIGHUP"):
+                managed_signals.append(signal.SIGHUP)
+            for managed_signal in managed_signals:
+                previous_signal_handlers[managed_signal] = signal.signal(
+                    managed_signal, request_shutdown
+                )
 
             for motor_id in WHEEL_IDS:
                 mode, communication, packet_error = packet.read1ByteTxRx(
@@ -394,7 +409,7 @@ def main() -> int:
                 )
             )
             period = 1.0 / LOOP_HZ
-            while not input_backend.should_exit():
+            while termination_signal is None and not input_backend.should_exit():
                 x, y, theta = command_from_keys(input_backend.pressed())
                 raw = body_to_wheel_raw(x, y, theta)
                 for motor_id, velocity in zip(WHEEL_IDS, raw):
@@ -409,7 +424,7 @@ def main() -> int:
                         COMM_SUCCESS,
                     )
                 time.sleep(period)
-            result = 0
+            result = 128 + termination_signal if termination_signal is not None else 0
     finally:
         shutdown_errors = shutdown_hardware(
             input_backend,
@@ -424,6 +439,8 @@ def main() -> int:
                 print(f"  - {error}", file=sys.stderr)
         else:
             print("Base stopped, wheel torque disabled, serial port closed.")
+        for managed_signal, previous_handler in previous_signal_handlers.items():
+            signal.signal(managed_signal, previous_handler)
 
     return 1 if shutdown_errors else result
 

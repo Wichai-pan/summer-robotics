@@ -21,6 +21,7 @@ done
 if [[ "$dry_run" == true ]]; then
   # Software-only validation: no /data mount, device mapping, or hardware lock.
   exec docker run --rm \
+    --env ROS_DOMAIN_ID="${FORESTBRIDGE_SLAM_DRY_RUN_DOMAIN_ID:-178}" \
     --mount "type=bind,src=$repo_root,dst=/workspace,readonly" \
     --workdir /workspace \
     "$image_name" \

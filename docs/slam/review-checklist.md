@@ -129,7 +129,7 @@ find /home/jetsonl7/robot-data/slam/preflight \
 ./scripts/jetson_slam_static_odom.sh --dry-run
 ```
 
-确认输出以以下文字结束：
+该检查使用独立 ROS domain。确认输出以以下文字结束：
 
 ```text
 PASS static odometry dry-run; no camera or motor device was opened
@@ -138,5 +138,6 @@ PASS static odometry dry-run; no camera or motor device was opened
 真实的 `--duration 60` 需要现场人员另行确认 Gemini 云台固定、底盘静止且硬件
 锁空闲。入口必须只映射 `--gemini`，不得映射 `--white` 或 `--black`。当前阶段
 不得启动完整 RTAB-Map 建图节点、IMU 数据流/融合或底盘运动。真实入口的输出根
-目录固定为 `/home/jetsonl7/robot-data/slam/static-odom/`，且必须验证 `/tf` 由
-`rgbd_odometry` 唯一发布、`/tf_static` 由相机节点唯一发布。
+目录固定为 `/home/jetsonl7/robot-data/slam/static-odom/`，且必须验证 odometry topic
+与 `/tf` 均由 `rgbd_odometry` 唯一发布、`/tf_static` 由相机节点唯一发布，并用
+`tf2_echo` 验证真实 `odom -> camera_link` 链。失败运行也必须保留机器可读报告。

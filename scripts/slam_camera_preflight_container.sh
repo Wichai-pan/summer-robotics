@@ -34,7 +34,9 @@ cleanup() {
   fi
   wait "$camera_pid" 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 setsid ros2 launch orbbec_camera gemini_330_series.launch.py \
   enable_color:=true \
