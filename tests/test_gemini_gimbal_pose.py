@@ -1,5 +1,8 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -8,6 +11,7 @@ from gemini_gimbal_pose import (
     DEG_PER_TICK,
     encode_sign_magnitude,
     velocity_raw,
+    validate_motion_args,
     wrapped_tick_delta,
 )
 
@@ -31,3 +35,18 @@ def test_velocity_raw_has_deadband_and_cap() -> None:
 def test_sign_magnitude_encodes_negative_velocity_for_feetech() -> None:
     assert encode_sign_magnitude(46) == 46
     assert encode_sign_magnitude(-46) == (1 << 15) | 46
+
+
+def test_final_tolerance_cannot_exceed_zero_velocity_deadband() -> None:
+    args = SimpleNamespace(
+        fps=20.0,
+        max_speed_deg_s=4.0,
+        gain_per_s=1.2,
+        deadband_deg=0.5,
+        final_tolerance_deg=1.0,
+        max_travel_deg=120.0,
+        timeout_s=60.0,
+        execute=False,
+    )
+    with pytest.raises(SystemExit, match="no greater than"):
+        validate_motion_args(args)

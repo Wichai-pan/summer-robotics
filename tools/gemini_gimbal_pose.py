@@ -99,7 +99,7 @@ def add_motion_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-speed-deg-s", type=float, default=4.0)
     parser.add_argument("--gain-per-s", type=float, default=1.2)
     parser.add_argument("--deadband-deg", type=float, default=0.5)
-    parser.add_argument("--final-tolerance-deg", type=float, default=1.0)
+    parser.add_argument("--final-tolerance-deg", type=float, default=0.5)
     parser.add_argument("--max-travel-deg", type=float, default=120.0)
     parser.add_argument("--timeout-s", type=float, default=60.0)
     parser.add_argument("--execute", action="store_true")
@@ -242,6 +242,8 @@ def validate_motion_args(args: argparse.Namespace) -> None:
     )
     if any(not math.isfinite(value) or value <= 0 for value in values):
         raise SystemExit("all rates, limits, tolerances and timeout must be positive")
+    if args.final_tolerance_deg > args.deadband_deg:
+        raise SystemExit("final tolerance must be no greater than the zero-velocity deadband")
     if args.execute and not sys.stdin.isatty():
         raise SystemExit("interactive TTY required for --execute")
 
