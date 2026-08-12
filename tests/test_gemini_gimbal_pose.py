@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from gemini_gimbal_pose import (
     DEG_PER_TICK,
     encode_sign_magnitude,
+    translate_target_between_mode_coordinates,
     velocity_raw,
     validate_motion_args,
     wrapped_tick_delta,
@@ -24,6 +25,19 @@ def test_wrapped_tick_delta_uses_short_path_across_encoder_zero() -> None:
 def test_wrapped_tick_delta_preserves_normal_direction() -> None:
     assert wrapped_tick_delta(1200, 1100) == 100
     assert wrapped_tick_delta(1100, 1200) == -100
+
+
+def test_mode_coordinate_translation_handles_installed_homing_offset() -> None:
+    # ID 7 changed from 4062 to 763 after entering velocity mode: +797 ticks.
+    target, offset = translate_target_between_mode_coordinates(0, 4062, 763)
+    assert offset == 797
+    assert target == 797
+
+
+def test_mode_coordinate_translation_handles_negative_wrapped_offset() -> None:
+    target, offset = translate_target_between_mode_coordinates(2284, 2284, 599)
+    assert offset == -1685
+    assert target == 599
 
 
 def test_velocity_raw_has_deadband_and_cap() -> None:

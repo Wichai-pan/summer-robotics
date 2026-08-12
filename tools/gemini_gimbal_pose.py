@@ -50,6 +50,25 @@ def wrapped_tick_delta(target: int, current: int) -> int:
     return (int(target) - int(current) + half) % ENCODER_TICKS - half
 
 
+def translate_target_between_mode_coordinates(
+    target_position_mode_raw: int,
+    position_mode_present_raw: int,
+    velocity_mode_present_raw: int,
+) -> tuple[int, int]:
+    """Translate a saved position-mode target into velocity-mode coordinates.
+
+    STS3215 ``Present_Position`` changes numeric representation when operating
+    mode changes if a homing offset is installed.  Both reads are performed
+    torque-free, so their wrapped difference is a coordinate offset rather
+    than physical movement.
+    """
+    coordinate_offset = wrapped_tick_delta(
+        velocity_mode_present_raw, position_mode_present_raw
+    )
+    translated_target = (int(target_position_mode_raw) + coordinate_offset) % ENCODER_TICKS
+    return translated_target, coordinate_offset
+
+
 def velocity_raw(error_deg: float, gain: float, max_speed_deg_s: float, deadband_deg: float) -> int:
     """Return signed raw speed; encoding for the servo happens separately."""
     if abs(error_deg) <= deadband_deg:
@@ -288,7 +307,7 @@ def move_to_targets(
         return
 
     active = list(targets)
-    previous = {motor_id: axes[motor_id]["raw"] for motor_id in active}
+    previous: dict[int, int] = {}
     cumulative_ticks = {motor_id: 0 for motor_id in active}
     stable_cycles = 0
     torque_enabled: list[int] = []
@@ -302,6 +321,23 @@ def move_to_targets(
             write_u8(packet, port, motor_id, OPERATING_MODE, VELOCITY_MODE, "Operating_Mode")
             modes_changed.append(motor_id)
             write_u16(packet, port, motor_id, GOAL_VELOCITY, 0, "Goal_Velocity")
+        time.sleep(0.1)
+        velocity_targets: dict[int, int] = {}
+        for motor_id, target in targets.items():
+            velocity_raw_present = read_u16(
+                packet, port, motor_id, PRESENT_POSITION, "Present_Position"
+            )
+            velocity_target, coordinate_offset = translate_target_between_mode_coordinates(
+                target,
+                axes[motor_id]["raw"],
+                velocity_raw_present,
+            )
+            velocity_targets[motor_id] = velocity_target
+            previous[motor_id] = velocity_raw_present
+            print(
+                f"  ID {motor_id} 模式坐标偏移={coordinate_offset:+d} ticks；"
+                f"速度模式目标={velocity_target}"
+            )
         for motor_id in active:
             write_u8(packet, port, motor_id, TORQUE_ENABLE, 1, "Torque_Enable")
             torque_enabled.append(motor_id)
@@ -309,7 +345,7 @@ def move_to_targets(
         while time.monotonic() - started < args.timeout_s:
             loop_started = time.monotonic()
             errors: dict[int, float] = {}
-            for motor_id, target in targets.items():
+            for motor_id, target in velocity_targets.items():
                 now = read_u16(packet, port, motor_id, PRESENT_POSITION, "Present_Position")
                 step = wrapped_tick_delta(now, previous[motor_id])
                 previous[motor_id] = now
