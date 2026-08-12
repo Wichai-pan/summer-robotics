@@ -1,6 +1,6 @@
 # ForestBridge Jetson 实机实验指南
 
-> 更新日期：2026-08-09
+> 更新日期：2026-08-12
 > 机器人主机：`jetsonl7-desktop`
 > 正式部署目录：`/home/jetsonl7/summer-robotics-deploy`
 
@@ -258,6 +258,60 @@ cd /home/jetsonl7/summer-robotics-deploy
 ```
 
 出现是否重标定的询问时，除非团队明确安排重新标定，否则输入 `n`。该脚本会移动机械臂，必须现场操作。
+
+### 7.6 Gemini 两轴云台姿态
+
+Gemini 云台使用黑板 ID 7/8。固定视角 IK 和 ACT 实验前，应先恢复到保存的抓取视角；SLAM 可以在其他时间自由转动云台。
+
+只读当前两个原始编码器，不上扭矩、不写寄存器：
+
+```bash
+cd /home/jetsonl7/summer-robotics-deploy
+./scripts/jetson_robot_exec.sh --black -- \
+  python3 tools/gemini_gimbal_pose.py read
+```
+
+首次在已确认的固定抓取视角保存基准：
+
+```bash
+./scripts/jetson_robot_exec.sh --black -- \
+  python3 tools/gemini_gimbal_pose.py save
+```
+
+默认保存在主机持久化数据盘：
+
+```text
+/home/jetsonl7/robot-data/config/gemini_gimbal_grasp_pose_v1.json
+```
+
+容器内对应 `/data/config/gemini_gimbal_grasp_pose_v1.json`。这个文件属于机器状态，不提交 Git；更换控制板、云台结构或相机安装后必须重新保存。
+
+确认 ID 7/8 物理轴映射时，每次只让一个轴低速移动约 3°：
+
+```bash
+./scripts/jetson_robot_exec.sh --black --interactive -- \
+  python3 tools/gemini_gimbal_pose.py jog --id 7 --degrees 3 --execute
+```
+
+程序会先显示最短路径计划，只有输入 `JOG` 才会上该轴扭矩。观察它是左右看还是上下看；再对 ID 8 做同样检查。确认后记录映射，例如：
+
+```bash
+./scripts/jetson_robot_exec.sh --black -- \
+  python3 tools/gemini_gimbal_pose.py set-axis-map --yaw-id 7 --pitch-id 8
+```
+
+实际映射以现场观察为准，不要照抄示例。
+
+低速回到抓取视角：
+
+```bash
+./scripts/jetson_robot_exec.sh --black --interactive -- \
+  python3 tools/gemini_gimbal_pose.py return --execute
+```
+
+只有输入 `RETURN` 才会控制 ID 7/8。工具不命令黑臂 ID 1–6；返回采用原始编码器的最短方向、4°/s 默认速度、120° 默认最大行程、1° 最终误差，并在结束时零速度、松扭矩和恢复位置模式。目标若超过最大行程会在上扭矩前拒绝。
+
+原始编码器读数是回归依据。界面显示的 `one-turn` 角度只是 `raw × 360/4096`，不是相对于地面或机器人坐标系标定过的世界 yaw/pitch 角。
 
 ## 8. 当前实验代码在哪里
 
