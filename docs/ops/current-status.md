@@ -17,6 +17,19 @@
 - Use gripper position/current/load plus the white-wrist RGB stream to distinguish grasp, empty close, slip and jam before allowing transport.
 - Keep all robot USB ownership and execution on the onboard Jetson.
 - Keep GitHub `main` as the code source of truth; treat `/robot-data/tmp` only as an experiment area.
+- Train a separate 28-episode ACT comparison checkpoint while retaining the original 11-episode corpus and step-6,000 checkpoint unchanged.
+
+## Active Roihu Training
+
+- Submitted 2026-08-13: Slurm job `616995` (`xlerobot-act-v2-28ep`) on one GH200 GPU in `gpularge`; maximum walltime 2 hours.
+- Dataset copy: `/scratch/project_2016517/panh/summer-robotics-act/data/fixed_pick_place_v2_28ep`.
+  It was copied from Jetson's `/home/jetsonl7/robot-data/act/fixed_pick_place_v1`
+  after confirming 28 finalized episodes / 19,309 frames / 20 FPS and 28 videos for each RGB stream.
+- Training uses episode indices `0–23` (24 episodes / 17,222 frames). Episodes `24–27` are intentionally held out for later offline evaluation; the present LeRobot training command does not claim an automatic validation metric.
+- Job script: `jobs/roihu_act_fixed_pick_place_v2_28ep.sh` on
+  `codex/gripper-feedback-telemetry@ba42641`; output will be
+  `/scratch/project_2016517/panh/summer-robotics-act/outputs/act_fixed_pick_place_v2_28ep_616995`.
+- Monitor with: `ssh roihu 'squeue -j 616995; tail -f /scratch/project_2016517/panh/summer-robotics-act/logs/xlerobot-act-v2-28ep_616995.out'`.
 
 ## Latest Verified Server State
 
