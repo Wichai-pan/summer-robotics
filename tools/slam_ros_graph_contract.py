@@ -89,11 +89,20 @@ def parse_tf_chain(text: str) -> dict:
     raise ValueError(detail)
 
 
-def analyze_graph(topic_info: dict[str, str], tf_chain: str) -> dict:
+def analyze_graph(
+    topic_info: dict[str, str],
+    tf_chain: str,
+    *,
+    expected_child_frame: str = "camera_link",
+    allow_static_transform_publisher: bool = False,
+) -> dict:
     failures: list[str] = []
     observed: dict[str, dict] = {}
+    expected_publishers = {key: set(value) for key, value in EXPECTED_PUBLISHERS.items()}
+    if allow_static_transform_publisher:
+        expected_publishers["tf_static"].add("/base_to_gemini_static_tf")
 
-    for key, expected in EXPECTED_PUBLISHERS.items():
+    for key, expected in expected_publishers.items():
         try:
             declared_count, publisher_endpoints = parse_publishers(topic_info[key])
         except (KeyError, ValueError) as exc:
@@ -126,11 +135,10 @@ def analyze_graph(topic_info: dict[str, str], tf_chain: str) -> dict:
     return {
         "status": "PASS" if not failures else "FAIL",
         "failures": failures,
-        "expected_publishers": {
-            key: sorted(value) for key, value in EXPECTED_PUBLISHERS.items()
-        },
+        "expected_publishers": {key: sorted(value) for key, value in expected_publishers.items()},
         "observed": observed,
         "tf_chain_observed": transform is not None,
+        "expected_tf_chain": ["odom", expected_child_frame],
         "transform": transform,
     }
 
@@ -142,6 +150,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tf-topic-info", type=Path, required=True)
     parser.add_argument("--tf-static-topic-info", type=Path, required=True)
     parser.add_argument("--tf-chain", type=Path, required=True)
+    parser.add_argument("--expected-child-frame", default="camera_link")
+    parser.add_argument("--allow-static-transform-publisher", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -154,7 +164,12 @@ def main() -> int:
         "tf": args.tf_topic_info.read_text(encoding="utf-8"),
         "tf_static": args.tf_static_topic_info.read_text(encoding="utf-8"),
     }
-    report = analyze_graph(topic_info, args.tf_chain.read_text(encoding="utf-8"))
+    report = analyze_graph(
+        topic_info,
+        args.tf_chain.read_text(encoding="utf-8"),
+        expected_child_frame=args.expected_child_frame,
+        allow_static_transform_publisher=args.allow_static_transform_publisher,
+    )
     rendered = json.dumps(report, indent=2, sort_keys=True)
     args.output.write_text(rendered + "\n", encoding="utf-8")
     print(rendered)

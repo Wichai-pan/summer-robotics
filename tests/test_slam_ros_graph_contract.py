@@ -76,6 +76,25 @@ def test_unexpected_tf_publisher_fails() -> None:
     assert any("/other/broadcaster" in failure for failure in report["failures"])
 
 
+def test_motion_graph_allows_only_the_named_static_tf_publisher() -> None:
+    info = valid_topic_info()
+    info["tf_static"] = topic_info("/camera/camera", "/base_to_gemini_static_tf")
+
+    report = analyze_graph(
+        info,
+        VALID_TF,
+        expected_child_frame="base_link",
+        allow_static_transform_publisher=True,
+    )
+
+    assert report["status"] == "PASS"
+    assert report["expected_tf_chain"] == ["odom", "base_link"]
+    info["tf_static"] = topic_info(
+        "/camera/camera", "/base_to_gemini_static_tf", "/other/broadcaster"
+    )
+    assert analyze_graph(info, VALID_TF, allow_static_transform_publisher=True)["status"] == "FAIL"
+
+
 def test_missing_transform_sample_fails() -> None:
     report = analyze_graph(valid_topic_info(), "Waiting for transform...\n")
     assert report["status"] == "FAIL"

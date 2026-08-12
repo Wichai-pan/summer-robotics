@@ -1,0 +1,18 @@
+{
+  "schema": "forestbridge/slam/base-camera-transform/v1",
+  "status": "unresolved",
+  "parent_frame": "base_link",
+  "child_frame": "camera_link",
+  "unit": "m",
+  "gimbal_reference_raw": {"7": 4062, "8": 2284},
+  "source_files": [
+    "docs/slam/base-camera-transform-inventory.md",
+    "docs/slam/03-gemini-gimbal-reference-and-limits.md"
+  ],
+  "missing_for_live": [
+    "A repeatable real-robot measurement of base_link to the Gemini body origin.",
+    "The real-robot axis convention relating the measured mount to ROS camera_link.",
+    "A measured orientation quaternion at gimbal raw ID 7=4062, ID 8=2284."
+  ],
+  "measurement_notes": "This JSON-compatible YAML intentionally contains no translation_m or rotation_xyzw. Simulation URDF dimensions and the motion_locked black-arm eye-to-hand fit are not real base-to-Gemini evidence."
+}

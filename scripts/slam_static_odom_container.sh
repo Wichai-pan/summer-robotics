@@ -6,10 +6,13 @@ set -u
 output_root="/data/slam/static-odom"
 duration=60
 dry_run=false
+mode="static"
+transform_config=""
 
 usage() {
   cat <<'EOF'
 Usage: slam_static_odom_container.sh [--duration SECONDS] [--output-root PATH] [--dry-run]
+                                     [--mode static|motion] [--transform-config PATH]
 
 Runs Gemini-only RTAB-Map RGB-D odometry in camera_link and writes compact
 JSONL plus a drift/quality report. It does not open a motor device.
@@ -18,8 +21,10 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --duration) duration="${2:?missing value for --duration}"; shift 2 ;;
-    --output-root) output_root="${2:?missing value for --output-root}"; shift 2 ;;
+  --duration) duration="${2:?missing value for --duration}"; shift 2 ;;
+  --output-root) output_root="${2:?missing value for --output-root}"; shift 2 ;;
+  --mode) mode="${2:?missing value for --mode}"; shift 2 ;;
+  --transform-config) transform_config="${2:?missing value for --transform-config}"; shift 2 ;;
     --dry-run) dry_run=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -30,6 +35,21 @@ done
   echo "--duration must be a positive integer" >&2
   exit 2
 }
+[[ "$mode" == "static" || "$mode" == "motion" ]] || {
+  echo "--mode must be static or motion" >&2
+  exit 2
+}
+if [[ "$mode" == "motion" && -z "$transform_config" ]]; then
+  echo "--transform-config is required for motion mode" >&2
+  exit 2
+fi
+
+frame_id="camera_link"
+metrics_tool="tools/slam_static_odom_metrics.py"
+if [[ "$mode" == "motion" ]]; then
+  frame_id="base_link"
+  metrics_tool="tools/slam_motion_odom_metrics.py"
+fi
 
 odom_command=(
   ros2 run rtabmap_odom rgbd_odometry
@@ -38,7 +58,7 @@ odom_command=(
   -r rgb/image:=/camera/color/image_raw
   -r depth/image:=/camera/depth/image_raw
   -r rgb/camera_info:=/camera/color/camera_info
-  -p frame_id:=camera_link
+  -p frame_id:="$frame_id"
   -p odom_frame_id:=odom
   -p publish_tf:=true
   -p publish_null_when_lost:=true
@@ -69,8 +89,11 @@ if [[ "$dry_run" == true ]]; then
     grep -q "$required_field" "$interface_probe"
   done
   rm -f "$interface_probe"
+  if [[ "$mode" == "motion" ]]; then
+    python3 tools/slam_base_camera_transform.py validate --config "$transform_config"
+  fi
   python3 tools/capture_static_odom.py --duration "$duration" --dry-run
-  python3 tools/slam_static_odom_metrics.py --help >/dev/null
+  python3 "$metrics_tool" --help >/dev/null
   python3 tools/slam_ros_graph_contract.py --help >/dev/null
   printf 'ODOM COMMAND:'
   printf ' %q' "${odom_command[@]}"
@@ -92,8 +115,14 @@ if [[ "$dry_run" == true ]]; then
     exit 1
   fi
   rm -f "$probe_log"
-  echo "PASS static odometry dry-run; no camera or motor device was opened"
+  echo "PASS $mode odometry dry-run; no camera or motor device was opened"
   exit 0
+fi
+
+if [[ "$mode" == "motion" ]]; then
+  # Do not rely on readarray/process-substitution exit propagation below.
+  python3 tools/slam_base_camera_transform.py validate \
+    --config "$transform_config" --require-live
 fi
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -102,11 +131,11 @@ mkdir -p "$output_dir"
 
 camera_log="$output_dir/orbbec-camera.log"
 odom_log="$output_dir/rtabmap-rgbd-odometry.log"
-samples_file="$output_dir/static-odom.jsonl"
-report_file="$output_dir/static-odom-report.json"
+samples_file="$output_dir/$mode-odom.jsonl"
+report_file="$output_dir/$mode-odom-report.json"
 process_pids=()
 printf '%s\n' \
-  '{"status":"INCOMPLETE","failures":["static odometry run did not finalize"]}' \
+  "{\"status\":\"INCOMPLETE\",\"failures\":[\"$mode odometry run did not finalize\"]}" \
   >"$report_file"
 
 stop_process_group() {
@@ -170,9 +199,13 @@ capture_graph_contract() {
   local quality_info_file="$output_dir/odom-info-topic-info${suffix}.txt"
   local tf_info_file="$output_dir/tf-topic-info${suffix}.txt"
   local tf_static_info_file="$output_dir/tf-static-topic-info${suffix}.txt"
-  local tf_chain_file="$output_dir/tf-odom-camera-link${suffix}.txt"
+  local tf_chain_file="$output_dir/tf-odom-${frame_id//_/-}${suffix}.txt"
   local contract_file="$output_dir/ros-graph-contract${suffix}.json"
   local tf_status
+  local graph_options=(--expected-child-frame "$frame_id")
+  if [[ "$mode" == "motion" ]]; then
+    graph_options+=(--allow-static-transform-publisher)
+  fi
 
   ros2 topic info --verbose /rtabmap/odom >"$odom_info_file"
   ros2 topic info --verbose /rtabmap/odom_info >"$quality_info_file"
@@ -181,7 +214,7 @@ capture_graph_contract() {
 
   set +e
   timeout --signal=INT --kill-after=1 5 \
-    ros2 run tf2_ros tf2_echo odom camera_link \
+    ros2 run tf2_ros tf2_echo odom "$frame_id" \
     >"$tf_chain_file" 2>&1
   tf_status=$?
   set -e
@@ -197,8 +230,21 @@ capture_graph_contract() {
     --tf-topic-info "$tf_info_file" \
     --tf-static-topic-info "$tf_static_info_file" \
     --tf-chain "$tf_chain_file" \
+    "${graph_options[@]}" \
     --output "$contract_file"
 }
+
+if [[ "$mode" == "motion" ]]; then
+  readarray -t transform_args < <(
+    python3 tools/slam_base_camera_transform.py static-transform-args \
+      --config "$transform_config" --require-live
+  )
+  setsid ros2 run tf2_ros static_transform_publisher "${transform_args[@]}" \
+    --ros-args -r __node:=base_to_gemini_static_tf \
+    >"$output_dir/base-to-gemini-static-tf.log" 2>&1 &
+  transform_pid=$!
+  process_pids+=("$transform_pid")
+fi
 
 setsid ros2 launch orbbec_camera gemini_330_series.launch.py \
   enable_color:=true \
@@ -247,7 +293,7 @@ if [[ $capture_status -ne 0 ]]; then
   upstream_failure=(--upstream-failure "capture exited with status $capture_status")
 fi
 set +e
-python3 tools/slam_static_odom_metrics.py "$samples_file" \
+python3 "$metrics_tool" "$samples_file" \
   --output "$report_file" \
   --minimum-duration-s "$minimum_duration" \
   "${upstream_failure[@]}"
@@ -255,8 +301,8 @@ analysis_status=$?
 set -e
 
 if [[ $capture_status -ne 0 || $analysis_status -ne 0 ]]; then
-  echo "FAIL camera-only static RGB-D odometry; see $report_file" >&2
+  echo "FAIL $mode RGB-D odometry; see $report_file" >&2
   exit 1
 fi
 
-printf 'PASS camera-only static RGB-D odometry\nArtifacts: %s\n' "$output_dir"
+printf 'PASS %s RGB-D odometry\nArtifacts: %s\n' "$mode" "$output_dir"

@@ -28,6 +28,10 @@ Team review documents:
   ID 7/8 轴映射、抓取视角、手动活动端点、回正实测及 SLAM 使用约束；
 - [camera-only 静止 VO 实测结果](04-static-visual-odometry-live-results.md):
   三次实测、根因修正、最终指标、已知风险和下一门槛；
+- [移动 visual odometry](03-mobile-visual-odometry.md): Phase 3 范围、无设备入口、
+  candidate TF 契约与未来现场门槛；
+- [base-camera 外参证据清单](base-camera-transform-inventory.md): 已知来源、不可用数据
+  与最小人工补充项；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
