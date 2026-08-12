@@ -138,6 +138,8 @@ PASS static odometry dry-run; no camera or motor device was opened
 真实的 `--duration 60` 需要现场人员另行确认 Gemini 云台固定、底盘静止且硬件
 锁空闲。入口必须只映射 `--gemini`，不得映射 `--white` 或 `--black`。当前阶段
 不得启动完整 RTAB-Map 建图节点、IMU 数据流/融合或底盘运动。真实入口的输出根
-目录固定为 `/home/jetsonl7/robot-data/slam/static-odom/`，且必须验证 odometry topic
-与 `/tf` 均由 `rgbd_odometry` 唯一发布、`/tf_static` 由相机节点唯一发布，并用
-`tf2_echo` 验证真实 `odom -> camera_link` 链。失败运行也必须保留机器可读报告。
+目录固定为 `/home/jetsonl7/robot-data/slam/static-odom/`。必须验证 odometry topic
+由 `rgbd_odometry` 唯一发布、`/tf` 的合法发布者集合为 `camera` 与
+`rgbd_odometry`、`/tf_static` 由相机节点唯一发布，并用 `tf2_echo` 验证真实
+`odom -> camera_link` 链。失败运行也必须保留机器可读报告。
+该 graph 契约在采集前后各检查一次，防止中途加入的发布者污染数据。
