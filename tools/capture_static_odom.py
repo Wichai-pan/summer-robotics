@@ -12,6 +12,12 @@ from pathlib import Path
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--duration", type=float, default=60.0)
+    parser.add_argument(
+        "--warmup",
+        type=float,
+        default=2.0,
+        help="subscribe without recording for this many seconds before capture",
+    )
     parser.add_argument("--output", type=Path, default=Path("static-odom.jsonl"))
     parser.add_argument("--odom-topic", default="/rtabmap/odom")
     parser.add_argument("--info-topic", default="/rtabmap/odom_info")
@@ -21,6 +27,24 @@ def parse_args() -> argparse.Namespace:
         help="print subscriptions without importing ROS or opening hardware",
     )
     return parser.parse_args()
+
+
+class StreamGate:
+    """Keep startup samples out of the measured recording window."""
+
+    def __init__(self) -> None:
+        self._seen: set[str] = set()
+        self._recording = False
+
+    def observe(self, stream: str) -> bool:
+        self._seen.add(stream)
+        return self._recording
+
+    def start_recording(self) -> None:
+        missing = {"odom", "odom_info"} - self._seen
+        if missing:
+            raise RuntimeError(f"warmup missing streams: {', '.join(sorted(missing))}")
+        self._recording = True
 
 
 def stamp_seconds(stamp: object) -> float:
@@ -35,6 +59,7 @@ def run_live(args: argparse.Namespace) -> int:
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     handle = args.output.open("w", encoding="utf-8", buffering=1)
+    gate = StreamGate()
 
     class StaticOdomRecorder(Node):
         def __init__(self) -> None:
@@ -48,6 +73,8 @@ def run_live(args: argparse.Namespace) -> int:
             handle.write(json.dumps(record, separators=(",", ":")) + "\n")
 
         def record_odom(self, message: object) -> None:
+            if not gate.observe("odom"):
+                return
             position = message.pose.pose.position
             orientation = message.pose.pose.orientation
             self.write(
@@ -69,6 +96,8 @@ def run_live(args: argparse.Namespace) -> int:
             self.odom_count += 1
 
         def record_info(self, message: object) -> None:
+            if not gate.observe("odom_info"):
+                return
             self.write(
                 {
                     "type": "odom_info",
@@ -86,8 +115,15 @@ def run_live(args: argparse.Namespace) -> int:
 
     rclpy.init()
     node = StaticOdomRecorder()
-    deadline = time.monotonic() + args.duration
     try:
+        warmup_deadline = time.monotonic() + args.warmup
+        while rclpy.ok() and time.monotonic() < warmup_deadline:
+            rclpy.spin_once(
+                node,
+                timeout_sec=min(0.1, max(0.0, warmup_deadline - time.monotonic())),
+            )
+        gate.start_recording()
+        deadline = time.monotonic() + args.duration
         while rclpy.ok() and time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=min(0.1, max(0.0, deadline - time.monotonic())))
     finally:
@@ -105,10 +141,13 @@ def main() -> int:
     args = parse_args()
     if args.duration <= 0:
         raise SystemExit("--duration must be positive")
+    if args.warmup <= 0:
+        raise SystemExit("--warmup must be positive")
     if args.dry_run:
         print(
             f"DRY RUN: subscribe odom={args.odom_topic} info={args.info_topic} "
-            f"for {args.duration:.1f}s; output={args.output}; ROS not imported"
+            f"for warmup={args.warmup:.1f}s then duration={args.duration:.1f}s; "
+            f"output={args.output}; ROS not imported"
         )
         return 0
     return run_live(args)

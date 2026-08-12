@@ -232,6 +232,7 @@ capture_graph_contract ""
 
 set +e
 python3 tools/capture_static_odom.py \
+  --warmup 2 \
   --duration "$duration" \
   --output "$samples_file"
 capture_status=$?
