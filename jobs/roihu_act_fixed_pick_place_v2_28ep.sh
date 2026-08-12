@@ -9,6 +9,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
 #SBATCH --gres=gpu:gh200:1
 #SBATCH --output=/scratch/project_2016517/panh/summer-robotics-act/logs/%x_%j.out
 
