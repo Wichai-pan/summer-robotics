@@ -1,4 +1,5 @@
 import sys
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from gemini_gimbal_pose import (
     DEG_PER_TICK,
     encode_sign_magnitude,
+    set_axis_map,
     translate_target_between_mode_coordinates,
     velocity_raw,
     validate_motion_args,
@@ -64,3 +66,26 @@ def test_final_tolerance_cannot_exceed_zero_velocity_deadband() -> None:
     )
     with pytest.raises(SystemExit, match="no greater than"):
         validate_motion_args(args)
+
+
+def test_axis_map_records_observed_positive_directions(tmp_path: Path) -> None:
+    reference = tmp_path / "gimbal.json"
+    reference.write_text(
+        json.dumps(
+            {
+                "schema": "forestbridge/gemini_gimbal_pose/v1",
+                "board_serial": "5B3D043224",
+                "raw_position": {"7": 4062, "8": 2284},
+                "axis_map": {"yaw_motor_id": None, "pitch_motor_id": None},
+            }
+        ),
+        encoding="utf-8",
+    )
+    set_axis_map(reference, 7, 8, "right", "down")
+    axis_map = json.loads(reference.read_text(encoding="utf-8"))["axis_map"]
+    assert axis_map == {
+        "yaw_motor_id": 7,
+        "pitch_motor_id": 8,
+        "yaw_positive_direction": "right",
+        "pitch_positive_direction": "down",
+    }

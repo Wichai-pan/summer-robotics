@@ -297,10 +297,11 @@ cd /home/jetsonl7/summer-robotics-deploy
 
 ```bash
 ./scripts/jetson_robot_exec.sh --black -- \
-  python3 tools/gemini_gimbal_pose.py set-axis-map --yaw-id 7 --pitch-id 8
+  python3 tools/gemini_gimbal_pose.py set-axis-map \
+  --yaw-id 7 --pitch-id 8 --yaw-positive right --pitch-positive down
 ```
 
-实际映射以现场观察为准，不要照抄示例。
+本机已经现场验证：ID 7 是 yaw，正方向向右；ID 8 是 pitch，正方向低头。因此负方向分别是向左和抬头。更换控制板、舵机方向或拆装云台后需要重新确认。
 
 低速回到抓取视角：
 

@@ -102,6 +102,8 @@ def parse_args() -> argparse.Namespace:
     mapping = subparsers.add_parser("set-axis-map", help="record which physical axis uses each motor ID")
     mapping.add_argument("--yaw-id", type=int, choices=MOTOR_IDS, required=True)
     mapping.add_argument("--pitch-id", type=int, choices=MOTOR_IDS, required=True)
+    mapping.add_argument("--yaw-positive", choices=("left", "right"))
+    mapping.add_argument("--pitch-positive", choices=("up", "down"))
 
     jog = subparsers.add_parser("jog", help="move exactly one axis by a small relative angle")
     jog.add_argument("--id", type=int, choices=MOTOR_IDS, required=True)
@@ -238,15 +240,31 @@ def save_reference(path: Path, axes: dict[int, dict[str, int]], force: bool) -> 
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
-def set_axis_map(path: Path, yaw_id: int, pitch_id: int) -> None:
+def set_axis_map(
+    path: Path,
+    yaw_id: int,
+    pitch_id: int,
+    yaw_positive: str | None = None,
+    pitch_positive: str | None = None,
+) -> None:
     if yaw_id == pitch_id:
         raise SystemExit("yaw and pitch must use different motor IDs")
     data = load_reference(path)
-    data["axis_map"] = {"yaw_motor_id": yaw_id, "pitch_motor_id": pitch_id}
+    old_mapping = data.get("axis_map", {})
+    data["axis_map"] = {
+        "yaw_motor_id": yaw_id,
+        "pitch_motor_id": pitch_id,
+        "yaw_positive_direction": yaw_positive
+        if yaw_positive is not None
+        else old_mapping.get("yaw_positive_direction"),
+        "pitch_positive_direction": pitch_positive
+        if pitch_positive is not None
+        else old_mapping.get("pitch_positive_direction"),
+    }
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     os.replace(temporary, path)
-    print(f"已记录轴映射：yaw=ID {yaw_id}, pitch=ID {pitch_id}")
+    print(f"已记录轴映射：{json.dumps(data['axis_map'], ensure_ascii=False)}")
 
 
 def validate_motion_args(args: argparse.Namespace) -> None:
@@ -425,7 +443,13 @@ def move_to_targets(
 def main() -> int:
     args = parse_args()
     if args.command == "set-axis-map":
-        set_axis_map(args.reference, args.yaw_id, args.pitch_id)
+        set_axis_map(
+            args.reference,
+            args.yaw_id,
+            args.pitch_id,
+            args.yaw_positive,
+            args.pitch_positive,
+        )
         return 0
 
     device, port, packet = connect_black_board(args.port)
