@@ -15,10 +15,9 @@
 #SBATCH --gres=gpu:gh200:1
 #SBATCH --output=/scratch/project_2016517/panh/summer-robotics-act/logs/%x_%j.out
 
-set -euo pipefail
-
 export CSC_ENV_INIT_NON_INTERACTIVE=yes
 source /etc/profile.d/zz-csc-env.sh
+set -euo pipefail
 
 ROOT=/scratch/project_2016517/panh/summer-robotics-act
 DATASET="$ROOT/data/fixed_pick_place_v2_28ep"
