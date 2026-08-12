@@ -4,7 +4,7 @@
 - 分支：`codex/base-terminal-slam-preflight`
 - 基线：`origin/main` / `a87ee90`
 - 工作目录：`D:\summer-robotics-slam`
-- 当前阶段：Phase 0 已通过；Phase 1 相机链路已验证、完整验收未关闭；尚未运行视觉里程计或建图
+- 当前阶段：Phase 0、Phase 1 已通过；尚未运行视觉里程计或建图
 
 ## 1. 目标与边界
 
@@ -177,7 +177,7 @@ camera_link
 该链路仅覆盖相机内部坐标系。`base_link -> camera_link` 尚不存在，不能宣称
 机器人 TF 或建图外参已经完成。
 
-### 6.4 Phase 1 尚未关闭的验收项
+### 6.4 首次预检后的量化待办
 
 现有脚本和 MCAP 已证明 topic 可用、分辨率/编码正确、短时消息数量合理、相机
 内部 TF 存在，但以下项目尚未形成自动化或可复核的量化结果：
@@ -187,8 +187,50 @@ camera_link
 3. 统计持续帧率和掉帧，而不只使用消息总数估算；
 4. 确认 ROS graph 中只有一个相机驱动节点拥有这些 topic。
 
-因此本记录只将“Phase 1 相机链路预检”标为通过，不将 Phase 1 的全部验收项
-标为完成。上述四项必须在 Phase 2 前关闭。
+首次预检后只将“Phase 1 相机链路预检”标为通过，没有将 Phase 1 的全部验收
+项标为完成；恢复连接后的关闭情况见 6.5 节。
+
+### 6.5 恢复连接后的量化复核
+
+Jetson 恢复连接后，重新运行零硬件 software smoke 并通过，随后以
+Gemini-only、`record_seconds=0` 模式运行 live QA。输出目录：
+
+```text
+/home/jetsonl7/robot-data/slam/preflight/20260811T172703Z/
+```
+
+已有 8.12 秒 MCAP 的 header 时间戳分析结果：
+
+| 检查 | 结果 |
+| --- | --- |
+| RGB / Depth 时间戳 | 严格单调 |
+| 最近 RGB-D 配对误差 | 中位数 0.147 ms，P95 0.158 ms，最大 0.160 ms |
+| RGB | 29.10 Hz，P95 间隔 33.39 ms |
+| Depth | 29.10 Hz，P95 间隔 33.37 ms |
+| IMU | 191.38 Hz，P95 间隔 5.07 ms |
+
+在 bag 的第 5.707--5.974 秒，RGB、Depth 和 IMU 同时出现一次约
+0.25--0.27 秒停顿，说明更像系统调度或录包停顿，而不是单路相机丢失。该异常
+不能隐藏，进入静止视觉里程计后必须观察是否导致 odometry reset。
+
+不录 bag 的 live QA 结果：
+
+| 检查 | 结果 |
+| --- | --- |
+| RGB publisher | 1 个，`/camera/camera` |
+| Depth publisher | 1 个，`/camera/camera` |
+| RGB 接收率 | 28.9 Hz，最大间隔 78 ms |
+| Depth 接收率 | 26.6 Hz，最大间隔 137 ms |
+| IMU 接收率 | 197 Hz，最大间隔 18 ms |
+| `enable_depth_scale` | `True` |
+| `depth_precision` | 空值，即驱动配置注明的默认 1 mm |
+| 相机日志 | 无 warning/error |
+| 退出状态 | 无残留容器，全局硬件锁可重新获取 |
+
+时间戳、持续速率和唯一相机 owner 三项已有量化证据。深度数据的单位配置也已
+确认，因此相机链路足以进入 camera-only 静止视觉里程计。还缺“已知实测距离
+与中心深度值”的物理准确度检查；它不阻塞静止诊断，但在移动建图的米制结果
+验收或导航前必须完成。
 
 ## 7. 已知风险
 
@@ -200,13 +242,14 @@ camera_link
    可能丢失跟踪。
 6. 还没有运行 RTAB-Map odometry、闭环检测、2D map 或 3D cloud 导出。
 7. 当前 SLAM 文件只在本分支；Jetson 部署仓库尚未切换到该提交。
-8. Phase 1 的深度尺度、RGB-D 时间差、持续帧率和唯一相机 owner 尚待量化。
+8. 已知距离目标的深度物理准确度尚待量化；它不阻塞静止里程计，但阻塞移动
+   地图的米制验收和导航。
 9. 镜像基底已固定 digest，但 ROS APT 包没有使用快照仓库；未来重建时包版本
    可能变化，必须重新运行 software smoke 并记录版本。
 
 ## 8. 下一阶段门槛
 
-进入静止视觉里程计前，先完成 6.4 节的四项相机 QA；然后现场必须完成：
+进入静止视觉里程计前，现场必须完成：
 
 1. 在头部电机松扭矩或 12V 关闭时调整 Gemini；
 2. pan 正前方，tilt 轻微向下，同时看到地面和远处竖直结构；
@@ -217,6 +260,10 @@ camera_link
 
 操作者确认“Gemini 云台已固定并标记”后，才运行相机坐标系下的静止
 RTAB-Map RGB-D odometry 漂移测试。该测试不移动机器人。
+
+静止测试可以直接以 `camera_link` 为参考，不依赖失败的 eye-to-hand 外参，也
+不要求先发布 `base_link -> camera_link`。已知距离深度检查和实测安装外参在
+监督式移动建图前完成。
 
 ## 9. 回退方法
 

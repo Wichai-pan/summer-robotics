@@ -165,14 +165,19 @@ That command reuses `jetson_robot_exec.sh`, its Gemini resolver, `/data` mount,
 and global hardware lock. It exposes no controller serial device. Artifacts are
 written under `/home/jetsonl7/robot-data/slam/preflight/<UTC timestamp>/` and
 must remain outside Git.
-- Status: connectivity preflight passed on 2026-08-11 with software-aligned
-  depth, synchronized IMU, camera-internal TF, and an 8.12-second MCAP. Full
-  Phase 1 acceptance remains open until depth scale, RGB/depth timestamp delta,
-  sustained rate, and single camera-node ownership are explicitly checked.
+- Status: passed for camera-only static visual odometry on 2026-08-11 with
+  software-aligned depth, synchronized IMU, camera-internal TF, and an
+  8.12-second MCAP. Bag analysis found a 0.160 ms maximum RGB/depth timestamp
+  delta, and live QA confirmed one camera publisher with approximately 28.9 Hz
+  RGB, 26.6 Hz depth, and 197 Hz IMU reception. One shared 0.25--0.27 second
+  stream stall remains recorded as a risk. A measured target must still confirm
+  physical depth accuracy before navigation or metric map acceptance.
 
 ### 2. Static visual-odometry test
 
-- Input: fixed gimbal, measured camera mount transform, camera-only ROS graph.
+- Input: fixed gimbal and camera-only ROS graph. This diagnostic may use
+  `camera_link` directly; the base-to-camera transform is not required while
+  the base remains stationary.
 - Output: RTAB-Map RGB-D odometry while the stationary robot is gently observed
   and the camera view is checked.
 - Acceptance: stationary pose remains stable; no repeated odometry loss; TF has
@@ -200,10 +205,11 @@ motion are separate milestones requiring their own safety review.
 The separate ROS 2 Humble SLAM image build was approved and completed without
 mutating `forestbridge-xlerobot:jp62`, the LeRobot environment, calibration
 files, or the Jetson host Python installation. The next physical gate is to fix
-and mark the camera gimbal. Before Phase 2, close the remaining Phase 1 QA items
-and record the measured `base_link -> camera_link` mounting transform. Do not
-start visual odometry, change firmware, or move the base without separate
-operator confirmation.
+and mark the camera gimbal before the camera-only static odometry test. Physical
+depth accuracy and the measured `base_link -> camera_link` mounting transform
+remain mandatory before supervised moving-map acceptance, but do not block the
+stationary diagnostic. Do not start visual odometry, change firmware, or move
+the base without separate operator confirmation.
 
 Official references:
 
