@@ -24,6 +24,8 @@ Team review documents:
   failures, rollback, and the next gate;
 - [Phase 2 静止视觉里程计](02-static-visual-odometry.md): odometry-only
   architecture, dry-run evidence, metrics, and the live-test gate;
+- [Gemini 云台参考位与端点记录](03-gemini-gimbal-reference-and-limits.md):
+  ID 7/8 轴映射、抓取视角、手动活动端点、回正实测及 SLAM 使用约束；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
