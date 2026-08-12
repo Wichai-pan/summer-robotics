@@ -22,6 +22,8 @@ Team review documents:
 
 - [中文 bring-up 记录](01-jetson-rgbd-bringup-log.md): decisions, evidence,
   failures, rollback, and the next gate;
+- [Phase 2 静止视觉里程计](02-static-visual-odometry.md): odometry-only
+  architecture, dry-run evidence, metrics, and the live-test gate;
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
@@ -165,13 +167,15 @@ That command reuses `jetson_robot_exec.sh`, its Gemini resolver, `/data` mount,
 and global hardware lock. It exposes no controller serial device. Artifacts are
 written under `/home/jetsonl7/robot-data/slam/preflight/<UTC timestamp>/` and
 must remain outside Git.
-- Status: passed for camera-only static visual odometry on 2026-08-11 with
-  software-aligned depth, synchronized IMU, camera-internal TF, and an
+- Status: camera preflight passed and is ready for the camera-only static
+  visual-odometry test. It produced software-aligned depth, synchronized IMU,
+  camera-internal TF, and an
   8.12-second MCAP. Bag analysis found a 0.160 ms maximum RGB/depth timestamp
   delta, and live QA confirmed one camera publisher with approximately 28.9 Hz
   RGB, 26.6 Hz depth, and 197 Hz IMU reception. One shared 0.25--0.27 second
-  stream stall remains recorded as a risk. A measured target must still confirm
-  physical depth accuracy before navigation or metric map acceptance.
+  stream stall remains recorded as a risk. Gemini factory calibration and the
+  existing IK/ACT camera evidence are the accepted baseline; no new depth
+  calibration is required for this route.
 
 ### 2. Static visual-odometry test
 
@@ -183,6 +187,30 @@ must remain outside Git.
 - Acceptance: stationary pose remains stable; no repeated odometry loss; TF has
   exactly one owner for each transform.
 - Rollback: stop RTAB-Map and retain the diagnostic bag/database outside Git.
+
+The implementation uses `rtabmap_odom/rgbd_odometry` directly, not the full
+mapping node. It subscribes to the software-aligned Gemini streams with
+Reliable QoS and a 10 ms approximate-sync window. IMU input is intentionally
+disabled for this first diagnostic so RGB-D tracking can be evaluated alone.
+
+Software-only validation opens no camera or motor device:
+
+```bash
+./scripts/jetson_slam_static_odom.sh --dry-run
+```
+
+After the operator confirms that the base is stationary and the Gemini gimbal
+is fixed and marked, the approved live command will be:
+
+```bash
+./scripts/jetson_slam_static_odom.sh --duration 60
+```
+
+The live command records only compact odometry and quality JSONL under
+`/home/jetsonl7/robot-data/slam/static-odom/<UTC timestamp>/`; it does not save
+RGB-D video. The report fails on non-monotonic timestamps, less than 5 Hz,
+gaps over 0.5 seconds, motion over 20 mm or 1 degree, or any tracking-loss
+transition.
 
 ### 3. Supervised initial map
 
@@ -205,11 +233,11 @@ motion are separate milestones requiring their own safety review.
 The separate ROS 2 Humble SLAM image build was approved and completed without
 mutating `forestbridge-xlerobot:jp62`, the LeRobot environment, calibration
 files, or the Jetson host Python installation. The next physical gate is to fix
-and mark the camera gimbal before the camera-only static odometry test. Physical
-depth accuracy and the measured `base_link -> camera_link` mounting transform
-remain mandatory before supervised moving-map acceptance, but do not block the
-stationary diagnostic. Do not start visual odometry, change firmware, or move
-the base without separate operator confirmation.
+and mark the camera gimbal before the camera-only static odometry test. Existing
+IK/install measurements will be reviewed and converted into the later
+`base_link -> camera_link` TF; this is integration of accepted data, not a new
+calibration campaign. Do not start visual odometry, change firmware, or move the
+base without separate operator confirmation.
 
 Official references:
 
