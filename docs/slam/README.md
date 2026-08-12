@@ -26,6 +26,8 @@ Team review documents:
   architecture, dry-run evidence, metrics, and the live-test gate;
 - [Gemini 云台参考位与端点记录](03-gemini-gimbal-reference-and-limits.md):
   ID 7/8 轴映射、抓取视角、手动活动端点、回正实测及 SLAM 使用约束；
+- [camera-only 静止 VO 实测结果](04-static-visual-odometry-live-results.md):
+  三次实测、根因修正、最终指标、已知风险和下一门槛；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
@@ -214,6 +216,12 @@ RGB-D video. The report fails on non-monotonic timestamps, less than 5 Hz,
 gaps over 0.5 seconds, motion over 20 mm or 1 degree, or any tracking-loss
 transition.
 
+Status: passed on 2026-08-12 using `main@96ba910`. The final 60-second run
+recorded 447 odometry/quality pairs at 7.454 Hz with no tracking loss, 1.689 mm
+translation drift, 0.221 degree rotation drift, and a 0.234 second maximum
+source timestamp gap. See `04-static-visual-odometry-live-results.md` for the
+failed attempts, fixes, complete metrics, and retained risks.
+
 ### 3. Supervised initial map
 
 - Input: cleared low-speed route, on-site operator, manual base control,
@@ -232,14 +240,17 @@ motion are separate milestones requiring their own safety review.
 
 ## Current approval boundary
 
-The separate ROS 2 Humble SLAM image build was approved and completed without
+The separate ROS 2 Humble SLAM image build and camera-only static visual
+odometry gate were completed without
 mutating `forestbridge-xlerobot:jp62`, the LeRobot environment, calibration
-files, or the Jetson host Python installation. The next physical gate is to fix
-and mark the camera gimbal before the camera-only static odometry test. Existing
-IK/install measurements will be reviewed and converted into the later
+files, or the Jetson host Python installation. The fixed Gemini gimbal reference
+was recorded before the static test. Existing IK/install measurements will be
+reviewed and converted into the later
 `base_link -> camera_link` TF; this is integration of accepted data, not a new
-calibration campaign. Do not start visual odometry, change firmware, or move the
-base without separate operator confirmation.
+calibration campaign. The next gate is a low-speed, short-distance supervised
+visual-odometry route with a reviewed `base_link -> camera_link` transform.
+Do not map a base controller device, change firmware, or move the base without
+separate operator confirmation.
 
 Official references:
 
