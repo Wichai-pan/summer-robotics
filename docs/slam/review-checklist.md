@@ -98,21 +98,19 @@ find /home/jetsonl7/robot-data/slam/preflight \
 - RGB / Depth / IMU 的 `*_hz.txt`；
 - `depth-scale-parameter.txt`。
 
-相机链路 QA 应记录：
+相机链路 QA 已记录：
 
-- 已知距离下的深度单位与误差；
 - RGB 与对齐 Depth 的时间戳差分布；
 - 一段固定时长内的实际帧率、P95/最大间隔和掉帧；
 - ROS graph 中相机驱动节点唯一，没有重复 owner。
 
-2026-08-11 已关闭后三项；证据见
+2026-08-11 已关闭以上三项；证据见
 `/home/jetsonl7/robot-data/slam/preflight/20260811T131318Z/` 和
-`20260811T172703Z/`。第一项目前只确认驱动启用深度缩放、默认精度为 1 mm，
-还必须用卷尺和已知距离平面完成物理准确度检查。
+`20260811T172703Z/`。驱动同时确认启用深度缩放、默认精度为 1 mm。
 
-现有结果足以进入 camera-only 静止视觉里程计。物理深度准确度和实测
-`base_link -> camera_link` 不阻塞静止诊断，但缺少时不得验收移动地图的米制
-结果，也不得进入导航或自主运动。
+结合已有 IK/ACT 实机证据，现有结果足以进入 camera-only 静止视觉里程计，
+不再要求新的已知距离检查或相机重标定。正式 TF 优先复用并转换已有安装测量；
+不得把失败的 `motion_locked` eye-to-hand 拟合直接发布为 TF。
 
 ## 6. 必须阻止合并的情况
 
@@ -122,3 +120,23 @@ find /home/jetsonl7/robot-data/slam/preflight \
 - 将 `/home/jetsonl7/robot-data/` 内容加入 Git；
 - 把仿真 URDF 的相机位姿宣称为实机外参；
 - 文档宣称已经完成视觉里程计、建图或自主导航。
+
+## 7. 静止视觉里程计（默认只做 dry-run）
+
+无硬件检查：
+
+```bash
+./scripts/jetson_slam_static_odom.sh --dry-run
+```
+
+确认输出以以下文字结束：
+
+```text
+PASS static odometry dry-run; no camera or motor device was opened
+```
+
+真实的 `--duration 60` 需要现场人员另行确认 Gemini 云台固定、底盘静止且硬件
+锁空闲。入口必须只映射 `--gemini`，不得映射 `--white` 或 `--black`。当前阶段
+不得启动完整 RTAB-Map 建图节点、IMU 数据流/融合或底盘运动。真实入口的输出根
+目录固定为 `/home/jetsonl7/robot-data/slam/static-odom/`，且必须验证 `/tf` 由
+`rgbd_odometry` 唯一发布、`/tf_static` 由相机节点唯一发布。
