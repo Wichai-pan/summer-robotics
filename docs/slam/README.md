@@ -32,6 +32,8 @@ Team review documents:
   candidate TF 契约与未来现场门槛；
 - [base-camera 外参证据清单](base-camera-transform-inventory.md): 已知来源、不可用数据
   与最小人工补充项；
+- [移动 VO 准备实验记录](05-mobile-vo-bringup-session-log.md): 本次软件实现、外参结论、
+  验证证据、阻塞项与下一次接续顺序；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
