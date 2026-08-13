@@ -1,6 +1,7 @@
 import pytest
 
 from act_white_short_rollout import (
+    GripperContactSupervisor,
     action_dict,
     clamp_position_to_total_envelope,
     clamp_rollout_live_state,
@@ -10,6 +11,92 @@ from act_white_short_rollout import (
     summarize_policy_chunks,
     total_travel_violations,
 )
+
+
+def test_gripper_supervisor_latches_contact_holds_then_releases() -> None:
+    supervisor = GripperContactSupervisor(
+        minimum_position=7.0,
+        minimum_load_percent=15.0,
+        minimum_current_raw=15,
+        confirmation_s=0.3,
+        hold_offset=0.5,
+        release_position=20.0,
+        release_confirmation_s=0.2,
+        maximum_hold_s=15.0,
+    )
+    first = supervisor.update(
+        now_s=0.0,
+        present_position=9.4,
+        requested_position=8.0,
+        policy_requested_position=5.0,
+        load_raw=270,
+        current_raw=34,
+    )
+    assert first["latched"] is False
+    latched = supervisor.update(
+        now_s=0.31,
+        present_position=9.2,
+        requested_position=7.0,
+        policy_requested_position=5.0,
+        load_raw=268,
+        current_raw=33,
+    )
+    assert latched["event"] == "contact_latched"
+    assert latched["guarded_position"] == pytest.approx(8.7)
+    held = supervisor.update(
+        now_s=1.0,
+        present_position=9.0,
+        requested_position=5.0,
+        policy_requested_position=5.0,
+        load_raw=260,
+        current_raw=30,
+    )
+    assert held["guard_reason"] == "grasp_contact_hold"
+    assert held["guarded_position"] == pytest.approx(8.7)
+    release_candidate = supervisor.update(
+        now_s=2.0,
+        present_position=9.0,
+        requested_position=10.0,
+        policy_requested_position=40.0,
+        load_raw=250,
+        current_raw=28,
+    )
+    assert release_candidate["event"] is None
+    assert release_candidate["latched"] is True
+    released = supervisor.update(
+        now_s=2.21,
+        present_position=9.0,
+        requested_position=12.0,
+        policy_requested_position=40.0,
+        load_raw=240,
+        current_raw=25,
+    )
+    assert released["event"] == "contact_released"
+    assert released["latched"] is False
+    assert released["guarded_position"] == 12.0
+
+
+def test_gripper_supervisor_rejects_empty_close_baseline() -> None:
+    supervisor = GripperContactSupervisor(
+        minimum_position=7.0,
+        minimum_load_percent=15.0,
+        minimum_current_raw=15,
+        confirmation_s=0.3,
+        hold_offset=0.5,
+        release_position=20.0,
+        release_confirmation_s=0.2,
+        maximum_hold_s=15.0,
+    )
+    state = supervisor.update(
+        now_s=1.0,
+        present_position=5.2,
+        requested_position=5.0,
+        policy_requested_position=5.0,
+        load_raw=28,
+        current_raw=1,
+    )
+    assert state["contact_signal"] is False
+    assert state["latched"] is False
 
 
 def test_action_dict_rejects_non_finite_and_dimension_mismatch() -> None:
