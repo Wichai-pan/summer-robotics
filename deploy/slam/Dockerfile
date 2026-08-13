@@ -11,6 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         jq \
+        python3-pip \
         procps \
         ros-humble-image-tools \
         ros-humble-image-transport-plugins \
