@@ -28,6 +28,7 @@ WHEEL_IDS = [7, 8, 9]
 XY_SPEED = 0.12
 THETA_SPEED = 40.0
 LOOP_HZ = 30
+VELOCITY_WRITE_ATTEMPTS = 3
 
 OP_MODE, TORQUE, GOAL_VEL, LOCK = 33, 40, 46, 55
 MODE_VELOCITY = 1
@@ -98,6 +99,36 @@ def require_servo_success(
             f"{operation} failed for motor {motor_id}: "
             f"communication={communication}, packet_error={packet_error}"
         )
+
+
+def write_wheel_velocity(
+    packet: object,
+    port_handler: object,
+    motor_id: int,
+    encoded_velocity: int,
+    communication_success: int,
+) -> None:
+    """Retry an idempotent wheel command after a transient status timeout."""
+    last_communication = communication_success
+    last_packet_error = 0
+    for attempt in range(1, VELOCITY_WRITE_ATTEMPTS + 1):
+        communication, packet_error = packet.write2ByteTxRx(
+            port_handler, motor_id, GOAL_VEL, encoded_velocity
+        )
+        if communication == communication_success and packet_error == 0:
+            if attempt > 1:
+                print(f"Wheel ID {motor_id} reply recovered on retry {attempt}.")
+            return
+        last_communication, last_packet_error = communication, packet_error
+        if attempt < VELOCITY_WRITE_ATTEMPTS:
+            time.sleep(0.01)
+    require_servo_success(
+        "set velocity",
+        motor_id,
+        last_communication,
+        last_packet_error,
+        communication_success,
+    )
 
 
 def shutdown_hardware(
@@ -446,14 +477,11 @@ def main() -> int:
                 )
                 raw = body_to_wheel_raw(x, y, theta)
                 for motor_id, velocity in zip(WHEEL_IDS, raw):
-                    communication, packet_error = packet.write2ByteTxRx(
-                        port_handler, motor_id, GOAL_VEL, encode_sm(velocity)
-                    )
-                    require_servo_success(
-                        "set velocity",
+                    write_wheel_velocity(
+                        packet,
+                        port_handler,
                         motor_id,
-                        communication,
-                        packet_error,
+                        encode_sm(velocity),
                         COMM_SUCCESS,
                     )
                 time.sleep(period)

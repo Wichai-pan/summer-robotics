@@ -12,6 +12,7 @@ from tools.base_keyboard import (
     command_from_keys,
     encode_sm,
     shutdown_hardware,
+    write_wheel_velocity,
 )
 
 
@@ -50,6 +51,38 @@ def test_wheel_conversion_and_signed_encoding_are_bounded() -> None:
     assert max(abs(value) for value in raw) <= 3000
     assert encode_sm(-123) == (1 << 15) | 123
     assert encode_sm(123) == 123
+
+
+def test_wheel_velocity_retries_a_single_dropped_reply() -> None:
+    calls = 0
+
+    class Packet:
+        def write2ByteTxRx(
+            self, _port: object, _motor_id: int, _address: int, _value: int
+        ) -> tuple[int, int]:
+            nonlocal calls
+            calls += 1
+            return (-6, 0) if calls == 1 else (0, 0)
+
+    with patch.object(base_keyboard.time, "sleep"):
+        write_wheel_velocity(Packet(), object(), 7, 123, 0)
+    assert calls == 2
+
+
+def test_wheel_velocity_aborts_after_persistent_timeout() -> None:
+    class Packet:
+        def write2ByteTxRx(
+            self, _port: object, _motor_id: int, _address: int, _value: int
+        ) -> tuple[int, int]:
+            return -6, 0
+
+    with patch.object(base_keyboard.time, "sleep"):
+        try:
+            write_wheel_velocity(Packet(), object(), 7, 123, 0)
+        except RuntimeError as exc:
+            assert "communication=-6" in str(exc)
+        else:
+            raise AssertionError("persistent velocity timeout did not abort")
 
 
 def test_input_backend_failure_never_enables_torque() -> None:
