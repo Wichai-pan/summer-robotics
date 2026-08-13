@@ -93,7 +93,7 @@ while [[ ! -e "$ready_file" ]]; do
   sleep 0.2
 done
 
-echo "Recording window is live. At the BASE prompt, start only after final route check."
+echo "Recording window is live. Do not press W/S yet: first type BASE and Enter at the next prompt."
 python3 tools/base_keyboard.py --terminal \
   --xy-speed-mps "$xy_speed" --theta-speed-deg-s "$theta_speed" \
   --max-runtime-s "$base_runtime"

@@ -141,7 +141,10 @@ def run_live(args: argparse.Namespace) -> int:
         odom_count = node.odom_count
         info_count = node.info_count
         node.destroy_node()
-        rclpy.shutdown()
+        # SIGINT may already have shut down the default context. Do not turn a
+        # user-requested stop into a misleading traceback during cleanup.
+        if rclpy.ok():
+            rclpy.shutdown()
         handle.close()
 
     print(f"Captured odom={odom_count} odom_info={info_count} to {args.output}")

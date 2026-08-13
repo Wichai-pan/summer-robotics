@@ -20,6 +20,7 @@ def test_container_session_checks_pose_before_base_torque_and_saves_mapping() ->
     assert "check --tolerance-deg 1.0" in script
     assert "slam_base_camera_transform.py validate" in script
     assert "Type MAP to start" in script
+    assert "Do not press W/S yet" in script
     assert "--mode mapping" in script
     assert "--ready-file" in script
     assert "base_keyboard.py --terminal" in script

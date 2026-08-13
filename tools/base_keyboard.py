@@ -370,7 +370,7 @@ def main() -> int:
             raise RuntimeError(f"base motor IDs did not respond: {missing}")
 
         answer = input(
-            "Confirm the area is clear, 12V can be cut immediately, and enter BASE to continue: "
+            "Base is still torque-free. Confirm the area is clear and enter BASE (then wait for W/S controls): "
         ).strip()
         if answer != "BASE":
             print("Cancelled; wheel torque was not enabled.")
