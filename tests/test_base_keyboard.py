@@ -11,6 +11,7 @@ from tools.base_keyboard import (
     body_to_wheel_raw,
     command_from_keys,
     encode_sm,
+    prepare_wheels_stopped,
     shutdown_hardware,
     write_wheel_velocities,
 )
@@ -88,6 +89,41 @@ def test_wheel_velocity_broadcast_aborts_on_transmit_failure() -> None:
         assert "communication=-2" in str(exc)
     else:
         raise AssertionError("failed broadcast did not abort")
+
+
+def test_preflight_broadcasts_zero_before_any_wheel_torque_enable() -> None:
+    events: list[tuple[str, int]] = []
+
+    class Packet:
+        def read1ByteTxRx(
+            self, _port: object, _motor_id: int, _address: int
+        ) -> tuple[int, int, int]:
+            return base_keyboard.MODE_VELOCITY, 0, 0
+
+        def write1ByteTxRx(
+            self, _port: object, motor_id: int, address: int, _value: int
+        ) -> tuple[int, int]:
+            if address == base_keyboard.TORQUE:
+                events.append(("torque", motor_id))
+            return 0, 0
+
+    class GroupWriter:
+        def __init__(self, *_args: object):
+            pass
+
+        def clearParam(self) -> None:
+            pass
+
+        def addParam(self, _motor_id: int, _data: list[int]) -> bool:
+            return True
+
+        def txPacket(self) -> int:
+            events.append(("zero", 0))
+            return 0
+
+    prepare_wheels_stopped(Packet(), object(), 0, GroupWriter)
+    assert events[0] == ("zero", 0)
+    assert events[1:] == [("torque", 7), ("torque", 8), ("torque", 9)]
 
 
 def test_input_backend_failure_never_enables_torque() -> None:

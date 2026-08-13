@@ -129,6 +129,72 @@ def write_wheel_velocities(
     )
 
 
+def prepare_wheels_stopped(
+    packet: object,
+    port_handler: object,
+    communication_success: int,
+    group_sync_write_factory: object,
+) -> None:
+    """Validate all wheels, clear stored velocity, then enable torque together.
+
+    A wheel retains Goal_Velocity across torque-off. Therefore no wheel may be
+    enabled until every wheel has passed the mode preflight and a broadcast
+    zero-velocity command has been sent.
+    """
+    modes: dict[int, int] = {}
+    for motor_id in WHEEL_IDS:
+        mode, communication, packet_error = packet.read1ByteTxRx(
+            port_handler, motor_id, OP_MODE
+        )
+        require_servo_success(
+            "read operating mode",
+            motor_id,
+            communication,
+            packet_error,
+            communication_success,
+        )
+        modes[motor_id] = mode
+
+    for motor_id, mode in modes.items():
+        if mode == MODE_VELOCITY:
+            continue
+        for address, value, operation in (
+            (LOCK, 0, "unlock operating mode"),
+            (OP_MODE, MODE_VELOCITY, "set velocity mode"),
+            (LOCK, 1, "lock operating mode"),
+        ):
+            communication, packet_error = packet.write1ByteTxRx(
+                port_handler, motor_id, address, value
+            )
+            require_servo_success(
+                operation,
+                motor_id,
+                communication,
+                packet_error,
+                communication_success,
+            )
+
+    # All wheels are still torque-free here. Broadcast the zero target before
+    # enabling any wheel so stale velocity cannot restart the base.
+    write_wheel_velocities(
+        group_sync_write_factory(port_handler, packet, GOAL_VEL, 2),
+        port_handler,
+        [0, 0, 0],
+        communication_success,
+    )
+    for motor_id in WHEEL_IDS:
+        communication, packet_error = packet.write1ByteTxRx(
+            port_handler, motor_id, TORQUE, 1
+        )
+        require_servo_success(
+            "enable torque",
+            motor_id,
+            communication,
+            packet_error,
+            communication_success,
+        )
+
+
 def shutdown_hardware(
     input_backend: KeyInput,
     input_connected: bool,
@@ -416,43 +482,9 @@ def main() -> int:
                     managed_signal, request_shutdown
                 )
 
-            for motor_id in WHEEL_IDS:
-                mode, communication, packet_error = packet.read1ByteTxRx(
-                    port_handler, motor_id, OP_MODE
-                )
-                require_servo_success(
-                    "read operating mode",
-                    motor_id,
-                    communication,
-                    packet_error,
-                    COMM_SUCCESS,
-                )
-                if mode != MODE_VELOCITY:
-                    for address, value, operation in (
-                        (LOCK, 0, "unlock operating mode"),
-                        (OP_MODE, MODE_VELOCITY, "set velocity mode"),
-                        (LOCK, 1, "lock operating mode"),
-                    ):
-                        communication, packet_error = packet.write1ByteTxRx(
-                            port_handler, motor_id, address, value
-                        )
-                        require_servo_success(
-                            operation,
-                            motor_id,
-                            communication,
-                            packet_error,
-                            COMM_SUCCESS,
-                        )
-                communication, packet_error = packet.write1ByteTxRx(
-                    port_handler, motor_id, TORQUE, 1
-                )
-                require_servo_success(
-                    "enable torque",
-                    motor_id,
-                    communication,
-                    packet_error,
-                    COMM_SUCCESS,
-                )
+            prepare_wheels_stopped(
+                packet, port_handler, COMM_SUCCESS, GroupSyncWrite
+            )
 
             print(
                 "W/S forward/back, A/D strafe, Q/E rotate, Space stop, X/Esc exit. "
