@@ -35,6 +35,8 @@ def test_mapping_finalizes_database_and_has_no_hardware_software_smoke() -> None
     assert "--mode mapping" in smoke
     assert "--mount" in smoke
     assert "/dev/" not in smoke
+    assert 'RGBD/CreateOccupancyGrid:="true"' in container
+    assert 'Grid/FromDepth:="true"' in container
 
 
 def test_slam_image_contains_needed_base_transport_dependency() -> None:

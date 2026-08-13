@@ -124,6 +124,8 @@ if [[ "$dry_run" == true ]]; then
     timeout --signal=INT --kill-after=1 3 \
       ros2 run rtabmap_slam rtabmap --ros-args \
         -p frame_id:=base_link -p odom_frame_id:=odom -p map_frame_id:=map \
+        -p 'RGBD/CreateOccupancyGrid:="true"' \
+        -p 'Grid/FromDepth:="true"' \
         -p database_path:=/tmp/rtabmap-smoke.db \
       >"$mapping_probe_log" 2>&1
     mapping_probe_status=$?
@@ -323,14 +325,16 @@ if [[ "$mode" == "mapping" ]]; then
     -p qos:=1
     -p qos_camera_info:=1
     -p subscribe_rgbd:=false
-    -p RGBD/CreateOccupancyGrid:=true
-    -p Grid/FromDepth:=true
+    # RTAB-Map's internal parameters are strings, even for boolean concepts.
+    # Keep the explicit inner quotes so ROS 2 does not coerce them to bool.
+    -p 'RGBD/CreateOccupancyGrid:="true"'
+    -p 'Grid/FromDepth:="true"'
     -p database_path:="$database_path"
   )
   setsid "${mapping_command[@]}" >"$mapping_log" 2>&1 &
   mapping_pid=$!
   process_pids+=("$mapping_pid")
-  sleep 2
+  sleep 5
   kill -0 "$mapping_pid" || {
     echo "RTAB-Map mapping process exited during startup" >&2
     tail -n 100 "$mapping_log" >&2
