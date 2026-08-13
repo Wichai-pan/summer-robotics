@@ -48,6 +48,14 @@ UNRESOLVED transform accepted for dry-run; live mode is prohibited
 PASS motion odometry dry-run; no camera or motor device was opened
 ```
 
+首轮 mapping 前，另外运行与真机 graph 参数相同的容器软件验证：
+
+```bash
+./scripts/jetson_slam_mapping_software_smoke.sh
+```
+
+预期最后一行是 `PASS mapping odometry dry-run; no camera or motor device was opened`。
+
 ## 受锁监督 mapping 入口
 
 `scripts/jetson_slam_supervised_mapping.sh` 是第一轮真机 mapping 的唯一入口。它通过
@@ -68,6 +76,7 @@ PASS motion odometry dry-run; no camera or motor device was opened
 
 ```bash
 ./scripts/jetson_slam_motion_odom.sh --dry-run
+./scripts/jetson_slam_mapping_software_smoke.sh
 ```
 
 然后重建独立 SLAM 镜像（它新增了底盘串口 SDK，不修改 ACT 镜像）：
