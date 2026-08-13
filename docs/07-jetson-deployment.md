@@ -123,6 +123,25 @@ cd /home/jetsonl7/summer-robotics-deploy
 
 RGB-D 结果按 UTC 时间戳写入 `/home/jetsonl7/robot-data/tmp/jetson-gemini-smoke-*.{jpg,json}`，宿主用户拥有这些文件。
 
+### 一张图确认相机物理身份
+
+不要依据会随重启/拔插改变的 `/dev/videoN` 猜测相机身份。下面的只读命令在一张图片中并列
+Gemini RGB、两个 UVC 相机，并把物理 USB 路径和当次 host video 节点写在画面上；它不映射
+串口，也不发送任何电机命令：
+
+```bash
+./scripts/jetson_robot_exec.sh --gemini --wrist-a --wrist-b -- \
+  python3 tools/capture_camera_contact_sheet.py \
+    --camera 'UVC USB 2.4.1 | host /dev/video8=/dev/wrist-2-4-1' \
+    --camera 'UVC USB 2.4.3 | host /dev/video4=/dev/wrist-2-4-3' \
+    --output /data/camera-check/contact_sheet.jpg
+```
+
+使用实际 `ls -l /dev/v4l/by-path/` 输出替换命令标签中的 `video8` / `video4`。结果为
+`/home/jetsonl7/robot-data/camera-check/contact_sheet.jpg` 及同名 JSON。遮住怀疑的物理镜头后
+重跑一次，即可确定其方格；若三格里都不是底盘前视，说明该相机尚未接到 Jetson，不应继续猜测
+设备编号。
+
 ## 9. 从 SSH 使用原黑臂键盘控制器
 
 迁移前在 Mac 上验证成功的控制器仍是 `tools/arm_keyboard.py black`。Jetson 版本只增加了 `--terminal` 输入后端，未替换关节映射、P 控制、标定或姿态保存逻辑：
