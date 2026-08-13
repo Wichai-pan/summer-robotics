@@ -121,7 +121,48 @@ done
 [[ -d "$data_root" ]] || { echo "Missing data root: $data_root" >&2; exit 2; }
 [[ -d "$calibration_root" ]] || { echo "Missing calibration root: $calibration_root" >&2; exit 2; }
 
+container_cidfile="$(mktemp /tmp/forestbridge-container.XXXXXX.cid)"
+rm -f "$container_cidfile"
+container_token="${container_cidfile%.cid}"
+container_token="${container_token##*.}"
+container_name="forestbridge-session-$container_token"
+session_pid="$$"
+session_start="$(awk '{print $22}' "/proc/$session_pid/stat")"
+watchdog_pid=""
+
+# EXIT traps cannot run after SIGKILL. Keep a detached watchdog tied to this
+# exact shell process so an abruptly lost SSH session cannot orphan Docker.
+setsid bash -c '
+  session_pid="$1"
+  session_start="$2"
+  cidfile="$3"
+  container_name="$4"
+  while [[ -r "/proc/$session_pid/stat" ]] &&
+        [[ "$(awk '\''{print $22}'\'' "/proc/$session_pid/stat" 2>/dev/null)" == "$session_start" ]]; do
+    sleep 1
+  done
+  # Docker may not have written the CID when the owner dies. The unique name
+  # exists before launch, so wait briefly for an in-flight docker run.
+  for attempt in {1..20}; do
+    container_ref="$container_name"
+    if ! docker inspect "$container_ref" >/dev/null 2>&1 && [[ -s "$cidfile" ]]; then
+      container_ref="$(<"$cidfile")"
+    fi
+    if docker inspect "$container_ref" >/dev/null 2>&1; then
+      docker stop --timeout 10 "$container_ref" >/dev/null 2>&1 ||
+        docker kill "$container_ref" >/dev/null 2>&1 || true
+      break
+    fi
+    sleep 1
+  done
+  rm -f "$cidfile"
+' _ "$session_pid" "$session_start" "$container_cidfile" "$container_name" \
+  </dev/null >/dev/null 2>&1 &
+watchdog_pid=$!
+
 docker_cmd=(docker run --rm \
+  --name "$container_name" \
+  --cidfile "$container_cidfile" \
   "${interactive_args[@]}" \
   "${x11_args[@]}" \
   --runtime nvidia \
@@ -134,6 +175,40 @@ docker_cmd=(docker run --rm \
   --env PYTHONPATH=/workspace/tools:/workspace/external/lerobot/src \
   "$image_name" \
   "$@")
+
+cleanup_container() {
+  local status=$?
+  trap - EXIT HUP INT TERM
+  if [[ -n "$watchdog_pid" ]]; then
+    kill "$watchdog_pid" >/dev/null 2>&1 || true
+  fi
+  wait_attempts=1
+  if [[ $status -ge 128 ]]; then
+    wait_attempts=20
+  fi
+  for ((attempt = 1; attempt <= wait_attempts; attempt++)); do
+    container_ref="$container_name"
+    if ! docker inspect "$container_ref" >/dev/null 2>&1 && [[ -s "$container_cidfile" ]]; then
+      container_ref="$(<"$container_cidfile")"
+    fi
+    if docker inspect "$container_ref" >/dev/null 2>&1; then
+      echo "Stopping container $container_ref after host session exit." >&2
+      docker stop --timeout 10 "$container_ref" >/dev/null 2>&1 || \
+        docker kill "$container_ref" >/dev/null 2>&1 || true
+      break
+    fi
+    if ((attempt < wait_attempts)); then
+      sleep 1
+    fi
+  done
+  rm -f "$container_cidfile"
+  exit "$status"
+}
+
+trap cleanup_container EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Use flock's parent-process mode. It holds the lock while the Docker child is
 # running, independent of which file descriptors the Go Docker client closes.

@@ -38,6 +38,8 @@ Team review documents:
   云台参考位、安装螺丝测量、官方偏移换算和适用边界；
 - [首次监督式移动建图记录](07-supervised-first-mapping-session-log.md): 固定云台、
   单一硬件锁手动底盘、首批 RTAB-Map 数据库、质量结果与下一次闭环路线；
+- [监督式建图性能复测](08-supervised-mapping-performance-rerun.md): 断线清理、
+  640x480 性能优化、TF 探针重试和最终闭环 PASS 结果；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 

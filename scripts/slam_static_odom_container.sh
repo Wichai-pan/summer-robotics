@@ -9,12 +9,16 @@ dry_run=false
 mode="static"
 transform_config=""
 ready_file=""
+camera_width=0
+camera_height=0
+camera_fps=0
 
 usage() {
   cat <<'EOF'
 Usage: slam_static_odom_container.sh [--duration SECONDS] [--output-root PATH] [--dry-run]
                                      [--mode static|motion|mapping] [--transform-config PATH]
-                                     [--ready-file PATH]
+                                     [--ready-file PATH] [--camera-width PX]
+                                     [--camera-height PX] [--camera-fps HZ]
 
 Runs Gemini-only RTAB-Map RGB-D odometry in camera_link and writes compact
 JSONL plus a drift/quality report. It does not open a motor device.
@@ -28,6 +32,9 @@ while [[ $# -gt 0 ]]; do
   --mode) mode="${2:?missing value for --mode}"; shift 2 ;;
   --transform-config) transform_config="${2:?missing value for --transform-config}"; shift 2 ;;
   --ready-file) ready_file="${2:?missing value for --ready-file}"; shift 2 ;;
+  --camera-width) camera_width="${2:?missing value for --camera-width}"; shift 2 ;;
+  --camera-height) camera_height="${2:?missing value for --camera-height}"; shift 2 ;;
+  --camera-fps) camera_fps="${2:?missing value for --camera-fps}"; shift 2 ;;
     --dry-run) dry_run=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -38,6 +45,18 @@ done
   echo "--duration must be a positive integer" >&2
   exit 2
 }
+for camera_value in "$camera_width" "$camera_height" "$camera_fps"; do
+  [[ "$camera_value" =~ ^[0-9]+$ ]] || {
+    echo "camera width, height and fps must be non-negative integers" >&2
+    exit 2
+  }
+done
+if [[ "$camera_width" == 0 || "$camera_height" == 0 || "$camera_fps" == 0 ]]; then
+  [[ "$camera_width" == 0 && "$camera_height" == 0 && "$camera_fps" == 0 ]] || {
+    echo "camera width, height and fps must be all zero (device default) or all positive" >&2
+    exit 2
+  }
+fi
 [[ "$mode" == "static" || "$mode" == "motion" || "$mode" == "mapping" ]] || {
   echo "--mode must be static, motion or mapping" >&2
   exit 2
@@ -76,6 +95,27 @@ odom_command=(
   -p always_process_most_recent_frame:=true
 )
 
+camera_command=(
+  ros2 launch orbbec_camera gemini_330_series.launch.py
+  enable_color:=true
+  enable_depth:=true
+  color_width:="$camera_width"
+  color_height:="$camera_height"
+  color_fps:="$camera_fps"
+  depth_width:="$camera_width"
+  depth_height:="$camera_height"
+  depth_fps:="$camera_fps"
+  depth_registration:=true
+  align_mode:=SW
+  align_target_stream:=COLOR
+  enable_frame_sync:=true
+  enable_point_cloud:=false
+  enable_colored_point_cloud:=false
+  enable_accel:=false
+  enable_gyro:=false
+  enable_sync_output_accel_gyro:=false
+)
+
 if [[ "$dry_run" == true ]]; then
   ros2 pkg prefix rtabmap_odom >/dev/null
   ros2 pkg prefix tf2_ros >/dev/null
@@ -100,6 +140,9 @@ if [[ "$dry_run" == true ]]; then
   python3 tools/slam_ros_graph_contract.py --help >/dev/null
   printf 'ODOM COMMAND:'
   printf ' %q' "${odom_command[@]}"
+  printf '\n'
+  printf 'CAMERA COMMAND:'
+  printf ' %q' "${camera_command[@]}"
   printf '\n'
 
   probe_log="$(mktemp)"
@@ -166,6 +209,9 @@ process_pids=()
 printf '%s\n' \
   "{\"status\":\"INCOMPLETE\",\"failures\":[\"$mode odometry run did not finalize\"]}" \
   >"$report_file"
+printf 'width=%s\nheight=%s\nfps=%s\npoint_cloud=false\n' \
+  "$camera_width" "$camera_height" "$camera_fps" \
+  >"$output_dir/camera-profile.txt"
 
 stop_process_group() {
   local pid="$1"
@@ -266,6 +312,19 @@ capture_graph_contract() {
     --output "$contract_file"
 }
 
+capture_graph_contract_with_retry() {
+  local suffix="$1"
+  local attempt
+  for attempt in 1 2 3; do
+    if capture_graph_contract "$suffix"; then
+      return 0
+    fi
+    echo "ROS graph contract attempt $attempt/3 failed; retrying discovery." >&2
+    sleep 2
+  done
+  return 1
+}
+
 if [[ "$mode" == "motion" || "$mode" == "mapping" ]]; then
   readarray -t transform_args < <(
     python3 tools/slam_base_camera_transform.py static-transform-args \
@@ -278,17 +337,7 @@ if [[ "$mode" == "motion" || "$mode" == "mapping" ]]; then
   process_pids+=("$transform_pid")
 fi
 
-setsid ros2 launch orbbec_camera gemini_330_series.launch.py \
-  enable_color:=true \
-  enable_depth:=true \
-  depth_registration:=true \
-  align_mode:=SW \
-  align_target_stream:=COLOR \
-  enable_frame_sync:=true \
-  enable_accel:=false \
-  enable_gyro:=false \
-  enable_sync_output_accel_gyro:=false \
-  >"$camera_log" 2>&1 &
+setsid "${camera_command[@]}" >"$camera_log" 2>&1 &
 camera_pid=$!
 process_pids+=("$camera_pid")
 
@@ -344,7 +393,7 @@ fi
 ros2 node list | sort -u >"$output_dir/nodes.txt"
 timeout 10 ros2 topic echo --once /tf >"$output_dir/tf-sample.txt"
 timeout 10 ros2 topic echo --once /tf_static >"$output_dir/tf-static-sample.txt"
-capture_graph_contract ""
+capture_graph_contract_with_retry ""
 
 capture_args=(
   --warmup 2
@@ -359,7 +408,7 @@ python3 tools/capture_static_odom.py "${capture_args[@]}"
 capture_status=$?
 set -e
 
-capture_graph_contract "-post"
+capture_graph_contract_with_retry "-post"
 kill -0 "$camera_pid"
 kill -0 "$odom_pid"
 minimum_duration=$(((duration * 8 + 9) / 10))

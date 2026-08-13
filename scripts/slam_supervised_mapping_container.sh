@@ -11,11 +11,15 @@ config="configs/slam/base_to_gemini_candidate.yaml"
 gimbal_reference="/data/config/gemini_gimbal_level_forward_v1.json"
 xy_speed=0.04
 theta_speed=12
+camera_width=640
+camera_height=480
+camera_fps=30
 
 usage() {
   cat <<'EOF'
 Usage: slam_supervised_mapping_container.sh [--duration S] [--config PATH]
        [--gimbal-reference PATH] [--xy-speed-mps MPS] [--theta-speed-deg-s DEG_S]
+       [--camera-width PX] [--camera-height PX] [--camera-fps HZ]
 
 Runs one supervised, manual RGB-D mapping session. It first checks the fixed
 Gemini pose read-only, then starts Gemini + static TF + RGB-D odometry +
@@ -31,6 +35,9 @@ while [[ $# -gt 0 ]]; do
     --gimbal-reference) gimbal_reference="${2:?missing reference}"; shift 2 ;;
     --xy-speed-mps) xy_speed="${2:?missing speed}"; shift 2 ;;
     --theta-speed-deg-s) theta_speed="${2:?missing speed}"; shift 2 ;;
+    --camera-width) camera_width="${2:?missing width}"; shift 2 ;;
+    --camera-height) camera_height="${2:?missing height}"; shift 2 ;;
+    --camera-fps) camera_fps="${2:?missing fps}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -77,6 +84,7 @@ read -r -p "Clear the entire route and hold the 12 V cutoff. Type MAP to start: 
 echo "[4/4] Starting ROS mapping graph; base torque remains off until its own BASE prompt."
 bash scripts/slam_static_odom_container.sh \
   --mode mapping --transform-config "$config" --duration "$duration" \
+  --camera-width "$camera_width" --camera-height "$camera_height" --camera-fps "$camera_fps" \
   --output-root /data/slam/mapping --ready-file "$ready_file" &
 odom_pid=$!
 

@@ -13,9 +13,11 @@
 
 ## Current Focus
 
-- Repeat the first supervised RGB-D mapping session with the Gemini held at its
-  level-forward reference and a slow 1--2 m closed route; the first short
-  motion session saved valid RTAB-Map databases but is not a navigation map.
+- The 2026-08-13 supervised camera-only RGB-D mapping rerun passed at 8.194 Hz
+  with zero tracking losses and a 0.440774 s maximum gap. It finalized a
+  76.8 MB RTAB-Map database and released base torque, Docker, and the hardware
+  lock. Keep it as the camera health baseline, not the formal localization
+  source; continue with wheel-feedback and Gemini IMU fused odometry.
 - Improve the fixed-scene ACT grasp by adding deterministic grasp-success feedback around the current policy.
 - Use gripper position/current/load plus the white-wrist RGB stream to distinguish grasp, empty close, slip and jam before allowing transport.
 - Keep all robot USB ownership and execution on the onboard Jetson.
