@@ -3,11 +3,14 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: jetson_act_trial.sh [--label NAME] [--steps N] [--skip-return]
+Usage: jetson_act_trial.sh [--label NAME] [--steps N] [--checkpoint PATH]
+                           [--dataset-root PATH] [--skip-return]
+                           [--skip-final-return]
 
 Run one supervised white-arm ACT pick/place trial on Jetson.  By default the
 script first runs the folded-pose return, pauses for the operator to reset the
-scene, and then runs ACT with the control rates used during recording.
+scene, runs ACT with the control rates used during recording, then requests a
+separate supervised return after the operator labels the outcome.
 
 Every invocation writes a new timestamped log below
 /home/jetsonl7/robot-data/logs and updates act_rollout_latest.log.
@@ -19,13 +22,19 @@ data_root="${FORESTBRIDGE_DATA_ROOT:-/home/jetsonl7/robot-data}"
 log_dir="${FORESTBRIDGE_ACT_LOG_DIR:-$data_root/logs}"
 label="repeat"
 steps=600
+checkpoint="${FORESTBRIDGE_ACT_CHECKPOINT:-/data/models/act_fixed_pick_place_v2_28ep_616995_006000}"
+dataset_root="${FORESTBRIDGE_ACT_DATASET_ROOT:-/data/act/fixed_pick_place_v1}"
 return_first=true
+return_final=true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --label) label="${2:?missing value for --label}"; shift 2 ;;
     --steps) steps="${2:?missing value for --steps}"; shift 2 ;;
+    --checkpoint) checkpoint="${2:?missing value for --checkpoint}"; shift 2 ;;
+    --dataset-root) dataset_root="${2:?missing value for --dataset-root}"; shift 2 ;;
     --skip-return) return_first=false; shift ;;
+    --skip-final-return) return_final=false; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -59,6 +68,8 @@ cd "$repo_root"
   echo "label=$label"
   echo "steps=$steps"
   echo "duration_s=$((steps / 20))"
+  echo "checkpoint=$checkpoint"
+  echo "dataset_root=$dataset_root"
   echo "git_commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 } | tee "$log_path"
 
@@ -85,14 +96,15 @@ run_logged \
   "$repo_root/scripts/jetson_robot_exec.sh" \
   --gemini --wrist-a --white --interactive -- \
   python3 tools/act_white_short_rollout.py \
-  --checkpoint /data/models/act_fixed_pick_place_572912_006000 \
-  --dataset-root /data/act/fixed_pick_place_v1 \
+  --checkpoint "$checkpoint" \
+  --dataset-root "$dataset_root" \
   --steps "$steps" \
   --max-arm-step-deg 1.5 \
   --max-gripper-step 3 \
   --max-total-arm-travel-deg 100 \
   --max-total-elbow-travel-deg 130 \
   --max-total-gripper-travel 60 \
+  --grasp-supervisor \
   --execute
 
 echo
@@ -107,3 +119,13 @@ read -r -p "Short operator note (optional): " operator_note
   echo "EXPERIMENT_RESULT=$result"
   echo "OPERATOR_NOTE=$operator_note"
 } | tee -a "$log_path"
+
+if $return_final; then
+  echo | tee -a "$log_path"
+  echo "=== FINAL RETURN TO FOLDED POSE ===" | tee -a "$log_path"
+  echo "Clear the white-arm return path; type RETURN in the next prompt to recover." | tee -a "$log_path"
+  run_logged \
+    "$repo_root/scripts/jetson_robot_exec.sh" \
+    --white --interactive -- \
+    python3 tools/return_white_to_folded_pose.py --execute
+fi

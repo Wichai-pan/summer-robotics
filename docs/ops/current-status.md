@@ -17,6 +17,19 @@
 - Use gripper position/current/load plus the white-wrist RGB stream to distinguish grasp, empty close, slip and jam before allowing transport.
 - Keep all robot USB ownership and execution on the onboard Jetson.
 - Keep GitHub `main` as the code source of truth; treat `/robot-data/tmp` only as an experiment area.
+- Train a separate 28-episode ACT comparison checkpoint while retaining the original 11-episode corpus and step-6,000 checkpoint unchanged.
+
+## Latest ACT v2 Result
+
+- Completed 2026-08-13: Slurm job `616995` (`xlerobot-act-v2-28ep`) used one GH200 GPU in `gpularge` and completed 6,000 training steps in 00:06:18.
+- Dataset copy: `/scratch/project_2016517/panh/summer-robotics-act/data/fixed_pick_place_v2_28ep`.
+  It was copied from Jetson's `/home/jetsonl7/robot-data/act/fixed_pick_place_v1`
+  after confirming 28 finalized episodes / 19,309 frames / 20 FPS and 28 videos for each RGB stream.
+- Training source episodes are `0–23` (24 episodes / 17,222 frames); holdout episodes `24–27` were not used for training.
+- The final checkpoint exists on Roihu and was copied without overwriting the old model to Jetson:
+  `/home/jetsonl7/robot-data/models/act_fixed_pick_place_v2_28ep_616995_006000`.
+- Read-only holdout inference job `617117` completed. On 12 sampled frames from episodes `24–27`, action MAE was 1.39° pan, 1.87° lift, 3.73° elbow, 1.06° wrist flex and 4.59 gripper units. This is a small temporal holdout check, not a physical success-rate claim.
+- The v2 live-camera/state preflight passed with torque disabled and zero motion commands. Operator-supervised 200/400/600-step physical trials subsequently observed jar grasping; the 600-step run completed grasp, short left transfer and release, but did not finish a deterministic folded return.
 
 ## Latest Verified Server State
 
