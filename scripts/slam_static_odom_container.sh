@@ -373,6 +373,14 @@ if [[ $capture_status -ne 0 || $analysis_status -ne 0 ]]; then
   exit 1
 fi
 
+if [[ "$mode" == "mapping" ]]; then
+  # RTAB-Map flushes its SQLite database on a graceful shutdown. Finalize it
+  # before declaring the run successful instead of merely observing a file
+  # that may still be open by the mapper.
+  stop_process_group "$mapping_pid"
+  sleep 1
+fi
+
 if [[ "$mode" == "mapping" && ! -s "$database_path" ]]; then
   echo "FAIL mapping database was not created: $database_path" >&2
   exit 1

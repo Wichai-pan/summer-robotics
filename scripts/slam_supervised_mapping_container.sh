@@ -38,6 +38,11 @@ done
 
 [[ "$duration" =~ ^[1-9][0-9]*$ ]] || { echo "--duration must be a positive integer" >&2; exit 2; }
 
+# The recorder owns a small post-warmup window. Stop wheel input a little
+# earlier so no base command can outlive its RGB-D recording.
+base_runtime=$((duration - 3))
+(( base_runtime >= 1 )) || base_runtime=1
+
 ready_file="/tmp/forestbridge-slam-mapping-ready.json"
 rm -f "$ready_file"
 odom_pid=""
@@ -91,7 +96,7 @@ done
 echo "Recording window is live. At the BASE prompt, start only after final route check."
 python3 tools/base_keyboard.py --terminal \
   --xy-speed-mps "$xy_speed" --theta-speed-deg-s "$theta_speed" \
-  --max-runtime-s "$duration"
+  --max-runtime-s "$base_runtime"
 
 echo "Base input ended; waiting for the mapping recorder to finalize its artifacts."
 wait "$odom_pid"

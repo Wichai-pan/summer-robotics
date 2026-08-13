@@ -23,7 +23,17 @@ def test_container_session_checks_pose_before_base_torque_and_saves_mapping() ->
     assert "--mode mapping" in script
     assert "--ready-file" in script
     assert "base_keyboard.py --terminal" in script
+    assert "base_runtime=$((duration - 3))" in script
     assert script.index("gemini_gimbal_pose.py") < script.index("base_keyboard.py --terminal")
+
+
+def test_mapping_finalizes_database_and_has_no_hardware_software_smoke() -> None:
+    container = (ROOT / "scripts" / "slam_static_odom_container.sh").read_text(encoding="utf-8")
+    smoke = (ROOT / "scripts" / "jetson_slam_mapping_software_smoke.sh").read_text(encoding="utf-8")
+    assert 'stop_process_group "$mapping_pid"' in container
+    assert "--mode mapping" in smoke
+    assert "--mount" in smoke
+    assert "/dev/" not in smoke
 
 
 def test_slam_image_contains_needed_base_transport_dependency() -> None:
