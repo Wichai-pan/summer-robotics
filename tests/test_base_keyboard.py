@@ -12,7 +12,7 @@ from tools.base_keyboard import (
     command_from_keys,
     encode_sm,
     shutdown_hardware,
-    write_wheel_velocity,
+    write_wheel_velocities,
 )
 
 
@@ -53,36 +53,41 @@ def test_wheel_conversion_and_signed_encoding_are_bounded() -> None:
     assert encode_sm(123) == 123
 
 
-def test_wheel_velocity_retries_a_single_dropped_reply() -> None:
-    calls = 0
+def test_wheel_velocity_uses_one_broadcast_for_all_three_wheels() -> None:
+    added: list[tuple[int, list[int]]] = []
 
-    class Packet:
-        def write2ByteTxRx(
-            self, _port: object, _motor_id: int, _address: int, _value: int
-        ) -> tuple[int, int]:
-            nonlocal calls
-            calls += 1
-            return (-6, 0) if calls == 1 else (0, 0)
+    class GroupWriter:
+        def clearParam(self) -> None:
+            pass
 
-    with patch.object(base_keyboard.time, "sleep"):
-        write_wheel_velocity(Packet(), object(), 7, 123, 0)
-    assert calls == 2
+        def addParam(self, motor_id: int, data: list[int]) -> bool:
+            added.append((motor_id, data))
+            return True
+
+        def txPacket(self) -> int:
+            return 0
+
+    write_wheel_velocities(GroupWriter(), object(), [1, 0x8002, 3], 0)
+    assert added == [(7, [1, 0]), (8, [2, 128]), (9, [3, 0])]
 
 
-def test_wheel_velocity_aborts_after_persistent_timeout() -> None:
-    class Packet:
-        def write2ByteTxRx(
-            self, _port: object, _motor_id: int, _address: int, _value: int
-        ) -> tuple[int, int]:
-            return -6, 0
+def test_wheel_velocity_broadcast_aborts_on_transmit_failure() -> None:
+    class GroupWriter:
+        def clearParam(self) -> None:
+            pass
 
-    with patch.object(base_keyboard.time, "sleep"):
-        try:
-            write_wheel_velocity(Packet(), object(), 7, 123, 0)
-        except RuntimeError as exc:
-            assert "communication=-6" in str(exc)
-        else:
-            raise AssertionError("persistent velocity timeout did not abort")
+        def addParam(self, _motor_id: int, _data: list[int]) -> bool:
+            return True
+
+        def txPacket(self) -> int:
+            return -2
+
+    try:
+        write_wheel_velocities(GroupWriter(), object(), [1, 2, 3], 0)
+    except RuntimeError as exc:
+        assert "communication=-2" in str(exc)
+    else:
+        raise AssertionError("failed broadcast did not abort")
 
 
 def test_input_backend_failure_never_enables_torque() -> None:
@@ -127,6 +132,7 @@ def test_input_backend_failure_never_enables_torque() -> None:
 
     fake_sdk = SimpleNamespace(
         COMM_SUCCESS=0,
+        GroupSyncWrite=lambda *_args: object(),
         PacketHandler=lambda _protocol: FakePacket(),
         PortHandler=lambda _port: FakePort(),
     )
@@ -156,19 +162,19 @@ def test_shutdown_attempts_all_actions_after_individual_failures() -> None:
             raise RuntimeError("terminal restore failed")
 
     class BrokenPacket:
-        def write2ByteTxRx(
+        def write2ByteTxOnly(
             self, _port: object, motor_id: int, _address: int, _value: int
-        ) -> tuple[int, int]:
+        ) -> int:
             events.append(("zero", motor_id))
             if motor_id == 7:
                 raise RuntimeError("zero write failed")
-            return 0, 0
+            return 0
 
-        def write1ByteTxRx(
+        def write1ByteTxOnly(
             self, _port: object, motor_id: int, _address: int, _value: int
-        ) -> tuple[int, int]:
+        ) -> int:
             events.append(("torque-off", motor_id))
-            return (1, 0) if motor_id == 8 else (0, 0)
+            return 1 if motor_id == 8 else 0
 
     class FakePort:
         def closePort(self) -> None:
@@ -230,6 +236,37 @@ def test_sigterm_requests_zero_speed_and_torque_off() -> None:
                 handler(signal.SIGTERM, None)
             return 0, 0
 
+        def write2ByteTxOnly(
+            self, _port: FakePort, motor_id: int, address: int, value: int
+        ) -> int:
+            writes.append((motor_id, address, value))
+            return 0
+
+        def write1ByteTxOnly(
+            self, _port: FakePort, motor_id: int, address: int, value: int
+        ) -> int:
+            writes.append((motor_id, address, value))
+            return 0
+
+    class FakeGroupWriter:
+        def __init__(self, _port: FakePort, _packet: FakePacket, _address: int, _length: int):
+            pass
+
+        def clearParam(self) -> None:
+            pass
+
+        def addParam(self, _motor_id: int, _data: list[int]) -> bool:
+            return True
+
+        def txPacket(self) -> int:
+            nonlocal term_sent
+            if not term_sent:
+                term_sent = True
+                handler = handlers[signal.SIGTERM]
+                assert callable(handler)
+                handler(signal.SIGTERM, None)
+            return 0
+
     class FakeInput:
         def connect(self) -> None:
             pass
@@ -251,6 +288,7 @@ def test_sigterm_requests_zero_speed_and_torque_off() -> None:
 
     fake_sdk = SimpleNamespace(
         COMM_SUCCESS=0,
+        GroupSyncWrite=FakeGroupWriter,
         PacketHandler=lambda _protocol: FakePacket(),
         PortHandler=lambda _port: FakePort(),
     )

@@ -28,7 +28,6 @@ WHEEL_IDS = [7, 8, 9]
 XY_SPEED = 0.12
 THETA_SPEED = 40.0
 LOOP_HZ = 30
-VELOCITY_WRITE_ATTEMPTS = 3
 
 OP_MODE, TORQUE, GOAL_VEL, LOCK = 33, 40, 46, 55
 MODE_VELOCITY = 1
@@ -101,32 +100,31 @@ def require_servo_success(
         )
 
 
-def write_wheel_velocity(
-    packet: object,
+def write_wheel_velocities(
+    group_sync_write: object,
     port_handler: object,
-    motor_id: int,
-    encoded_velocity: int,
+    encoded_velocities: list[int],
     communication_success: int,
 ) -> None:
-    """Retry an idempotent wheel command after a transient status timeout."""
-    last_communication = communication_success
-    last_packet_error = 0
-    for attempt in range(1, VELOCITY_WRITE_ATTEMPTS + 1):
-        communication, packet_error = packet.write2ByteTxRx(
-            port_handler, motor_id, GOAL_VEL, encoded_velocity
-        )
-        if communication == communication_success and packet_error == 0:
-            if attempt > 1:
-                print(f"Wheel ID {motor_id} reply recovered on retry {attempt}.")
-            return
-        last_communication, last_packet_error = communication, packet_error
-        if attempt < VELOCITY_WRITE_ATTEMPTS:
-            time.sleep(0.01)
+    """Send all three wheel commands in one broadcast packet.
+
+    This avoids requesting 90 status replies/second from the shared white-board
+    bus. Wheel availability is verified by pings before torque is enabled.
+    """
+    if len(encoded_velocities) != len(WHEEL_IDS):
+        raise ValueError("wheel velocity count does not match wheel IDs")
+    group_sync_write.clearParam()
+    for motor_id, value in zip(WHEEL_IDS, encoded_velocities):
+        if not group_sync_write.addParam(motor_id, [value & 0xFF, (value >> 8) & 0xFF]):
+            raise RuntimeError(f"could not add wheel ID {motor_id} to velocity broadcast")
+    communication = group_sync_write.txPacket()
+    if communication == communication_success:
+        return
     require_servo_success(
-        "set velocity",
-        motor_id,
-        last_communication,
-        last_packet_error,
+        "broadcast wheel velocity",
+        WHEEL_IDS[0],
+        communication,
+        0,
         communication_success,
     )
 
@@ -148,27 +146,27 @@ def shutdown_hardware(
 
     for motor_id in WHEEL_IDS:
         try:
-            communication, packet_error = packet.write2ByteTxRx(
+            communication = packet.write2ByteTxOnly(
                 port_handler, motor_id, GOAL_VEL, 0
             )
             require_servo_success(
                 "zero velocity",
                 motor_id,
                 communication,
-                packet_error,
+                0,
                 communication_success,
             )
         except Exception as exc:
             errors.append(str(exc))
         try:
-            communication, packet_error = packet.write1ByteTxRx(
+            communication = packet.write1ByteTxOnly(
                 port_handler, motor_id, TORQUE, 0
             )
             require_servo_success(
                 "disable torque",
                 motor_id,
                 communication,
-                packet_error,
+                0,
                 communication_success,
             )
         except Exception as exc:
@@ -363,7 +361,7 @@ def main() -> int:
         input_backend = PynputInput()
 
     try:
-        from scservo_sdk import COMM_SUCCESS, PacketHandler, PortHandler
+        from scservo_sdk import COMM_SUCCESS, GroupSyncWrite, PacketHandler, PortHandler
     except ImportError as exc:
         raise SystemExit("scservo_sdk is required for live base control") from exc
 
@@ -464,6 +462,7 @@ def main() -> int:
                     else ""
                 )
             )
+            wheel_velocity_writer = GroupSyncWrite(port_handler, packet, GOAL_VEL, 2)
             period = 1.0 / LOOP_HZ
             started = time.monotonic()
             while termination_signal is None and not input_backend.should_exit():
@@ -476,14 +475,12 @@ def main() -> int:
                     args.theta_speed_deg_s,
                 )
                 raw = body_to_wheel_raw(x, y, theta)
-                for motor_id, velocity in zip(WHEEL_IDS, raw):
-                    write_wheel_velocity(
-                        packet,
-                        port_handler,
-                        motor_id,
-                        encode_sm(velocity),
-                        COMM_SUCCESS,
-                    )
+                write_wheel_velocities(
+                    wheel_velocity_writer,
+                    port_handler,
+                    [encode_sm(velocity) for velocity in raw],
+                    COMM_SUCCESS,
+                )
                 time.sleep(period)
             result = 128 + termination_signal if termination_signal is not None else 0
     finally:
