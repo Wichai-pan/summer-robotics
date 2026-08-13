@@ -33,6 +33,19 @@ def test_candidate_transform_parses(tmp_path: Path) -> None:
     assert transform == Transform("base_link", "camera_link", (0.1, 0.2, 0.3), (0.0, 0.0, 0.0, 1.0))
 
 
+def test_project_candidate_preserves_measured_forward_pose() -> None:
+    config = Path(__file__).parents[1] / "configs" / "slam" / "base_to_gemini_candidate.yaml"
+
+    transform = parse_transform_config(config, require_live=True)
+
+    assert transform == Transform(
+        "base_link",
+        "camera_link",
+        (-0.04913, 0.025, 1.1825),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+
+
 def test_invalid_candidate_is_rejected(tmp_path: Path) -> None:
     cases = [
         ({"unit": "mm"}, "unit"),

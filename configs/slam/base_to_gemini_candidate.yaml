@@ -1,0 +1,16 @@
+{
+  "schema": "forestbridge/slam/base-camera-transform/v1",
+  "status": "candidate",
+  "parent_frame": "base_link",
+  "child_frame": "camera_link",
+  "unit": "m",
+  "translation_m": [-0.04913, 0.025, 1.1825],
+  "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+  "gimbal_reference_raw": {"7": 4068, "8": 1694},
+  "source_files": [
+    "docs/slam/base-camera-transform-inventory.md",
+    "docs/slam/03-gemini-gimbal-reference-and-limits.md",
+    "https://github.com/orbbec/OrbbecSDK_ROS2/blob/v2-main/orbbec_description/urdf/gemini_335_336.urdf.xacro"
+  ],
+  "measurement_notes": "Operator measurement on 2026-08-13 at the SLAM forward gimbal pose. base_link is the floor-level geometric centre of the chassis; +X is forward toward the table, +Y is toward the black arm, and +Z is upward. The measured Gemini bottom screw centre was [-0.065, 0.0, 1.170] m. Orbbec's official camera_link-to-bottom-screw offset [-0.01587, -0.025, -0.0125] m was subtracted with an identity body rotation. The camera was aligned visually forward and level with roll reported as zero; yaw and pitch have not yet been checked with a precision angle reference. Treat this as a supervised-test candidate, not a calibrated ground-truth transform."
+}

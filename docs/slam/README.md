@@ -34,6 +34,8 @@ Team review documents:
   与最小人工补充项；
 - [移动 VO 准备实验记录](05-mobile-vo-bringup-session-log.md): 本次软件实现、外参结论、
   验证证据、阻塞项与下一次接续顺序；
+- [SLAM 正前方相机外参候选值](06-base-camera-candidate-measurement.md): 实机坐标轴、
+  云台参考位、安装螺丝测量、官方偏移换算和适用边界；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image_name="${FORESTBRIDGE_SLAM_IMAGE:-forestbridge-xlerobot:slam-humble}"
-config_path="configs/slam/base_to_gemini_unresolved.yaml"
+config_path="configs/slam/base_to_gemini_candidate.yaml"
 dry_run=false
 
 arguments=()

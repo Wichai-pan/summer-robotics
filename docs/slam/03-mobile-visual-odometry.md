@@ -19,9 +19,14 @@ raw 参考位时使用。
 
 ## 外参状态
 
-当前配置是 `configs/slam/base_to_gemini_unresolved.yaml`。它记录已确认的 frame 名称、
-Gemini raw 参考位和最小缺失信息，但没有虚构平移或四元数。详见
-`base-camera-transform-inventory.md`。`unresolved` 可以用于 dry-run；live 模式必须拒绝。
+当前实机测量已整理为 `configs/slam/base_to_gemini_candidate.yaml`。它使用 SLAM 专用
+正前方云台位 ID7=`4068`、ID8=`1694`，以及实测底部安装螺丝位置和 Orbbec 官方
+螺丝 frame 偏移，得到 `base_link -> camera_link` 候选平移
+`[-0.04913, 0.02500, 1.18250] m`。相机正前方、水平、零滚转目前按现场对齐记录为
+单位四元数，尚未作为精密标定结果验收。详见 `base-camera-transform-inventory.md`。
+
+`configs/slam/base_to_gemini_unresolved.yaml` 继续作为历史和 dry-run 负向样本保留；
+不得把 ACT 抓取云台位 ID7=`4062`、ID8=`2284` 与本配置混用。
 
 未来 candidate 配置必须是 JSON-compatible YAML，并含：`parent_frame=base_link`、
 `child_frame=camera_link`、单位 `m`、三元平移、单位四元数、gimbal raw reference、来源
@@ -71,9 +76,8 @@ camera/recording 子进程映射 Gemini；底盘控制权的最小暴露范围�
 
 ## 进入真机前仍需人工完成
 
-1. 按 `base-camera-transform-inventory.md` 的最小数据要求补齐真机外参；
-2. 复位并固定 Gemini 至 raw 7=`4062`、8=`2284`，确认不再转动；
-3. 审阅 candidate 配置与现场路线；
-4. 确认底盘低速限制、`Space` 停止和 12V 断电方式；
-5. 清空 0.5--1 m 直线，第一轮只做静止、直行、停、原路返回。
-6. 设计、审阅并实现单一硬件锁所有者的监督会话；不能同时启动两个独立容器。
+1. 固定 Gemini 至 SLAM 专用 raw 7=`4068`、8=`1694`，确认支架不再转动；
+2. 审阅 candidate 配置、正前方/水平近似和现场路线；
+3. 确认底盘低速限制、`Space` 停止和 12V 断电方式；
+4. 清空 0.5--1 m 直线，第一轮只做静止、直行、停、原路返回；
+5. 设计、审阅并实现单一硬件锁所有者的监督会话；不能同时启动两个独立容器。
