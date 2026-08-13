@@ -23,6 +23,12 @@ RUN apt-get update \
         v4l-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# The supervised mapping session owns the white base controller in the same
+# locked container as the RGB-D graph. Keep this separate from the ACT runtime.
+RUN python3 -m pip install --no-cache-dir \
+    'feetech-servo-sdk>=1.0.0,<2.0.0' \
+    'pyserial>=3.5,<4.0.0'
+
 WORKDIR /workspace
 
 CMD ["bash"]

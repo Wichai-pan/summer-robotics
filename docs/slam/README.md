@@ -240,6 +240,13 @@ failed attempts, fixes, complete metrics, and retained risks.
 - Rollback: stop with `Space`/`X` or cut 12 V; discard only the failed run and
   return to the camera-only graph.
 
+The first executable mapping session is deliberately one process tree, one
+Docker container and one host hardware lock. It owns the Gemini, the black
+board only for a **read-only** fixed-gimbal check, and the white board only for
+the terminal base controller. It does not expose either arm to the SLAM image.
+See [Phase 3 mobile VO](03-mobile-visual-odometry.md) before granting a live
+run.
+
 ### 4. Robustness work, later
 
 Add wheel encoder odometry and evaluate Gemini IMU fusion only after the first

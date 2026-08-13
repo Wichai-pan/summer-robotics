@@ -19,6 +19,11 @@ def parse_args() -> argparse.Namespace:
         help="subscribe without recording for this many seconds before capture",
     )
     parser.add_argument("--output", type=Path, default=Path("static-odom.jsonl"))
+    parser.add_argument(
+        "--ready-file",
+        type=Path,
+        help="create this file exactly when the post-warmup recording window begins",
+    )
     parser.add_argument("--odom-topic", default="/rtabmap/odom")
     parser.add_argument("--info-topic", default="/rtabmap/odom_info")
     parser.add_argument(
@@ -123,6 +128,12 @@ def run_live(args: argparse.Namespace) -> int:
                 timeout_sec=min(0.1, max(0.0, warmup_deadline - time.monotonic())),
             )
         gate.start_recording()
+        if args.ready_file is not None:
+            args.ready_file.parent.mkdir(parents=True, exist_ok=True)
+            args.ready_file.write_text(
+                json.dumps({"recording_started_monotonic_s": time.monotonic()}) + "\n",
+                encoding="utf-8",
+            )
         deadline = time.monotonic() + args.duration
         while rclpy.ok() and time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=min(0.1, max(0.0, deadline - time.monotonic())))
