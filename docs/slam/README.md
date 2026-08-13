@@ -36,6 +36,8 @@ Team review documents:
   验证证据、阻塞项与下一次接续顺序；
 - [SLAM 正前方相机外参候选值](06-base-camera-candidate-measurement.md): 实机坐标轴、
   云台参考位、安装螺丝测量、官方偏移换算和适用边界；
+- [首次监督式移动建图记录](07-supervised-first-mapping-session-log.md): 固定云台、
+  单一硬件锁手动底盘、首批 RTAB-Map 数据库、质量结果与下一次闭环路线；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
