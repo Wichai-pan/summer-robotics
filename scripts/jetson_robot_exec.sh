@@ -13,6 +13,7 @@ Device flags (only requested devices are exposed to the container):
   --wrist-a         wrist camera at physical USB path 2.4.1, index0
   --wrist-b         wrist camera at physical USB path 2.4.3, index0
   --interactive     attach the current SSH terminal to Docker (for keyboard/input tools)
+  --x11             forward a container GUI to the SSH client's X11 display (no hardware implied)
 
 Examples:
   ./scripts/jetson_robot_exec.sh --ports-readonly -- python3 tools/portutil.py
@@ -31,6 +32,7 @@ lock_path="${FORESTBRIDGE_HARDWARE_LOCK:-/tmp/forestbridge-xlerobot.lock}"
 
 device_args=()
 interactive_args=()
+x11_args=()
 
 resolve_board() {
   local serial="$1"
@@ -87,6 +89,28 @@ while [[ $# -gt 0 ]]; do
     --wrist-a) resolve_wrist 2.4.1; shift ;;
     --wrist-b) resolve_wrist 2.4.3; shift ;;
     --interactive) interactive_args=(-i -t); shift ;;
+    --x11)
+      [[ -n "${DISPLAY:-}" ]] || {
+        echo "--x11 requires an SSH session with X11 forwarding (reconnect with: ssh -Y ...)." >&2
+        exit 2
+      }
+      xauthority_path="${XAUTHORITY:-$HOME/.Xauthority}"
+      [[ -r "$xauthority_path" ]] || {
+        echo "--x11 cannot read Xauthority file: $xauthority_path" >&2
+        exit 2
+      }
+      # SSH's X11 proxy listens on the Jetson loopback interface. Host networking
+      # lets the container reach it, while Xauthority keeps the proxy protected.
+      x11_args=(
+        --network host
+        --env "DISPLAY=$DISPLAY"
+        --env XAUTHORITY=/root/.Xauthority
+        --env QT_X11_NO_MITSHM=1
+        --env LIBGL_ALWAYS_SOFTWARE=1
+        --mount "type=bind,src=$xauthority_path,dst=/root/.Xauthority,readonly"
+      )
+      shift
+      ;;
     --) shift; break ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -99,6 +123,7 @@ done
 
 docker_cmd=(docker run --rm \
   "${interactive_args[@]}" \
+  "${x11_args[@]}" \
   --runtime nvidia \
   --ipc host \
   "${device_args[@]}" \
