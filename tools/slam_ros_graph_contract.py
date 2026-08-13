@@ -95,12 +95,15 @@ def analyze_graph(
     *,
     expected_child_frame: str = "camera_link",
     allow_static_transform_publisher: bool = False,
+    allow_rtabmap_mapping_tf_publisher: bool = False,
 ) -> dict:
     failures: list[str] = []
     observed: dict[str, dict] = {}
     expected_publishers = {key: set(value) for key, value in EXPECTED_PUBLISHERS.items()}
     if allow_static_transform_publisher:
         expected_publishers["tf_static"].add("/base_to_gemini_static_tf")
+    if allow_rtabmap_mapping_tf_publisher:
+        expected_publishers["tf"].add("/rtabmap/rtabmap")
 
     for key, expected in expected_publishers.items():
         try:
@@ -152,6 +155,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tf-chain", type=Path, required=True)
     parser.add_argument("--expected-child-frame", default="camera_link")
     parser.add_argument("--allow-static-transform-publisher", action="store_true")
+    parser.add_argument(
+        "--allow-rtabmap-mapping-tf-publisher",
+        action="store_true",
+        help="allow the RTAB-Map mapping node to publish map->odom on /tf",
+    )
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -169,6 +177,7 @@ def main() -> int:
         args.tf_chain.read_text(encoding="utf-8"),
         expected_child_frame=args.expected_child_frame,
         allow_static_transform_publisher=args.allow_static_transform_publisher,
+        allow_rtabmap_mapping_tf_publisher=args.allow_rtabmap_mapping_tf_publisher,
     )
     rendered = json.dumps(report, indent=2, sort_keys=True)
     args.output.write_text(rendered + "\n", encoding="utf-8")

@@ -233,6 +233,9 @@ capture_graph_contract() {
   if [[ "$mode" == "motion" || "$mode" == "mapping" ]]; then
     graph_options+=(--allow-static-transform-publisher)
   fi
+  if [[ "$mode" == "mapping" ]]; then
+    graph_options+=(--allow-rtabmap-mapping-tf-publisher)
+  fi
 
   ros2 topic info --verbose /rtabmap/odom >"$odom_info_file"
   ros2 topic info --verbose /rtabmap/odom_info >"$quality_info_file"

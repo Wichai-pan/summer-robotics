@@ -95,6 +95,17 @@ def test_motion_graph_allows_only_the_named_static_tf_publisher() -> None:
     assert analyze_graph(info, VALID_TF, allow_static_transform_publisher=True)["status"] == "FAIL"
 
 
+def test_mapping_graph_allows_only_the_named_rtabmap_tf_publisher() -> None:
+    info = valid_topic_info()
+    info["tf"] = topic_info(
+        "/camera/camera", "/rtabmap/rgbd_odometry", "/rtabmap/rtabmap"
+    )
+    assert analyze_graph(
+        info, VALID_TF, allow_rtabmap_mapping_tf_publisher=True
+    )["status"] == "PASS"
+    assert analyze_graph(info, VALID_TF)["status"] == "FAIL"
+
+
 def test_missing_transform_sample_fails() -> None:
     report = analyze_graph(valid_topic_info(), "Waiting for transform...\n")
     assert report["status"] == "FAIL"
