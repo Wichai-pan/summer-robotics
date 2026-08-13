@@ -84,3 +84,31 @@
 - Keep the current ACT checkpoint unchanged during this first supervisor
   validation. Adding load/current to learned observations requires a new data
   schema, new demonstrations and retraining.
+
+## 2026-08-13 - No-LiDAR fused odometry is the formal SLAM route
+
+- Fuse measured white-board wheel feedback from IDs 7/8/9 with Gemini IMU yaw
+  rate in `robot_localization`; it owns `odom -> base_link`.
+- Run full RTAB-Map with registered Gemini RGB-D and external `/odom`; it owns
+  `map -> odom` and must not start a separate `rgbd_odometry` node.
+- Keep camera-only RGB-D odometry as a verified camera-health baseline only.
+- Do not purchase, simulate, or integrate LiDAR, `/scan`, `slam_toolbox`, or
+  Nav2 in this phase.
+- Keep STS3215 physical velocity conversion unresolved until a read-only raw
+  feedback and timed position-difference pilot verifies the installed motors.
+- Require one locked container for future Gemini plus white-board access. The
+  source may read only wheel IDs 7/8/9 and must not address arm IDs 1-6.
+
+## 2026-08-13 - Carry supervised mapping safety into fused SLAM
+
+- Reuse the `34fd801` wheel safety behavior: group-write all wheel targets,
+  clear all three goals before enabling torque, keep the 250 ms dead-man, and
+  use no-status writes while attempting complete shutdown.
+- Give the white-board serial port one owner, `base_wheel_odometry`; the
+  keyboard publishes `/cmd_vel` only and never opens the bus.
+- Do not change wheel operating mode in the fused session. A non-velocity-mode
+  ID blocks startup and requires a separate reviewed maintenance action.
+- Keep TF ownership exclusive: EKF owns `odom -> base_link`, RTAB-Map owns
+  `map -> odom`, and no `rgbd_odometry` node is allowed in the formal graph.
+- Treat the successful supervised camera-only map as a transport, mapping, and
+  safety baseline, not evidence that wheel/IMU fusion has passed.

@@ -11,17 +11,25 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         jq \
+        python3-pip \
         procps \
         ros-humble-image-tools \
         ros-humble-image-transport-plugins \
         ros-humble-orbbec-camera \
         ros-humble-orbbec-description \
         ros-humble-rosbag2-storage-mcap \
+        ros-humble-robot-localization \
         ros-humble-rtabmap-ros \
         ros-humble-tf2-tools \
         usbutils \
         v4l-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# The fused process owns the white-board wheel bus in the same locked container
+# as robot_localization and RTAB-Map. Keep it isolated from the ACT runtime.
+RUN python3 -m pip install --no-cache-dir \
+    'feetech-servo-sdk>=1.0.0,<2.0.0' \
+    'pyserial>=3.5,<4.0.0'
 
 WORKDIR /workspace
 

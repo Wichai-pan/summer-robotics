@@ -7,16 +7,20 @@ XLeRobot base and its head-mounted Orbbec Gemini 335. It does not include
 autonomous navigation, arm motion, ACT/VLA integration, or reuse of the failed
 arm eye-to-hand calibration.
 
-Initial stack:
+Formal stack:
 
 - ROS 2 Humble on Jetson Ubuntu 22.04;
 - OrbbecSDK ROS 2 Wrapper v2 with `gemini_330_series.launch.py`;
 - RTAB-Map ROS 2 using synchronized RGB and registered depth;
-- RTAB-Map RGB-D visual odometry for the first map;
+- measured wheel feedback plus Gemini yaw rate through `robot_localization`;
+- full RTAB-Map mapping/localization using external `/odom`;
 - manual base driving through the existing white-board IDs 7/8/9.
 
 `slam_toolbox` is not the initial mapper because it expects a 2D laser
 `sensor_msgs/LaserScan`, and this robot currently has no verified lidar.
+No LiDAR will be purchased, simulated, or added for this route. Camera-only
+RGB-D odometry remains a verified camera-health baseline, not the formal base
+localization source. See [fused SLAM route](07-fused-rgbd-slam.md).
 
 Team review documents:
 
@@ -230,21 +234,26 @@ translation drift, 0.221 degree rotation drift, and a 0.234 second maximum
 source timestamp gap. See `04-static-visual-odometry-live-results.md` for the
 failed attempts, fixes, complete metrics, and retained risks.
 
-### 3. Supervised initial map
+### 3. Fused wheel/IMU odometry
+
+The software-only core and full RTAB-Map process graph are implemented on the
+fused-SLAM branch. Live execution is blocked until the raw STS3215 velocity
+unit, sign, update rate, and cross-turn behavior pass a read-only pilot.
+
+### 4. Supervised initial map
 
 - Input: cleared low-speed route, on-site operator, manual base control,
-  validated RGB-D odometry.
+  validated fused wheel/IMU odometry.
 - Output: RTAB-Map database plus exported 2D occupancy grid and 3D cloud.
 - Acceptance: loop closure succeeds, the start area aligns on return, walls and
   major obstacles are recognizable, and no unsafe base behavior occurs.
 - Rollback: stop with `Space`/`X` or cut 12 V; discard only the failed run and
-  return to the camera-only graph.
+  return to the fused odometry diagnostic graph.
 
-### 4. Robustness work, later
+### 5. Navigation, later
 
-Add wheel encoder odometry and evaluate Gemini IMU fusion only after the first
-RGB-D map is reproducible. Navigation, localization-only mode, and autonomous
-motion are separate milestones requiring their own safety review.
+Add Nav2 only after fused odometry, mapping, loop closure, and localization-only
+mode are reproducible. Autonomous motion remains a separate safety milestone.
 
 ## Current approval boundary
 
@@ -255,8 +264,9 @@ files, or the Jetson host Python installation. The fixed Gemini gimbal reference
 was recorded before the static test. Existing IK/install measurements will be
 reviewed and converted into the later
 `base_link -> camera_link` TF; this is integration of accepted data, not a new
-calibration campaign. The next gate is a low-speed, short-distance supervised
-visual-odometry route with a reviewed `base_link -> camera_link` transform.
+calibration campaign. The next gate is a read-only wheel-feedback and Gemini
+IMU inspection. It must verify velocity scale, direction, update rate, position
+wrap, IMU frame, yaw axis, and sign before the EKF or moving test is enabled.
 Do not map a base controller device, change firmware, or move the base without
 separate operator confirmation.
 

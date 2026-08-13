@@ -1,0 +1,38 @@
+ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    sensor_timeout: 0.25
+    two_d_mode: true
+    publish_tf: true
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: odom
+
+    # Wheel odometry supplies only planar body twist. Its integrated pose is
+    # published for inspection, but is not fused again as a correlated source.
+    odom0: /wheel/odom
+    odom0_config: [false, false, false,
+                   false, false, false,
+                   true,  true,  false,
+                   false, false, true,
+                   false, false, false]
+    odom0_queue_size: 10
+    odom0_differential: false
+
+    # Gemini publishes sensor_msgs/Imu in camera_accel_gyro_optical_frame and
+    # has no absolute yaw. The base-yaw source axis/sign are not yet verified,
+    # so every IMU field remains disabled until the read-only pilot.
+    imu0: /camera/gyro_accel/sample
+    imu0_config: [false, false, false,
+                  false, false, false,
+                  false, false, false,
+                  false, false, false,
+                  false, false, false]
+    imu0_queue_size: 30
+    imu0_differential: false
+    imu0_relative: false
+    imu0_remove_gravitational_acceleration: false
+
+    print_diagnostics: true
+    reset_on_time_jump: true

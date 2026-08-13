@@ -28,6 +28,10 @@ WHEEL_IDS = [7, 8, 9]
 XY_SPEED = 0.12
 THETA_SPEED = 40.0
 LOOP_HZ = 30
+WHEEL_RADIUS_M = 0.05
+BASE_RADIUS_M = 0.125
+WHEEL_MOUNT_ANGLES_DEG = (240.0, 0.0, 120.0)
+ENCODER_TICKS_PER_REV = 4096
 
 OP_MODE, TORQUE, GOAL_VEL, LOCK = 33, 40, 46, 55
 MODE_VELOCITY = 1
@@ -45,13 +49,13 @@ def body_to_wheel_raw(
     x: float,
     y: float,
     theta: float,
-    wheel_radius: float = 0.05,
-    base_radius: float = 0.125,
+    wheel_radius: float = WHEEL_RADIUS_M,
+    base_radius: float = BASE_RADIUS_M,
     max_raw: int = 3000,
 ) -> list[int]:
     """Convert body velocity in m/s and deg/s to three raw wheel velocities."""
     theta_radians = math.radians(theta)
-    wheel_angles = [math.radians(angle - 90) for angle in (240, 0, 120)]
+    wheel_angles = [math.radians(angle - 90) for angle in WHEEL_MOUNT_ANGLES_DEG]
     degrees_per_second = [
         math.degrees(
             (math.cos(angle) * x + math.sin(angle) * y + base_radius * theta_radians)
@@ -59,7 +63,7 @@ def body_to_wheel_raw(
         )
         for angle in wheel_angles
     ]
-    steps_per_degree = 4096.0 / 360.0
+    steps_per_degree = ENCODER_TICKS_PER_REV / 360.0
     raw_magnitudes = [abs(value) * steps_per_degree for value in degrees_per_second]
     maximum = max(raw_magnitudes) if raw_magnitudes else 0.0
     if maximum > max_raw:
@@ -69,14 +73,18 @@ def body_to_wheel_raw(
     return [int(round(value * steps_per_degree)) for value in degrees_per_second]
 
 
-def command_from_keys(pressed: set[str]) -> tuple[float, float, float]:
+def command_from_keys(
+    pressed: set[str],
+    xy_speed: float = XY_SPEED,
+    theta_speed: float = THETA_SPEED,
+) -> tuple[float, float, float]:
     """Map the established WASD/QE convention to body velocity."""
     if "space" in pressed:
         return 0.0, 0.0, 0.0
-    x = (XY_SPEED if "w" in pressed else 0.0) - (XY_SPEED if "s" in pressed else 0.0)
-    y = (XY_SPEED if "a" in pressed else 0.0) - (XY_SPEED if "d" in pressed else 0.0)
-    theta = (THETA_SPEED if "q" in pressed else 0.0) - (
-        THETA_SPEED if "e" in pressed else 0.0
+    x = (xy_speed if "w" in pressed else 0.0) - (xy_speed if "s" in pressed else 0.0)
+    y = (xy_speed if "a" in pressed else 0.0) - (xy_speed if "d" in pressed else 0.0)
+    theta = (theta_speed if "q" in pressed else 0.0) - (
+        theta_speed if "e" in pressed else 0.0
     )
     return x, y, theta
 
@@ -93,6 +101,83 @@ def require_servo_success(
         raise RuntimeError(
             f"{operation} failed for motor {motor_id}: "
             f"communication={communication}, packet_error={packet_error}"
+        )
+
+
+def write_wheel_velocities(
+    group_sync_write: object,
+    encoded_velocities: list[int],
+    communication_success: int,
+) -> None:
+    """Send all three wheel targets in one broadcast packet."""
+    if len(encoded_velocities) != len(WHEEL_IDS):
+        raise ValueError("wheel velocity count does not match wheel IDs")
+    group_sync_write.clearParam()
+    for motor_id, value in zip(WHEEL_IDS, encoded_velocities):
+        if not group_sync_write.addParam(motor_id, [value & 0xFF, (value >> 8) & 0xFF]):
+            raise RuntimeError(f"could not add wheel ID {motor_id} to velocity broadcast")
+    communication = group_sync_write.txPacket()
+    require_servo_success(
+        "broadcast wheel velocity",
+        WHEEL_IDS[0],
+        communication,
+        0,
+        communication_success,
+    )
+
+
+def prepare_wheels_stopped(
+    packet: object,
+    port_handler: object,
+    communication_success: int,
+    group_sync_write_factory: object,
+) -> None:
+    """Validate modes, clear every target, then enable wheel torque."""
+    modes: dict[int, int] = {}
+    for motor_id in WHEEL_IDS:
+        mode, communication, packet_error = packet.read1ByteTxRx(
+            port_handler, motor_id, OP_MODE
+        )
+        require_servo_success(
+            "read operating mode",
+            motor_id,
+            communication,
+            packet_error,
+            communication_success,
+        )
+        modes[motor_id] = mode
+
+    for motor_id, mode in modes.items():
+        if mode == MODE_VELOCITY:
+            continue
+        for address, value, operation in (
+            (LOCK, 0, "unlock operating mode"),
+            (OP_MODE, MODE_VELOCITY, "set velocity mode"),
+            (LOCK, 1, "lock operating mode"),
+        ):
+            communication, packet_error = packet.write1ByteTxRx(
+                port_handler, motor_id, address, value
+            )
+            require_servo_success(
+                operation,
+                motor_id,
+                communication,
+                packet_error,
+                communication_success,
+            )
+
+    writer = group_sync_write_factory(port_handler, packet, GOAL_VEL, 2)
+    write_wheel_velocities(writer, [0, 0, 0], communication_success)
+    for motor_id in WHEEL_IDS:
+        communication, packet_error = packet.write1ByteTxRx(
+            port_handler, motor_id, TORQUE, 1
+        )
+        require_servo_success(
+            "enable torque",
+            motor_id,
+            communication,
+            packet_error,
+            communication_success,
         )
 
 
@@ -113,27 +198,23 @@ def shutdown_hardware(
 
     for motor_id in WHEEL_IDS:
         try:
-            communication, packet_error = packet.write2ByteTxRx(
-                port_handler, motor_id, GOAL_VEL, 0
-            )
+            communication = packet.write2ByteTxOnly(port_handler, motor_id, GOAL_VEL, 0)
             require_servo_success(
                 "zero velocity",
                 motor_id,
                 communication,
-                packet_error,
+                0,
                 communication_success,
             )
         except Exception as exc:
             errors.append(str(exc))
         try:
-            communication, packet_error = packet.write1ByteTxRx(
-                port_handler, motor_id, TORQUE, 0
-            )
+            communication = packet.write1ByteTxOnly(port_handler, motor_id, TORQUE, 0)
             require_servo_success(
                 "disable torque",
                 motor_id,
                 communication,
-                packet_error,
+                0,
                 communication_success,
             )
         except Exception as exc:
@@ -275,6 +356,9 @@ def parse_args() -> argparse.Namespace:
         default=250.0,
         help="terminal movement stops unless the key repeats within this interval",
     )
+    parser.add_argument("--xy-speed-mps", type=float, default=XY_SPEED)
+    parser.add_argument("--theta-speed-deg-s", type=float, default=THETA_SPEED)
+    parser.add_argument("--max-runtime-s", type=float)
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -283,9 +367,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def dry_run() -> int:
+def dry_run(xy_speed: float = XY_SPEED, theta_speed: float = THETA_SPEED) -> int:
     for key in "wasdqe":
-        command = command_from_keys({key})
+        command = command_from_keys({key}, xy_speed, theta_speed)
         print(f"{key.upper()}: body={command} wheels={body_to_wheel_raw(*command)}")
     print("SPACE: stop; X/ESC: stop and exit")
     return 0
@@ -295,8 +379,12 @@ def main() -> int:
     args = parse_args()
     if args.deadman_ms <= 0:
         raise SystemExit("--deadman-ms must be positive")
+    if args.xy_speed_mps <= 0 or args.theta_speed_deg_s <= 0:
+        raise SystemExit("--xy-speed-mps and --theta-speed-deg-s must be positive")
+    if args.max_runtime_s is not None and args.max_runtime_s <= 0:
+        raise SystemExit("--max-runtime-s must be positive")
     if args.dry_run:
-        return dry_run()
+        return dry_run(args.xy_speed_mps, args.theta_speed_deg_s)
 
     input_backend: KeyInput
     if args.terminal:
@@ -307,7 +395,7 @@ def main() -> int:
         input_backend = PynputInput()
 
     try:
-        from scservo_sdk import COMM_SUCCESS, PacketHandler, PortHandler
+        from scservo_sdk import COMM_SUCCESS, GroupSyncWrite, PacketHandler, PortHandler
     except ImportError as exc:
         raise SystemExit("scservo_sdk is required for live base control") from exc
 
@@ -362,43 +450,7 @@ def main() -> int:
                     managed_signal, request_shutdown
                 )
 
-            for motor_id in WHEEL_IDS:
-                mode, communication, packet_error = packet.read1ByteTxRx(
-                    port_handler, motor_id, OP_MODE
-                )
-                require_servo_success(
-                    "read operating mode",
-                    motor_id,
-                    communication,
-                    packet_error,
-                    COMM_SUCCESS,
-                )
-                if mode != MODE_VELOCITY:
-                    for address, value, operation in (
-                        (LOCK, 0, "unlock operating mode"),
-                        (OP_MODE, MODE_VELOCITY, "set velocity mode"),
-                        (LOCK, 1, "lock operating mode"),
-                    ):
-                        communication, packet_error = packet.write1ByteTxRx(
-                            port_handler, motor_id, address, value
-                        )
-                        require_servo_success(
-                            operation,
-                            motor_id,
-                            communication,
-                            packet_error,
-                            COMM_SUCCESS,
-                        )
-                communication, packet_error = packet.write1ByteTxRx(
-                    port_handler, motor_id, TORQUE, 1
-                )
-                require_servo_success(
-                    "enable torque",
-                    motor_id,
-                    communication,
-                    packet_error,
-                    COMM_SUCCESS,
-                )
+            prepare_wheels_stopped(packet, port_handler, COMM_SUCCESS, GroupSyncWrite)
 
             print(
                 "W/S forward/back, A/D strafe, Q/E rotate, Space stop, X/Esc exit. "
@@ -409,20 +461,21 @@ def main() -> int:
                 )
             )
             period = 1.0 / LOOP_HZ
+            started = time.monotonic()
+            wheel_velocity_writer = GroupSyncWrite(port_handler, packet, GOAL_VEL, 2)
             while termination_signal is None and not input_backend.should_exit():
-                x, y, theta = command_from_keys(input_backend.pressed())
+                if args.max_runtime_s is not None and time.monotonic() - started >= args.max_runtime_s:
+                    print("Base session time limit reached; stopping.")
+                    break
+                x, y, theta = command_from_keys(
+                    input_backend.pressed(), args.xy_speed_mps, args.theta_speed_deg_s
+                )
                 raw = body_to_wheel_raw(x, y, theta)
-                for motor_id, velocity in zip(WHEEL_IDS, raw):
-                    communication, packet_error = packet.write2ByteTxRx(
-                        port_handler, motor_id, GOAL_VEL, encode_sm(velocity)
-                    )
-                    require_servo_success(
-                        "set velocity",
-                        motor_id,
-                        communication,
-                        packet_error,
-                        COMM_SUCCESS,
-                    )
+                write_wheel_velocities(
+                    wheel_velocity_writer,
+                    [encode_sm(velocity) for velocity in raw],
+                    COMM_SUCCESS,
+                )
                 time.sleep(period)
             result = 128 + termination_signal if termination_signal is not None else 0
     finally:

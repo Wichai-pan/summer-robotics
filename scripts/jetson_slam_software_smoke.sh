@@ -14,6 +14,7 @@ docker run --rm "$image_name" bash -lc '
   ros2 pkg prefix rtabmap_odom
   ros2 pkg prefix rtabmap_slam
   ros2 pkg prefix rtabmap_util
+  ros2 pkg prefix robot_localization
   ros2 pkg prefix rosbag2_storage_mcap
   ros2 launch orbbec_camera gemini_330_series.launch.py --show-args >/tmp/orbbec-launch-args.txt
   grep -q "depth_registration" /tmp/orbbec-launch-args.txt
@@ -21,6 +22,7 @@ docker run --rm "$image_name" bash -lc '
   dpkg-query -W \
     ros-humble-orbbec-camera \
     ros-humble-orbbec-description \
+    ros-humble-robot-localization \
     ros-humble-rtabmap-ros \
     ros-humble-rosbag2-storage-mcap
   echo "PASS isolated SLAM software smoke; no hardware was mapped"

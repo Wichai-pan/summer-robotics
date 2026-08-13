@@ -1,0 +1,27 @@
+{
+  "schema": "forestbridge/slam/sts3215-wheel-feedback/v1",
+  "status": "unresolved",
+  "motor_ids": [7, 8, 9],
+  "baud": 1000000,
+  "present_position": {"address": 56, "bytes": 2, "encoding": "sign-magnitude-bit-15"},
+  "present_velocity": {"address": 58, "bytes": 2, "encoding": "sign-magnitude-bit-15"},
+  "velocity_unit_factor_register": {"address": 82, "bytes": 1},
+  "velocity_unit_rad_s_per_raw": null,
+  "expected_velocity_unit_factor_raw": null,
+  "expected_feedback_hz": null,
+  "feedback_sign_by_id": null,
+  "max_gap_s": null,
+  "max_age_s": null,
+  "max_wheel_speed_rad_s": null,
+  "max_wheel_accel_rad_s2": null,
+  "serial_read_timeout_s": null,
+  "pose_covariance_diagonal": null,
+  "twist_covariance_diagonal": null,
+  "position_cross_turn_behavior": "unresolved",
+  "source_files": [
+    "external/lerobot/src/lerobot/motors/feetech/tables.py",
+    "external/lerobot/src/lerobot/motors/feetech/feetech.py",
+    "external/xlerobot/software/src/robots/xlerobot/xlerobot.py"
+  ],
+  "measurement_notes": "Addresses and sign-magnitude decoding are confirmed by the pinned LeRobot source. XLeRobot treats raw velocity as encoder ticks per second, but this has not been verified against IDs 7/8/9 firmware or a timed wheel measurement. Live conversion is therefore blocked."
+}

@@ -1,0 +1,13 @@
+{
+  "schema": "forestbridge/slam/gemini-imu/v1",
+  "status": "unresolved",
+  "topic": "/camera/gyro_accel/sample",
+  "message_type": "sensor_msgs/msg/Imu",
+  "frame_id": "camera_accel_gyro_optical_frame",
+  "orientation_available": false,
+  "yaw_rate_axis": null,
+  "yaw_rate_sign_in_base": null,
+  "angular_velocity_covariance_verified": false,
+  "observed_rate_hz": 192.0,
+  "notes": "Topic/type/frame/rate and unavailable orientation are evidenced. Physical base-yaw axis, sign, noise, and covariance still require the approved read-only pilot."
+}

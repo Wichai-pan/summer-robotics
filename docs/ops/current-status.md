@@ -13,6 +13,12 @@
 
 ## Current Focus
 
+- SLAM: the formal route is wheel feedback from white-board IDs 7/8/9 plus
+  Gemini yaw rate through `robot_localization`, then full RTAB-Map with external
+  `/odom`. The wheel group-write/zero-before-torque/dead-man protections proven
+  in supervised mapping commit `34fd801` are integrated. Live mode remains
+  blocked pending a read-only STS3215 and Gemini IMU pilot. See
+  `docs/slam/07-fused-rgbd-slam.md`.
 - Improve the fixed-scene ACT grasp by adding deterministic grasp-success feedback around the current policy.
 - Use gripper position/current/load plus the white-wrist RGB stream to distinguish grasp, empty close, slip and jam before allowing transport.
 - Keep all robot USB ownership and execution on the onboard Jetson.

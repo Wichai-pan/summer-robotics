@@ -1,0 +1,23 @@
+{
+  "schema": "forestbridge/slam/fused-graph/v1",
+  "topics": {
+    "/wheel/odom": {"type": "nav_msgs/msg/Odometry", "publisher": "base_wheel_odometry"},
+    "/camera/gyro_accel/sample": {"type": "sensor_msgs/msg/Imu", "publisher": "camera"},
+    "/odom": {"type": "nav_msgs/msg/Odometry", "publisher": "ekf_filter_node"}
+  },
+  "tf_owners": {
+    "base_link->camera_link": "base_to_gemini_static_tf",
+    "odom->base_link": "ekf_filter_node",
+    "map->odom": "rtabmap"
+  },
+  "hardware_ownership": {
+    "white_board": {
+      "owner": "base_wheel_odometry",
+      "motor_ids": [7, 8, 9],
+      "readers": ["base_wheel_odometry"],
+      "writers": ["base_wheel_odometry"]
+    }
+  },
+  "forbidden_topics": ["/scan"],
+  "forbidden_nodes": ["rgbd_odometry", "slam_toolbox"]
+}
