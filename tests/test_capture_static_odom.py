@@ -2,7 +2,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.capture_static_odom import StreamGate
+from tools.capture_static_odom import StreamGate, has_valid_odom_pose
 
 
 SCRIPT = Path(__file__).parents[1] / "tools" / "capture_static_odom.py"
@@ -18,6 +18,12 @@ def test_stream_gate_discards_warmup_then_records() -> None:
 
     assert gate.observe("odom") is True
     assert gate.observe("odom_info") is True
+
+
+def test_odom_pose_validation_rejects_uninitialized_quaternion() -> None:
+    assert has_valid_odom_pose((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    assert not has_valid_odom_pose((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))
+    assert not has_valid_odom_pose((float("nan"), 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
 
 
 def test_stream_gate_rejects_incomplete_warmup() -> None:

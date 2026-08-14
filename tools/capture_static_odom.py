@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 
@@ -65,6 +66,17 @@ def stamp_seconds(stamp: object) -> float:
     return float(stamp.sec) + float(stamp.nanosec) / 1_000_000_000.0
 
 
+def has_valid_odom_pose(position: tuple[float, float, float], orientation: tuple[float, float, float, float]) -> bool:
+    """Reject uninitialized or non-finite odometry poses before they reach JSONL.
+
+    RTAB-Map can occasionally publish a zero quaternion while its visual
+    odometry is resetting. It is not a physical pose and would make a whole
+    completed mapping session fail offline validation.
+    """
+    values = (*position, *orientation)
+    return all(math.isfinite(value) for value in values) and sum(value * value for value in orientation) > 1e-12
+
+
 def run_live(args: argparse.Namespace) -> int:
     import rclpy
     from nav_msgs.msg import Odometry
@@ -80,6 +92,7 @@ def run_live(args: argparse.Namespace) -> int:
             super().__init__("static_odom_recorder")
             self.odom_count = 0
             self.info_count = 0
+            self.invalid_odom_count = 0
             self.create_subscription(Odometry, args.odom_topic, self.record_odom, 100)
             self.create_subscription(OdomInfo, args.info_topic, self.record_info, 100)
 
@@ -87,10 +100,20 @@ def run_live(args: argparse.Namespace) -> int:
             handle.write(json.dumps(record, separators=(",", ":")) + "\n")
 
         def record_odom(self, message: object) -> None:
-            if not gate.observe("odom"):
-                return
             position = message.pose.pose.position
             orientation = message.pose.pose.orientation
+            position_values = (float(position.x), float(position.y), float(position.z))
+            orientation_values = (
+                float(orientation.x),
+                float(orientation.y),
+                float(orientation.z),
+                float(orientation.w),
+            )
+            if not has_valid_odom_pose(position_values, orientation_values):
+                self.invalid_odom_count += 1
+                return
+            if not gate.observe("odom"):
+                return
             self.write(
                 {
                     "type": "odom",
@@ -98,13 +121,8 @@ def run_live(args: argparse.Namespace) -> int:
                     "receive_monotonic_s": time.monotonic(),
                     "frame_id": message.header.frame_id,
                     "child_frame_id": message.child_frame_id,
-                    "position": [position.x, position.y, position.z],
-                    "orientation": [
-                        orientation.x,
-                        orientation.y,
-                        orientation.z,
-                        orientation.w,
-                    ],
+                    "position": position_values,
+                    "orientation": orientation_values,
                 }
             )
             self.odom_count += 1
@@ -166,6 +184,7 @@ def run_live(args: argparse.Namespace) -> int:
     finally:
         odom_count = node.odom_count
         info_count = node.info_count
+        invalid_odom_count = node.invalid_odom_count
         node.destroy_node()
         # SIGINT may already have shut down the default context. Do not turn a
         # user-requested stop into a misleading traceback during cleanup.
@@ -173,7 +192,10 @@ def run_live(args: argparse.Namespace) -> int:
             rclpy.shutdown()
         handle.close()
 
-    print(f"Captured odom={odom_count} odom_info={info_count} to {args.output}")
+    print(
+        f"Captured odom={odom_count} odom_info={info_count} "
+        f"invalid_odom_skipped={invalid_odom_count} to {args.output}"
+    )
     return 0 if odom_count > 1 and info_count > 1 else 1
 
 
