@@ -16,7 +16,13 @@ def parse_args() -> argparse.Namespace:
         "--warmup",
         type=float,
         default=2.0,
-        help="subscribe without recording for this many seconds before capture",
+        help="subscribe without recording for this many seconds after both streams arrive",
+    )
+    parser.add_argument(
+        "--warmup-timeout",
+        type=float,
+        default=30.0,
+        help="maximum seconds to wait for the first odom and odom_info messages",
     )
     parser.add_argument("--output", type=Path, default=Path("static-odom.jsonl"))
     parser.add_argument(
@@ -45,8 +51,11 @@ class StreamGate:
         self._seen.add(stream)
         return self._recording
 
+    def missing_streams(self) -> set[str]:
+        return {"odom", "odom_info"} - self._seen
+
     def start_recording(self) -> None:
-        missing = {"odom", "odom_info"} - self._seen
+        missing = self.missing_streams()
         if missing:
             raise RuntimeError(f"warmup missing streams: {', '.join(sorted(missing))}")
         self._recording = True
@@ -121,6 +130,23 @@ def run_live(args: argparse.Namespace) -> int:
     rclpy.init()
     node = StaticOdomRecorder()
     try:
+        # ROS graph discovery only means that a publisher exists. On Jetson the
+        # first RGB-D odometry message can legitimately arrive after the old
+        # fixed two-second warmup, so wait for both *actual* streams before
+        # starting the measured warmup window.
+        stream_deadline = time.monotonic() + args.warmup_timeout
+        while rclpy.ok() and gate.missing_streams() and time.monotonic() < stream_deadline:
+            rclpy.spin_once(
+                node,
+                timeout_sec=min(0.1, max(0.0, stream_deadline - time.monotonic())),
+            )
+        missing = gate.missing_streams()
+        if missing:
+            raise RuntimeError(
+                "startup missing streams within "
+                f"{args.warmup_timeout:.1f}s: {', '.join(sorted(missing))}"
+            )
+
         warmup_deadline = time.monotonic() + args.warmup
         while rclpy.ok() and time.monotonic() < warmup_deadline:
             rclpy.spin_once(
@@ -157,10 +183,13 @@ def main() -> int:
         raise SystemExit("--duration must be positive")
     if args.warmup <= 0:
         raise SystemExit("--warmup must be positive")
+    if args.warmup_timeout <= 0:
+        raise SystemExit("--warmup-timeout must be positive")
     if args.dry_run:
         print(
             f"DRY RUN: subscribe odom={args.odom_topic} info={args.info_topic} "
-            f"for warmup={args.warmup:.1f}s then duration={args.duration:.1f}s; "
+            f"after streams arrive (timeout={args.warmup_timeout:.1f}s), "
+            f"warmup={args.warmup:.1f}s then duration={args.duration:.1f}s; "
             f"output={args.output}; ROS not imported"
         )
         return 0

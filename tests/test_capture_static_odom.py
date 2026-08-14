@@ -32,6 +32,17 @@ def test_stream_gate_rejects_incomplete_warmup() -> None:
         raise AssertionError("incomplete warmup was accepted")
 
 
+def test_stream_gate_reports_missing_streams_before_recording() -> None:
+    gate = StreamGate()
+    assert gate.missing_streams() == {"odom", "odom_info"}
+
+    gate.observe("odom")
+    assert gate.missing_streams() == {"odom_info"}
+
+    gate.observe("odom_info")
+    assert gate.missing_streams() == set()
+
+
 def test_dry_run_does_not_require_ros() -> None:
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--dry-run", "--warmup", "2"],
@@ -54,3 +65,15 @@ def test_non_positive_warmup_is_rejected() -> None:
 
     assert result.returncode != 0
     assert "--warmup must be positive" in result.stderr
+
+
+def test_non_positive_warmup_timeout_is_rejected() -> None:
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--dry-run", "--warmup-timeout", "0"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "--warmup-timeout must be positive" in result.stderr
