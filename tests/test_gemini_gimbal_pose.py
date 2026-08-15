@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from gemini_gimbal_pose import (
     DEG_PER_TICK,
+    check_reference,
     encode_sign_magnitude,
     set_axis_map,
     translate_target_between_mode_coordinates,
@@ -89,3 +90,42 @@ def test_axis_map_records_observed_positive_directions(tmp_path: Path) -> None:
         "yaw_positive_direction": "right",
         "pitch_positive_direction": "down",
     }
+
+
+def test_check_reference_accepts_wrapped_encoder_equivalent(tmp_path: Path) -> None:
+    reference = tmp_path / "gimbal.json"
+    reference.write_text(
+        json.dumps(
+            {
+                "schema": "forestbridge/gemini_gimbal_pose/v1",
+                "board_serial": "5B3D043224",
+                "raw_position": {"7": 4068, "8": 1694},
+            }
+        ),
+        encoding="utf-8",
+    )
+    axes = {
+        7: {"raw": 4072, "operating_mode": 0, "torque_enabled": 0},
+        8: {"raw": 1690, "operating_mode": 0, "torque_enabled": 0},
+    }
+    check_reference(reference, axes, tolerance_deg=1.0)
+
+
+def test_check_reference_rejects_axis_outside_tolerance(tmp_path: Path) -> None:
+    reference = tmp_path / "gimbal.json"
+    reference.write_text(
+        json.dumps(
+            {
+                "schema": "forestbridge/gemini_gimbal_pose/v1",
+                "board_serial": "5B3D043224",
+                "raw_position": {"7": 4068, "8": 1694},
+            }
+        ),
+        encoding="utf-8",
+    )
+    axes = {
+        7: {"raw": 4068, "operating_mode": 0, "torque_enabled": 0},
+        8: {"raw": 1720, "operating_mode": 0, "torque_enabled": 0},
+    }
+    with pytest.raises(SystemExit, match="not at saved reference"):
+        check_reference(reference, axes, tolerance_deg=1.0)

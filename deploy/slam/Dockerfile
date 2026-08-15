@@ -11,6 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         jq \
+        python3-pip \
         procps \
         ros-humble-image-tools \
         ros-humble-image-transport-plugins \
@@ -22,6 +23,12 @@ RUN apt-get update \
         usbutils \
         v4l-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# The supervised mapping session owns the white base controller in the same
+# locked container as the RGB-D graph. Keep this separate from the ACT runtime.
+RUN python3 -m pip install --no-cache-dir \
+    'feetech-servo-sdk>=1.0.0,<2.0.0' \
+    'pyserial>=3.5,<4.0.0'
 
 WORKDIR /workspace
 

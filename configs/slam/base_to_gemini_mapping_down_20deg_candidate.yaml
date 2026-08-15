@@ -1,0 +1,16 @@
+{
+  "schema": "forestbridge/slam/base-camera-transform/v1",
+  "status": "candidate",
+  "parent_frame": "base_link",
+  "child_frame": "camera_link",
+  "unit": "m",
+  "translation_m": [-0.04913, 0.025, 1.1825],
+  "rotation_xyzw": [0.0, 0.175500579, 0.0, 0.984479308],
+  "gimbal_reference_raw": {"7": 4066, "8": 1924},
+  "source_files": [
+    "configs/slam/base_to_gemini_candidate.yaml",
+    "/data/config/gemini_gimbal_level_forward_v1.json",
+    "/data/config/gemini_gimbal_mapping_down_20deg_v1.json"
+  ],
+  "measurement_notes": "Fixed supervised-mapping pose, created 2026-08-14. ID 8 changed from raw 1694 (level-forward reference) to raw 1924. The observed positive direction is downward; 230 encoder ticks correspond to a +20.21484375 degree pitch about base_link +Y, represented by the quaternion above. ID 7 differs from level by -2 ticks (-0.17578125 degree), within the 1 degree fixed-pose gate and is not separately modelled. Translation is inherited from the level candidate because the physical pitch-pivot-to-camera-origin displacement has not been remeasured. This is suitable only for supervised mapping comparison; measure the pitch pivot or camera origin at this pose before claiming navigation-grade base-to-camera calibration."
+}

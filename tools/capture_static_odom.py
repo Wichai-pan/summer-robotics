@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 
@@ -16,9 +17,20 @@ def parse_args() -> argparse.Namespace:
         "--warmup",
         type=float,
         default=2.0,
-        help="subscribe without recording for this many seconds before capture",
+        help="subscribe without recording for this many seconds after both streams arrive",
+    )
+    parser.add_argument(
+        "--warmup-timeout",
+        type=float,
+        default=30.0,
+        help="maximum seconds to wait for the first odom and odom_info messages",
     )
     parser.add_argument("--output", type=Path, default=Path("static-odom.jsonl"))
+    parser.add_argument(
+        "--ready-file",
+        type=Path,
+        help="create this file exactly when the post-warmup recording window begins",
+    )
     parser.add_argument("--odom-topic", default="/rtabmap/odom")
     parser.add_argument("--info-topic", default="/rtabmap/odom_info")
     parser.add_argument(
@@ -40,8 +52,11 @@ class StreamGate:
         self._seen.add(stream)
         return self._recording
 
+    def missing_streams(self) -> set[str]:
+        return {"odom", "odom_info"} - self._seen
+
     def start_recording(self) -> None:
-        missing = {"odom", "odom_info"} - self._seen
+        missing = self.missing_streams()
         if missing:
             raise RuntimeError(f"warmup missing streams: {', '.join(sorted(missing))}")
         self._recording = True
@@ -49,6 +64,17 @@ class StreamGate:
 
 def stamp_seconds(stamp: object) -> float:
     return float(stamp.sec) + float(stamp.nanosec) / 1_000_000_000.0
+
+
+def has_valid_odom_pose(position: tuple[float, float, float], orientation: tuple[float, float, float, float]) -> bool:
+    """Reject uninitialized or non-finite odometry poses before they reach JSONL.
+
+    RTAB-Map can occasionally publish a zero quaternion while its visual
+    odometry is resetting. It is not a physical pose and would make a whole
+    completed mapping session fail offline validation.
+    """
+    values = (*position, *orientation)
+    return all(math.isfinite(value) for value in values) and sum(value * value for value in orientation) > 1e-12
 
 
 def run_live(args: argparse.Namespace) -> int:
@@ -66,6 +92,7 @@ def run_live(args: argparse.Namespace) -> int:
             super().__init__("static_odom_recorder")
             self.odom_count = 0
             self.info_count = 0
+            self.invalid_odom_count = 0
             self.create_subscription(Odometry, args.odom_topic, self.record_odom, 100)
             self.create_subscription(OdomInfo, args.info_topic, self.record_info, 100)
 
@@ -73,10 +100,20 @@ def run_live(args: argparse.Namespace) -> int:
             handle.write(json.dumps(record, separators=(",", ":")) + "\n")
 
         def record_odom(self, message: object) -> None:
-            if not gate.observe("odom"):
-                return
             position = message.pose.pose.position
             orientation = message.pose.pose.orientation
+            position_values = (float(position.x), float(position.y), float(position.z))
+            orientation_values = (
+                float(orientation.x),
+                float(orientation.y),
+                float(orientation.z),
+                float(orientation.w),
+            )
+            if not has_valid_odom_pose(position_values, orientation_values):
+                self.invalid_odom_count += 1
+                return
+            if not gate.observe("odom"):
+                return
             self.write(
                 {
                     "type": "odom",
@@ -84,13 +121,8 @@ def run_live(args: argparse.Namespace) -> int:
                     "receive_monotonic_s": time.monotonic(),
                     "frame_id": message.header.frame_id,
                     "child_frame_id": message.child_frame_id,
-                    "position": [position.x, position.y, position.z],
-                    "orientation": [
-                        orientation.x,
-                        orientation.y,
-                        orientation.z,
-                        orientation.w,
-                    ],
+                    "position": position_values,
+                    "orientation": orientation_values,
                 }
             )
             self.odom_count += 1
@@ -116,6 +148,23 @@ def run_live(args: argparse.Namespace) -> int:
     rclpy.init()
     node = StaticOdomRecorder()
     try:
+        # ROS graph discovery only means that a publisher exists. On Jetson the
+        # first RGB-D odometry message can legitimately arrive after the old
+        # fixed two-second warmup, so wait for both *actual* streams before
+        # starting the measured warmup window.
+        stream_deadline = time.monotonic() + args.warmup_timeout
+        while rclpy.ok() and gate.missing_streams() and time.monotonic() < stream_deadline:
+            rclpy.spin_once(
+                node,
+                timeout_sec=min(0.1, max(0.0, stream_deadline - time.monotonic())),
+            )
+        missing = gate.missing_streams()
+        if missing:
+            raise RuntimeError(
+                "startup missing streams within "
+                f"{args.warmup_timeout:.1f}s: {', '.join(sorted(missing))}"
+            )
+
         warmup_deadline = time.monotonic() + args.warmup
         while rclpy.ok() and time.monotonic() < warmup_deadline:
             rclpy.spin_once(
@@ -123,17 +172,30 @@ def run_live(args: argparse.Namespace) -> int:
                 timeout_sec=min(0.1, max(0.0, warmup_deadline - time.monotonic())),
             )
         gate.start_recording()
+        if args.ready_file is not None:
+            args.ready_file.parent.mkdir(parents=True, exist_ok=True)
+            args.ready_file.write_text(
+                json.dumps({"recording_started_monotonic_s": time.monotonic()}) + "\n",
+                encoding="utf-8",
+            )
         deadline = time.monotonic() + args.duration
         while rclpy.ok() and time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=min(0.1, max(0.0, deadline - time.monotonic())))
     finally:
         odom_count = node.odom_count
         info_count = node.info_count
+        invalid_odom_count = node.invalid_odom_count
         node.destroy_node()
-        rclpy.shutdown()
+        # SIGINT may already have shut down the default context. Do not turn a
+        # user-requested stop into a misleading traceback during cleanup.
+        if rclpy.ok():
+            rclpy.shutdown()
         handle.close()
 
-    print(f"Captured odom={odom_count} odom_info={info_count} to {args.output}")
+    print(
+        f"Captured odom={odom_count} odom_info={info_count} "
+        f"invalid_odom_skipped={invalid_odom_count} to {args.output}"
+    )
     return 0 if odom_count > 1 and info_count > 1 else 1
 
 
@@ -143,10 +205,13 @@ def main() -> int:
         raise SystemExit("--duration must be positive")
     if args.warmup <= 0:
         raise SystemExit("--warmup must be positive")
+    if args.warmup_timeout <= 0:
+        raise SystemExit("--warmup-timeout must be positive")
     if args.dry_run:
         print(
             f"DRY RUN: subscribe odom={args.odom_topic} info={args.info_topic} "
-            f"for warmup={args.warmup:.1f}s then duration={args.duration:.1f}s; "
+            f"after streams arrive (timeout={args.warmup_timeout:.1f}s), "
+            f"warmup={args.warmup:.1f}s then duration={args.duration:.1f}s; "
             f"output={args.output}; ROS not imported"
         )
         return 0

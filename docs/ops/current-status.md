@@ -13,6 +13,15 @@
 
 ## Current Focus
 
+- The 2026-08-14 fixed downward-Gemini supervised RGB-D mapping candidate
+  `20260814T140025Z` passed at 7.143 Hz with zero tracking loss, a 0.467221 s
+  maximum gap, 5.4 cm position closure and 0.71° orientation closure over a
+  9.10 m manual route. It is the current RTAB-Map candidate for supervised
+  localization/planning experiments, not yet a navigation-grade localization
+  source. The fixed reference is raw gimbal ID7=4066/ID8=1924 and the candidate
+  config is `configs/slam/base_to_gemini_mapping_down_20deg_candidate.yaml`.
+  Next: localization-only restart at two known poses, then Nav2 planning
+  dry-run; wheel/IMU fusion and `/cmd_vel` base control remain separate gates.
 - Improve the fixed-scene ACT grasp by adding deterministic grasp-success feedback around the current policy.
 - Use gripper position/current/load plus the white-wrist RGB stream to distinguish grasp, empty close, slip and jam before allowing transport.
 - Keep all robot USB ownership and execution on the onboard Jetson.

@@ -28,6 +28,20 @@ Team review documents:
   ID 7/8 轴映射、抓取视角、手动活动端点、回正实测及 SLAM 使用约束；
 - [camera-only 静止 VO 实测结果](04-static-visual-odometry-live-results.md):
   三次实测、根因修正、最终指标、已知风险和下一门槛；
+- [移动 visual odometry](03-mobile-visual-odometry.md): Phase 3 范围、无设备入口、
+  candidate TF 契约与未来现场门槛；
+- [base-camera 外参证据清单](base-camera-transform-inventory.md): 已知来源、不可用数据
+  与最小人工补充项；
+- [移动 VO 准备实验记录](05-mobile-vo-bringup-session-log.md): 本次软件实现、外参结论、
+  验证证据、阻塞项与下一次接续顺序；
+- [SLAM 正前方相机外参候选值](06-base-camera-candidate-measurement.md): 实机坐标轴、
+  云台参考位、安装螺丝测量、官方偏移换算和适用边界；
+- [首次监督式移动建图记录](07-supervised-first-mapping-session-log.md): 固定云台、
+  单一硬件锁手动底盘、首批 RTAB-Map 数据库、质量结果与下一次闭环路线；
+- [监督式建图性能复测](08-supervised-mapping-performance-rerun.md): 断线清理、
+  640x480 性能优化、TF 探针重试和最终闭环 PASS 结果；
+- [低头 Gemini 闭环建图（2026-08-14）](09-downward-gemini-closed-loop-mapping-20260814.md):
+  固定低头约 20° 的候选外参、主要活动区覆盖、最终 5.4 cm / 0.71° 闭环工件，以及定位与规划的下一门槛；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
@@ -231,6 +245,13 @@ failed attempts, fixes, complete metrics, and retained risks.
   major obstacles are recognizable, and no unsafe base behavior occurs.
 - Rollback: stop with `Space`/`X` or cut 12 V; discard only the failed run and
   return to the camera-only graph.
+
+The first executable mapping session is deliberately one process tree, one
+Docker container and one host hardware lock. It owns the Gemini, the black
+board only for a **read-only** fixed-gimbal check, and the white board only for
+the terminal base controller. It does not expose either arm to the SLAM image.
+See [Phase 3 mobile VO](03-mobile-visual-odometry.md) before granting a live
+run.
 
 ### 4. Robustness work, later
 
