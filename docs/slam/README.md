@@ -40,6 +40,8 @@ Team review documents:
   单一硬件锁手动底盘、首批 RTAB-Map 数据库、质量结果与下一次闭环路线；
 - [监督式建图性能复测](08-supervised-mapping-performance-rerun.md): 断线清理、
   640x480 性能优化、TF 探针重试和最终闭环 PASS 结果；
+- [低头 Gemini 闭环建图（2026-08-14）](09-downward-gemini-closed-loop-mapping-20260814.md):
+  固定低头约 20° 的候选外参、主要活动区覆盖、最终 5.4 cm / 0.71° 闭环工件，以及定位与规划的下一门槛；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
