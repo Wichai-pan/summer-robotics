@@ -68,18 +68,41 @@ def test_wheel_velocity_uses_one_broadcast_for_all_three_wheels() -> None:
         def txPacket(self) -> int:
             return 0
 
-    write_wheel_velocities(GroupWriter(), [1, 0x8002, 3], 0)
+    write_wheel_velocities(GroupWriter(), object(), [1, 0x8002, 3], 0)
     assert added == [(7, [1, 0]), (8, [2, 128]), (9, [3, 0])]
+
+
+def test_wheel_velocity_broadcast_aborts_on_transmit_failure() -> None:
+    class GroupWriter:
+        def clearParam(self) -> None:
+            pass
+
+        def addParam(self, _motor_id: int, _data: list[int]) -> bool:
+            return True
+
+        def txPacket(self) -> int:
+            return -2
+
+    try:
+        write_wheel_velocities(GroupWriter(), object(), [1, 2, 3], 0)
+    except RuntimeError as exc:
+        assert "communication=-2" in str(exc)
+    else:
+        raise AssertionError("failed broadcast did not abort")
 
 
 def test_preflight_broadcasts_zero_before_any_wheel_torque_enable() -> None:
     events: list[tuple[str, int]] = []
 
     class Packet:
-        def read1ByteTxRx(self, _port: object, _motor_id: int, _address: int):
+        def read1ByteTxRx(
+            self, _port: object, _motor_id: int, _address: int
+        ) -> tuple[int, int, int]:
             return base_keyboard.MODE_VELOCITY, 0, 0
 
-        def write1ByteTxRx(self, _port: object, motor_id: int, address: int, _value: int):
+        def write1ByteTxRx(
+            self, _port: object, motor_id: int, address: int, _value: int
+        ) -> tuple[int, int]:
             if address == base_keyboard.TORQUE:
                 events.append(("torque", motor_id))
             return 0, 0
@@ -99,7 +122,8 @@ def test_preflight_broadcasts_zero_before_any_wheel_torque_enable() -> None:
             return 0
 
     prepare_wheels_stopped(Packet(), object(), 0, GroupWriter)
-    assert events == [("zero", 0), ("torque", 7), ("torque", 8), ("torque", 9)]
+    assert events[0] == ("zero", 0)
+    assert events[1:] == [("torque", 7), ("torque", 8), ("torque", 9)]
 
 
 def test_input_backend_failure_never_enables_torque() -> None:
@@ -261,7 +285,7 @@ def test_sigterm_requests_zero_speed_and_torque_off() -> None:
             return 0
 
     class FakeGroupWriter:
-        def __init__(self, *_args: object):
+        def __init__(self, _port: FakePort, _packet: FakePacket, _address: int, _length: int):
             pass
 
         def clearParam(self) -> None:

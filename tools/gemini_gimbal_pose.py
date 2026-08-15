@@ -96,6 +96,17 @@ def parse_args() -> argparse.Namespace:
 
     subparsers.add_parser("read", help="read both axes; never writes motor registers")
 
+    check = subparsers.add_parser(
+        "check",
+        help="read both axes and verify they remain at the saved reference; never writes motor registers",
+    )
+    check.add_argument(
+        "--tolerance-deg",
+        type=float,
+        default=1.0,
+        help="maximum wrapped encoder error per axis (default: %(default)s)",
+    )
+
     save = subparsers.add_parser("save", help="save the current pose as the grasp reference")
     save.add_argument("--force", action="store_true", help="overwrite without the SAVE prompt")
 
@@ -238,6 +249,34 @@ def save_reference(path: Path, axes: dict[int, dict[str, int]], force: bool) -> 
     os.replace(temporary, path)
     print(f"已保存 Gemini 抓取云台姿态：{path}")
     print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def check_reference(path: Path, axes: dict[int, dict[str, int]], tolerance_deg: float) -> None:
+    """Fail closed if either torque-free axis has left a saved pose."""
+    if tolerance_deg <= 0:
+        raise SystemExit("--tolerance-deg must be positive")
+    reference = load_reference(path)
+    errors = {
+        motor_id: wrapped_tick_delta(
+            int(reference["raw_position"][str(motor_id)]), axes[motor_id]["raw"]
+        )
+        * DEG_PER_TICK
+        for motor_id in MOTOR_IDS
+    }
+    print_axes("复核", axes)
+    print(
+        "参考位偏差："
+        + " ".join(f"ID {motor_id}={errors[motor_id]:+.2f}°" for motor_id in MOTOR_IDS)
+    )
+    outside = {
+        motor_id: error for motor_id, error in errors.items() if abs(error) > tolerance_deg
+    }
+    if outside:
+        raise SystemExit(
+            f"gimbal is not at saved reference within {tolerance_deg:.2f}°: {outside}; "
+            "return it before starting a fixed-extrinsic session"
+        )
+    print("status=PASS；云台处于保存参考位，未写入任何电机寄存器。")
 
 
 def set_axis_map(
@@ -457,6 +496,8 @@ def main() -> int:
         axes = inspect_axes(packet, port)
         if args.command == "read":
             print_axes(device, axes)
+        elif args.command == "check":
+            check_reference(args.reference, axes, args.tolerance_deg)
         elif args.command == "save":
             print_axes(device, axes)
             save_reference(args.reference, axes, args.force)

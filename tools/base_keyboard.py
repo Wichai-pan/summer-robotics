@@ -106,10 +106,15 @@ def require_servo_success(
 
 def write_wheel_velocities(
     group_sync_write: object,
+    port_handler: object,
     encoded_velocities: list[int],
     communication_success: int,
 ) -> None:
-    """Send all three wheel targets in one broadcast packet."""
+    """Send all three wheel commands in one broadcast packet.
+
+    This avoids requesting 90 status replies/second from the shared white-board
+    bus. Wheel availability is verified by pings before torque is enabled.
+    """
     if len(encoded_velocities) != len(WHEEL_IDS):
         raise ValueError("wheel velocity count does not match wheel IDs")
     group_sync_write.clearParam()
@@ -117,6 +122,8 @@ def write_wheel_velocities(
         if not group_sync_write.addParam(motor_id, [value & 0xFF, (value >> 8) & 0xFF]):
             raise RuntimeError(f"could not add wheel ID {motor_id} to velocity broadcast")
     communication = group_sync_write.txPacket()
+    if communication == communication_success:
+        return
     require_servo_success(
         "broadcast wheel velocity",
         WHEEL_IDS[0],
@@ -132,7 +139,12 @@ def prepare_wheels_stopped(
     communication_success: int,
     group_sync_write_factory: object,
 ) -> None:
-    """Validate modes, clear every target, then enable wheel torque."""
+    """Validate all wheels, clear stored velocity, then enable torque together.
+
+    A wheel retains Goal_Velocity across torque-off. Therefore no wheel may be
+    enabled until every wheel has passed the mode preflight and a broadcast
+    zero-velocity command has been sent.
+    """
     modes: dict[int, int] = {}
     for motor_id in WHEEL_IDS:
         mode, communication, packet_error = packet.read1ByteTxRx(
@@ -166,8 +178,14 @@ def prepare_wheels_stopped(
                 communication_success,
             )
 
-    writer = group_sync_write_factory(port_handler, packet, GOAL_VEL, 2)
-    write_wheel_velocities(writer, [0, 0, 0], communication_success)
+    # All wheels are still torque-free here. Broadcast the zero target before
+    # enabling any wheel so stale velocity cannot restart the base.
+    write_wheel_velocities(
+        group_sync_write_factory(port_handler, packet, GOAL_VEL, 2),
+        port_handler,
+        [0, 0, 0],
+        communication_success,
+    )
     for motor_id in WHEEL_IDS:
         communication, packet_error = packet.write1ByteTxRx(
             port_handler, motor_id, TORQUE, 1
@@ -198,7 +216,9 @@ def shutdown_hardware(
 
     for motor_id in WHEEL_IDS:
         try:
-            communication = packet.write2ByteTxOnly(port_handler, motor_id, GOAL_VEL, 0)
+            communication = packet.write2ByteTxOnly(
+                port_handler, motor_id, GOAL_VEL, 0
+            )
             require_servo_success(
                 "zero velocity",
                 motor_id,
@@ -209,7 +229,9 @@ def shutdown_hardware(
         except Exception as exc:
             errors.append(str(exc))
         try:
-            communication = packet.write1ByteTxOnly(port_handler, motor_id, TORQUE, 0)
+            communication = packet.write1ByteTxOnly(
+                port_handler, motor_id, TORQUE, 0
+            )
             require_servo_success(
                 "disable torque",
                 motor_id,
@@ -356,9 +378,23 @@ def parse_args() -> argparse.Namespace:
         default=250.0,
         help="terminal movement stops unless the key repeats within this interval",
     )
-    parser.add_argument("--xy-speed-mps", type=float, default=XY_SPEED)
-    parser.add_argument("--theta-speed-deg-s", type=float, default=THETA_SPEED)
-    parser.add_argument("--max-runtime-s", type=float)
+    parser.add_argument(
+        "--xy-speed-mps",
+        type=float,
+        default=XY_SPEED,
+        help="forward/lateral speed in m/s (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--theta-speed-deg-s",
+        type=float,
+        default=THETA_SPEED,
+        help="yaw speed in deg/s (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--max-runtime-s",
+        type=float,
+        help="automatically stop and exit after this many seconds",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -433,7 +469,7 @@ def main() -> int:
             raise RuntimeError(f"base motor IDs did not respond: {missing}")
 
         answer = input(
-            "Confirm the area is clear, 12V can be cut immediately, and enter BASE to continue: "
+            "Base is still torque-free. Confirm the area is clear and enter BASE (then wait for W/S controls): "
         ).strip()
         if answer != "BASE":
             print("Cancelled; wheel torque was not enabled.")
@@ -450,7 +486,9 @@ def main() -> int:
                     managed_signal, request_shutdown
                 )
 
-            prepare_wheels_stopped(packet, port_handler, COMM_SUCCESS, GroupSyncWrite)
+            prepare_wheels_stopped(
+                packet, port_handler, COMM_SUCCESS, GroupSyncWrite
+            )
 
             print(
                 "W/S forward/back, A/D strafe, Q/E rotate, Space stop, X/Esc exit. "
@@ -460,19 +498,22 @@ def main() -> int:
                     else ""
                 )
             )
+            wheel_velocity_writer = GroupSyncWrite(port_handler, packet, GOAL_VEL, 2)
             period = 1.0 / LOOP_HZ
             started = time.monotonic()
-            wheel_velocity_writer = GroupSyncWrite(port_handler, packet, GOAL_VEL, 2)
             while termination_signal is None and not input_backend.should_exit():
                 if args.max_runtime_s is not None and time.monotonic() - started >= args.max_runtime_s:
                     print("Base session time limit reached; stopping.")
                     break
                 x, y, theta = command_from_keys(
-                    input_backend.pressed(), args.xy_speed_mps, args.theta_speed_deg_s
+                    input_backend.pressed(),
+                    args.xy_speed_mps,
+                    args.theta_speed_deg_s,
                 )
                 raw = body_to_wheel_raw(x, y, theta)
                 write_wheel_velocities(
                     wheel_velocity_writer,
+                    port_handler,
                     [encode_sm(velocity) for velocity in raw],
                     COMM_SUCCESS,
                 )

@@ -86,7 +86,7 @@ def prepare_verified_wheels_stopped(
             )
 
     writer = group_sync_write_factory(port, packet, GOAL_VEL, 2)
-    write_wheel_velocities(writer, [0, 0, 0], communication_success)
+    write_wheel_velocities(writer, port, [0, 0, 0], communication_success)
     for motor_id in WHEEL_IDS:
         communication, packet_error = packet.write1ByteTxRx(port, motor_id, TORQUE, 1)
         require_servo_success(
@@ -250,7 +250,7 @@ class STS3215RawFeedbackSource:
                         | (0x8000 if int(commands[motor_id]) < 0 else 0)
                         for motor_id in WHEEL_IDS
                     ]
-                    write_wheel_velocities(command_writer, encoded, COMM_SUCCESS)
+                    write_wheel_velocities(command_writer, port, encoded, COMM_SUCCESS)
                 positions: dict[int, int] = {}
                 velocities: dict[int, int] = {}
                 statuses: dict[int, int] = {}

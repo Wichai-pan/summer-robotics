@@ -48,19 +48,56 @@ UNRESOLVED transform accepted for dry-run; live mode is prohibited
 PASS motion odometry dry-run; no camera or motor device was opened
 ```
 
-## 未来真机入口
-
-未来的单一受锁监督会话会调用以下容器模式：
+首轮 mapping 前，另外运行与真机 graph 参数相同的容器软件验证：
 
 ```bash
-./scripts/jetson_slam_motion_odom.sh --config configs/slam/base_to_gemini_candidate.yaml --duration 60
+./scripts/jetson_slam_mapping_software_smoke.sh
 ```
 
-`jetson_slam_motion_odom.sh` 目前故意只允许 `--dry-run`。它不能与独立底盘键盘会话
-并行：两者都会争用现有全局硬件锁。下一轮必须先设计并评审一个单一监督会话，在同一
-把锁内协调 Gemini 记录和人工底盘按键，再解除该 live 阻断。届时该会话仍须只给
-camera/recording 子进程映射 Gemini；底盘控制权的最小暴露范围另行评审。实时数据目录
-预留为 `/home/jetsonl7/robot-data/slam/motion-odom/<UTC>/`。
+预期最后一行是 `PASS mapping odometry dry-run; no camera or motor device was opened`。
+
+## 受锁监督 mapping 入口
+
+`scripts/jetson_slam_supervised_mapping.sh` 是第一轮真机 mapping 的唯一入口。它通过
+`jetson_slam_exec.sh` 获取**一次**全局硬件锁，并在同一个 SLAM 容器内：
+
+1. 只读核对 Gemini 是否仍处于 SLAM 正前方参考位；
+2. 验证候选 `base_link -> camera_link` TF；
+3. 启动 Orbbec、静态 TF、RGB-D odometry 和 RTAB-Map mapping；
+4. 等录制窗口真的开始后，才启动白板的 SSH 终端底盘控制；
+5. `Space`、`X`、超时、SIGINT 或容器退出时，底盘先发送零速度并松扭矩；
+6. 在 `/home/jetsonl7/robot-data/slam/mapping/<UTC>/` 保存 `rtabmap.db`、JSONL、
+   质量报告、相机/odometry/mapping 日志和 ROS graph 证据。
+
+它只映射 Gemini、黑板和白板；黑板在这一流程中只给 gimbal 参考位 read/check 使用，
+不命令云台，两个机械臂的控制板 ID 1--6 不会收到指令。
+
+先在 Jetson 对本分支的 SLAM 镜像做不接设备 dry-run：
+
+```bash
+./scripts/jetson_slam_motion_odom.sh --dry-run
+./scripts/jetson_slam_mapping_software_smoke.sh
+```
+
+然后重建独立 SLAM 镜像（它新增了底盘串口 SDK，不修改 ACT 镜像）：
+
+```bash
+docker build -f deploy/slam/Dockerfile -t forestbridge-xlerobot:slam-humble .
+```
+
+首个真机会话命令为：
+
+```bash
+./scripts/jetson_slam_supervised_mapping.sh --duration 120
+```
+
+第一次路线必须是“静止 3 秒 -> 前进约 0.5 m -> 停 3 秒 -> 原路返回约 0.5 m ->
+停 3 秒”。确认 tracking 没丢失且轨迹合理后，才在同一会话的剩余时间以相同低速
+走一个 1--2 m 小闭环。`rtabmap.db` 是第一张可重复地图的权威源文件；2D/3D
+导出在数据通过质量审阅后单独进行。
+
+`jetson_slam_motion_odom.sh` 仍故意只允许 `--dry-run`，不能与独立底盘键盘会话
+并行；真实移动和 mapping 只能使用上面的单一监督入口。
 
 ## 输入、输出、验收与回退
 

@@ -25,8 +25,8 @@ RUN apt-get update \
         v4l-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# The fused process owns the white-board wheel bus in the same locked container
-# as robot_localization and RTAB-Map. Keep it isolated from the ACT runtime.
+# Supervised and fused SLAM sessions own the white-board wheel bus in the same
+# locked container as their ROS graph. Keep this isolated from the ACT runtime.
 RUN python3 -m pip install --no-cache-dir \
     'feetech-servo-sdk>=1.0.0,<2.0.0' \
     'pyserial>=3.5,<4.0.0'
