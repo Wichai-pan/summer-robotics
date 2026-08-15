@@ -8,6 +8,18 @@ duration=60
 dry_run=false
 mode="static"
 transform_config=""
+localization_db=""
+nav2_goal_x=""
+nav2_goal_y=""
+nav2_goal_yaw_deg="0"
+nav2_params="configs/nav2/planning_dry_run.yaml"
+nav2_robot_radius_m="0.30"
+nav2_supervised_execute=false
+nav2_execute_max_path_m="0.30"
+nav2_execute_max_runtime_s="20"
+nav2_execute_max_linear_mps="0.04"
+nav2_execute_max_angular_deg_s="12"
+nav2_execute_max_tracked_travel_m="0.40"
 ready_file=""
 camera_width=0
 camera_height=0
@@ -16,12 +28,20 @@ camera_fps=0
 usage() {
   cat <<'EOF'
 Usage: slam_static_odom_container.sh [--duration SECONDS] [--output-root PATH] [--dry-run]
-                                     [--mode static|motion|mapping] [--transform-config PATH]
+                                     [--mode static|motion|mapping|localization] [--transform-config PATH]
+                                     [--localization-db PATH]
+                                     [--nav2-goal-x M --nav2-goal-y M] [--nav2-goal-yaw-deg DEG]
+                                     [--nav2-params PATH] [--nav2-robot-radius-m M]
+                                     [--nav2-supervised-execute]
+                                     [--nav2-execute-max-path-m M] [--nav2-execute-max-runtime-s S]
+                                     [--nav2-execute-max-linear-mps MPS] [--nav2-execute-max-angular-deg-s DEG_S]
+                                     [--nav2-execute-max-tracked-travel-m M]
                                      [--ready-file PATH] [--camera-width PX]
                                      [--camera-height PX] [--camera-fps HZ]
 
-Runs Gemini-only RTAB-Map RGB-D odometry in camera_link and writes compact
-JSONL plus a drift/quality report. It does not open a motor device.
+Runs Gemini-only RTAB-Map RGB-D odometry and writes compact JSONL plus a
+quality report. In localization mode it loads an existing RTAB-Map database
+read-only and validates map -> base_link; it does not open a motor device.
 EOF
 }
 
@@ -31,6 +51,18 @@ while [[ $# -gt 0 ]]; do
   --output-root) output_root="${2:?missing value for --output-root}"; shift 2 ;;
   --mode) mode="${2:?missing value for --mode}"; shift 2 ;;
   --transform-config) transform_config="${2:?missing value for --transform-config}"; shift 2 ;;
+  --localization-db) localization_db="${2:?missing value for --localization-db}"; shift 2 ;;
+  --nav2-goal-x) nav2_goal_x="${2:?missing goal x}"; shift 2 ;;
+  --nav2-goal-y) nav2_goal_y="${2:?missing goal y}"; shift 2 ;;
+  --nav2-goal-yaw-deg) nav2_goal_yaw_deg="${2:?missing goal yaw}"; shift 2 ;;
+  --nav2-params) nav2_params="${2:?missing Nav2 params path}"; shift 2 ;;
+  --nav2-robot-radius-m) nav2_robot_radius_m="${2:?missing robot radius}"; shift 2 ;;
+  --nav2-supervised-execute) nav2_supervised_execute=true; shift ;;
+  --nav2-execute-max-path-m) nav2_execute_max_path_m="${2:?missing path cap}"; shift 2 ;;
+  --nav2-execute-max-runtime-s) nav2_execute_max_runtime_s="${2:?missing runtime cap}"; shift 2 ;;
+  --nav2-execute-max-linear-mps) nav2_execute_max_linear_mps="${2:?missing linear cap}"; shift 2 ;;
+  --nav2-execute-max-angular-deg-s) nav2_execute_max_angular_deg_s="${2:?missing angular cap}"; shift 2 ;;
+  --nav2-execute-max-tracked-travel-m) nav2_execute_max_tracked_travel_m="${2:?missing tracked travel cap}"; shift 2 ;;
   --ready-file) ready_file="${2:?missing value for --ready-file}"; shift 2 ;;
   --camera-width) camera_width="${2:?missing value for --camera-width}"; shift 2 ;;
   --camera-height) camera_height="${2:?missing value for --camera-height}"; shift 2 ;;
@@ -57,18 +89,31 @@ if [[ "$camera_width" == 0 || "$camera_height" == 0 || "$camera_fps" == 0 ]]; th
     exit 2
   }
 fi
-[[ "$mode" == "static" || "$mode" == "motion" || "$mode" == "mapping" ]] || {
-  echo "--mode must be static, motion or mapping" >&2
+[[ "$mode" == "static" || "$mode" == "motion" || "$mode" == "mapping" || "$mode" == "localization" ]] || {
+  echo "--mode must be static, motion, mapping or localization" >&2
   exit 2
 }
-if [[ ( "$mode" == "motion" || "$mode" == "mapping" ) && -z "$transform_config" ]]; then
-  echo "--transform-config is required for motion/mapping mode" >&2
+if [[ ( "$mode" == "motion" || "$mode" == "mapping" || "$mode" == "localization" ) && -z "$transform_config" ]]; then
+  echo "--transform-config is required for motion/mapping/localization mode" >&2
+  exit 2
+fi
+if [[ "$mode" == "localization" ]]; then
+  [[ -n "$localization_db" ]] || { echo "--localization-db is required for localization mode" >&2; exit 2; }
+  [[ -s "$localization_db" ]] || { echo "localization database is missing or empty: $localization_db" >&2; exit 2; }
+fi
+if [[ -n "$nav2_goal_x" || -n "$nav2_goal_y" ]]; then
+  [[ "$mode" == "localization" ]] || { echo "Nav2 planning is only supported in localization mode" >&2; exit 2; }
+  [[ -n "$nav2_goal_x" && -n "$nav2_goal_y" ]] || { echo "--nav2-goal-x and --nav2-goal-y must be supplied together" >&2; exit 2; }
+  [[ -s "$nav2_params" ]] || { echo "Nav2 params file is missing or empty: $nav2_params" >&2; exit 2; }
+fi
+if [[ "$nav2_supervised_execute" == true && -z "$nav2_goal_x" ]]; then
+  echo "--nav2-supervised-execute requires a Nav2 goal" >&2
   exit 2
 fi
 
 frame_id="camera_link"
 metrics_tool="tools/slam_static_odom_metrics.py"
-if [[ "$mode" == "motion" || "$mode" == "mapping" ]]; then
+if [[ "$mode" == "motion" || "$mode" == "mapping" || "$mode" == "localization" ]]; then
   frame_id="base_link"
   metrics_tool="tools/slam_motion_odom_metrics.py"
 fi
@@ -132,7 +177,7 @@ if [[ "$dry_run" == true ]]; then
     grep -q "$required_field" "$interface_probe"
   done
   rm -f "$interface_probe"
-  if [[ "$mode" == "motion" || "$mode" == "mapping" ]]; then
+  if [[ "$mode" == "motion" || "$mode" == "mapping" || "$mode" == "localization" ]]; then
     python3 tools/slam_base_camera_transform.py validate --config "$transform_config"
   fi
   python3 tools/capture_static_odom.py --duration "$duration" --dry-run
@@ -161,35 +206,61 @@ if [[ "$dry_run" == true ]]; then
     exit 1
   fi
   rm -f "$probe_log"
-  if [[ "$mode" == "mapping" ]]; then
+  if [[ "$mode" == "mapping" || "$mode" == "localization" ]]; then
     mapping_probe_log="$(mktemp)"
-    set +e
-    timeout --signal=INT --kill-after=1 3 \
+    mapping_probe_command=(
       ros2 run rtabmap_slam rtabmap --ros-args \
         -p frame_id:=base_link -p odom_frame_id:=odom -p map_frame_id:=map \
         -p 'RGBD/CreateOccupancyGrid:="true"' \
         -p 'Grid/FromDepth:="true"' \
-        -p database_path:=/tmp/rtabmap-smoke.db \
-      >"$mapping_probe_log" 2>&1
+        -p database_path:="${localization_db:-/tmp/rtabmap-smoke.db}"
+    )
+    if [[ "$mode" == "localization" ]]; then
+      mapping_probe_command+=(
+        -p 'Mem/IncrementalMemory:="false"' \
+        -p 'Mem/InitWMWithAllNodes:="true"' \
+        -p 'Mem/LocalizationReadOnly:="true"'
+      )
+    fi
+    set +e
+    # During a no-camera probe RTAB-Map can still be constructing ROS services
+    # when SIGINT arrives. For localization the database is explicitly
+    # read-only, so use SIGKILL after parameter parsing instead of turning that
+    # shutdown race into a false configuration failure.
+    if [[ "$mode" == "localization" ]]; then
+      timeout --signal=KILL 3 "${mapping_probe_command[@]}" >"$mapping_probe_log" 2>&1
+    else
+      timeout --signal=INT --kill-after=1 3 "${mapping_probe_command[@]}" >"$mapping_probe_log" 2>&1
+    fi
     mapping_probe_status=$?
     set -e
-    if [[ $mapping_probe_status -ne 124 && $mapping_probe_status -ne 130 ]]; then
+    if [[ "$mode" == "localization" ]]; then
+      [[ $mapping_probe_status -eq 137 || $mapping_probe_status -eq 124 ]] || {
+        cat "$mapping_probe_log" >&2
+        rm -f "$mapping_probe_log"
+        exit "$mapping_probe_status"
+      }
+    elif [[ $mapping_probe_status -ne 124 && $mapping_probe_status -ne 130 ]]; then
       cat "$mapping_probe_log" >&2
       rm -f "$mapping_probe_log"
       exit "$mapping_probe_status"
     fi
-    if grep -Eqi 'UnknownROSArgsError|invalid parameter|terminate called|exception' "$mapping_probe_log"; then
+    if grep -Eqi 'UnknownROSArgsError|invalid parameter' "$mapping_probe_log"; then
       cat "$mapping_probe_log" >&2
       rm -f "$mapping_probe_log"
       exit 1
     fi
     rm -f "$mapping_probe_log"
   fi
-  echo "PASS $mode odometry dry-run; no camera or motor device was opened"
+  if [[ "$mode" == "localization" ]]; then
+    echo "PASS localization configuration dry-run; no camera or motor device was opened"
+  else
+    echo "PASS $mode odometry dry-run; no camera or motor device was opened"
+  fi
   exit 0
 fi
 
-if [[ "$mode" == "motion" || "$mode" == "mapping" ]]; then
+if [[ "$mode" == "motion" || "$mode" == "mapping" || "$mode" == "localization" ]]; then
   # Do not rely on readarray/process-substitution exit propagation below.
   python3 tools/slam_base_camera_transform.py validate \
     --config "$transform_config" --require-live
@@ -203,6 +274,9 @@ camera_log="$output_dir/orbbec-camera.log"
 odom_log="$output_dir/rtabmap-rgbd-odometry.log"
 mapping_log="$output_dir/rtabmap-mapping.log"
 database_path="$output_dir/rtabmap.db"
+if [[ "$mode" == "localization" ]]; then
+  database_path="$localization_db"
+fi
 samples_file="$output_dir/$mode-odom.jsonl"
 report_file="$output_dir/$mode-odom-report.json"
 process_pids=()
@@ -278,10 +352,10 @@ capture_graph_contract() {
   local contract_file="$output_dir/ros-graph-contract${suffix}.json"
   local tf_status
   local graph_options=(--expected-child-frame "$frame_id")
-  if [[ "$mode" == "motion" || "$mode" == "mapping" ]]; then
+  if [[ "$mode" == "motion" || "$mode" == "mapping" || "$mode" == "localization" ]]; then
     graph_options+=(--allow-static-transform-publisher)
   fi
-  if [[ "$mode" == "mapping" ]]; then
+  if [[ "$mode" == "mapping" || "$mode" == "localization" ]]; then
     graph_options+=(--allow-rtabmap-mapping-tf-publisher)
   fi
 
@@ -325,7 +399,7 @@ capture_graph_contract_with_retry() {
   return 1
 }
 
-if [[ "$mode" == "motion" || "$mode" == "mapping" ]]; then
+if [[ "$mode" == "motion" || "$mode" == "mapping" || "$mode" == "localization" ]]; then
   readarray -t transform_args < <(
     python3 tools/slam_base_camera_transform.py static-transform-args \
       --config "$transform_config" --require-live
@@ -353,7 +427,7 @@ process_pids+=("$odom_pid")
 
 wait_for_topics "$odom_pid" "$odom_log" /rtabmap/odom /rtabmap/odom_info
 
-if [[ "$mode" == "mapping" ]]; then
+if [[ "$mode" == "mapping" || "$mode" == "localization" ]]; then
   mapping_command=(
     ros2 run rtabmap_slam rtabmap
     --ros-args
@@ -380,6 +454,15 @@ if [[ "$mode" == "mapping" ]]; then
     -p 'Grid/FromDepth:="true"'
     -p database_path:="$database_path"
   )
+  if [[ "$mode" == "localization" ]]; then
+    # Load the map without adding nodes or changing the saved database. This
+    # is the required gate before Nav2 planning, not autonomous navigation.
+    mapping_command+=(
+      -p 'Mem/IncrementalMemory:="false"'
+      -p 'Mem/InitWMWithAllNodes:="true"'
+      -p 'Mem/LocalizationReadOnly:="true"'
+    )
+  fi
   setsid "${mapping_command[@]}" >"$mapping_log" 2>&1 &
   mapping_pid=$!
   process_pids+=("$mapping_pid")
@@ -435,6 +518,111 @@ if [[ "$mode" == "mapping" ]]; then
   # that may still be open by the mapper.
   stop_process_group "$mapping_pid"
   sleep 1
+fi
+
+if [[ "$mode" == "localization" ]]; then
+  localization_tf_file="$output_dir/tf-map-base-link.txt"
+  set +e
+  timeout --signal=INT --kill-after=1 15 \
+    ros2 run tf2_ros tf2_echo map base_link >"$localization_tf_file" 2>&1
+  localization_tf_status=$?
+  set -e
+  if [[ $localization_tf_status -ne 124 && $localization_tf_status -ne 130 ]]; then
+    cat "$localization_tf_file" >&2
+    echo "localization did not publish map -> base_link" >&2
+    exit 1
+  fi
+  python3 - "$localization_tf_file" "$output_dir/localization-result.json" "$database_path" <<'PY'
+import json
+import sys
+from pathlib import Path
+from slam_ros_graph_contract import parse_tf_chain
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+try:
+    transform = parse_tf_chain(source.read_text(encoding="utf-8"))
+except ValueError as exc:
+    raise SystemExit(f"localization did not produce a valid map -> base_link transform: {exc}")
+payload = {"status": "PASS", "database_path": sys.argv[3], "map_to_base_link": transform}
+target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+print(json.dumps(payload, indent=2))
+PY
+  export_dir="$output_dir/occupancy-map"
+  mkdir -p "$export_dir"
+  rtabmap-export --map --opt 2 --output map --output_dir "$export_dir" "$database_path"
+  python3 tools/render_localization_overlay.py \
+    --map-pgm "$export_dir/map.pgm" \
+    --map-yaml "$export_dir/map.yaml" \
+    --pose-json "$output_dir/localization-result.json" \
+    --output "$output_dir/localization-overlay.ppm"
+
+  if [[ -n "$nav2_goal_x" ]]; then
+    nav2_map_log="$output_dir/nav2-map-server.log"
+    nav2_planner_log="$output_dir/nav2-planner-server.log"
+    nav2_lifecycle_log="$output_dir/nav2-lifecycle-manager.log"
+    nav2_path_file="$output_dir/nav2-path.json"
+    nav2_map_command=(
+      ros2 run nav2_map_server map_server
+      --ros-args -r __node:=map_server
+      -p yaml_filename:="$export_dir/map.yaml"
+    )
+    nav2_planner_command=(
+      ros2 run nav2_planner planner_server
+      --ros-args -r __node:=planner_server
+      --params-file "$nav2_params"
+      -p global_costmap.global_costmap.ros__parameters.robot_radius:="$nav2_robot_radius_m"
+    )
+    nav2_lifecycle_command=(
+      ros2 run nav2_lifecycle_manager lifecycle_manager
+      --ros-args -r __node:=lifecycle_manager
+      --params-file "$nav2_params"
+    )
+    setsid "${nav2_map_command[@]}" >"$nav2_map_log" 2>&1 &
+    nav2_map_pid=$!
+    process_pids+=("$nav2_map_pid")
+    setsid "${nav2_planner_command[@]}" >"$nav2_planner_log" 2>&1 &
+    nav2_planner_pid=$!
+    process_pids+=("$nav2_planner_pid")
+    setsid "${nav2_lifecycle_command[@]}" >"$nav2_lifecycle_log" 2>&1 &
+    nav2_lifecycle_pid=$!
+    process_pids+=("$nav2_lifecycle_pid")
+
+    nav2_deadline=$((SECONDS + 45))
+    until ros2 action list 2>/dev/null | grep -Fxq /compute_path_to_pose; do
+      if ! kill -0 "$nav2_map_pid" 2>/dev/null || ! kill -0 "$nav2_planner_pid" 2>/dev/null || ! kill -0 "$nav2_lifecycle_pid" 2>/dev/null; then
+        echo "Nav2 planning process exited during startup" >&2
+        tail -n 80 "$nav2_map_log" "$nav2_planner_log" "$nav2_lifecycle_log" >&2 || true
+        exit 1
+      fi
+      if (( SECONDS >= nav2_deadline )); then
+        echo "Timed out waiting for Nav2 ComputePathToPose action" >&2
+        tail -n 80 "$nav2_map_log" "$nav2_planner_log" "$nav2_lifecycle_log" >&2 || true
+        exit 1
+      fi
+      sleep 1
+    done
+    python3 tools/nav2_compute_path_dry_run.py \
+      --goal-x "$nav2_goal_x" --goal-y "$nav2_goal_y" --goal-yaw-deg "$nav2_goal_yaw_deg" \
+      --output "$nav2_path_file"
+    python3 tools/render_localization_overlay.py \
+      --map-pgm "$export_dir/map.pgm" \
+      --map-yaml "$export_dir/map.yaml" \
+      --pose-json "$output_dir/localization-result.json" \
+      --path-json "$nav2_path_file" \
+      --output "$output_dir/nav2-plan-overlay.ppm"
+    if [[ "$nav2_supervised_execute" == true ]]; then
+      echo "Nav2 path is ready. The next prompt is the only point that can enable base wheel torque."
+      python3 tools/nav2_supervised_base_execute.py \
+        --path-json "$nav2_path_file" \
+        --output "$output_dir/nav2-execution-report.json" \
+        --max-planned-path-m "$nav2_execute_max_path_m" \
+        --max-runtime-s "$nav2_execute_max_runtime_s" \
+        --max-linear-mps "$nav2_execute_max_linear_mps" \
+        --max-angular-deg-s "$nav2_execute_max_angular_deg_s" \
+        --max-tracked-travel-m "$nav2_execute_max_tracked_travel_m"
+    fi
+  fi
 fi
 
 if [[ "$mode" == "mapping" && ! -s "$database_path" ]]; then

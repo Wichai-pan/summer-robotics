@@ -20,8 +20,13 @@
   localization/planning experiments, not yet a navigation-grade localization
   source. The fixed reference is raw gimbal ID7=4066/ID8=1924 and the candidate
   config is `configs/slam/base_to_gemini_mapping_down_20deg_candidate.yaml`.
-  Next: localization-only restart at two known poses, then Nav2 planning
-  dry-run; wheel/IMU fusion and `/cmd_vel` base control remain separate gates.
+  Camera-only localization, overlay export and Nav2 planner-only have since
+  passed against this database; a short supervised base motion also passed.
+  Long supervised paths are currently blocked: all three wheel IDs 7/8/9 have
+  simultaneously timed out during motion, and the latest run could not verify
+  torque release for IDs 7/8. Treat the base common power/data chain as a
+  hardware safety gate before any further Nav2 execution. See
+  `docs/slam/10-localization-nav2-supervised-session-20260815.md`.
 - Improve the fixed-scene ACT grasp by adding deterministic grasp-success feedback around the current policy.
 - Use gripper position/current/load plus the white-wrist RGB stream to distinguish grasp, empty close, slip and jam before allowing transport.
 - Keep all robot USB ownership and execution on the onboard Jetson.
@@ -130,12 +135,17 @@
 
 ## Next Step
 
-1. Measure white-gripper position, velocity, load and current for open, empty
+1. With 12 V off, inspect and reseat the white-board/base power and daisy-chain
+   data connections; then demonstrate repeated dynamic zero-velocity and
+   three-wheel torque-off readback before enabling any further navigation.
+2. After that base safety gate, repeat the same intermediate Nav2 path and
+   verify progress control before extending the route.
+3. Measure white-gripper position, velocity, load and current for open, empty
    close, correct jar grasp and slip/jam cases without changing torque limits.
-2. Define and validate a deterministic contact threshold on repeated samples.
-3. Add a grasp supervisor around ACT: verify contact, lift 3–5 cm, confirm with
+4. Define and validate a deterministic contact threshold on repeated samples.
+5. Add a grasp supervisor around ACT: verify contact, lift 3–5 cm, confirm with
    white-wrist RGB, hold on success and permit at most 1–2 retries on failure.
-4. Stop one trial after one completed attempt/return transition instead of
+6. Stop one trial after one completed attempt/return transition instead of
    extending rollout time into repeated grasp cycles.
-5. After the supervisor is stable, collect additional clean demonstrations and
+7. After the supervisor is stable, collect additional clean demonstrations and
    decide whether load/current should become learned observation features.

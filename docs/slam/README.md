@@ -42,6 +42,8 @@ Team review documents:
   640x480 性能优化、TF 探针重试和最终闭环 PASS 结果；
 - [低头 Gemini 闭环建图（2026-08-14）](09-downward-gemini-closed-loop-mapping-20260814.md):
   固定低头约 20° 的候选外参、主要活动区覆盖、最终 5.4 cm / 0.71° 闭环工件，以及定位与规划的下一门槛；
+- [重定位、Nav2 规划与受监督底盘执行（2026-08-15）](10-localization-nav2-supervised-session-20260815.md):
+  camera-only 重定位、目标点选取、planner-only 通过证据，以及底盘通信失联导致长路径执行暂停的完整交接记录；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
@@ -256,8 +258,26 @@ run.
 ### 4. Robustness work, later
 
 Add wheel encoder odometry and evaluate Gemini IMU fusion only after the first
-RGB-D map is reproducible. Navigation, localization-only mode, and autonomous
-motion are separate milestones requiring their own safety review.
+RGB-D map is reproducible. The repository now includes a camera-only,
+database-read-only localization gate. It verifies `map -> base_link` from a
+saved map without exposing the base controller or publishing `/cmd_vel`:
+
+```bash
+bash scripts/jetson_slam_localization.sh \
+  --database /data/slam/mapping/20260814T140025Z/rtabmap.db \
+  --duration 60
+```
+
+Keep the Gemini at the same fixed gimbal pose and use the matching
+`base_link -> camera_link` configuration used for mapping. A passing
+localization result is evidence that the saved map can be reloaded at that
+viewpoint; it is not authorization for autonomous motion. Nav2 planning and
+the `/cmd_vel` base bridge remain separate safety milestones.
+
+Each successful localization run also writes `localization-overlay.ppm`: the
+exported occupancy grid with a red base position and blue heading arrow. This
+is the operator-facing validation artifact; the numeric TF remains the source
+for ROS consumers.
 
 ## Current approval boundary
 

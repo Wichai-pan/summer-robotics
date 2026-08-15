@@ -1,0 +1,42 @@
+# Planner-only Nav2 configuration. No controller server, behavior tree, or
+# velocity publisher is launched by the ForestBridge planning dry-run session.
+map_server:
+  ros__parameters:
+    use_sim_time: false
+
+planner_server:
+  ros__parameters:
+    use_sim_time: false
+    expected_planner_frequency: 1.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.10
+      use_astar: true
+      allow_unknown: false
+    global_costmap:
+      global_costmap:
+        ros__parameters:
+          use_sim_time: false
+          global_frame: map
+          robot_base_frame: base_link
+          update_frequency: 1.0
+          publish_frequency: 1.0
+          track_unknown_space: true
+          robot_radius: 0.30
+          resolution: 0.05
+          plugins: ["static_layer", "inflation_layer"]
+          static_layer:
+            plugin: "nav2_costmap_2d::StaticLayer"
+            map_subscribe_transient_local: true
+          inflation_layer:
+            plugin: "nav2_costmap_2d::InflationLayer"
+            cost_scaling_factor: 3.0
+            inflation_radius: 0.35
+
+lifecycle_manager:
+  ros__parameters:
+    use_sim_time: false
+    autostart: true
+    node_names: ["map_server", "planner_server"]
+    bond_timeout: 4.0
