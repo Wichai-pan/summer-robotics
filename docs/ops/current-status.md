@@ -32,6 +32,10 @@
 - Keep all robot USB ownership and execution on the onboard Jetson.
 - Keep GitHub `main` as the code source of truth; treat `/robot-data/tmp` only as an experiment area.
 - Train a separate 28-episode ACT comparison checkpoint while retaining the original 11-episode corpus and step-6,000 checkpoint unchanged.
+- Start the laboratory human-interaction track with an offline-only
+  YOLO11n-pose and deterministic gesture MVP. Keep it independent from ACT,
+  SLAM, base repair and Jetson hardware until recorded-video QA passes; see
+  `docs/13-lab-human-interaction-roadmap.md`.
 
 ## Latest ACT v2 Result
 
@@ -149,3 +153,7 @@
    extending rollout time into repeated grasp cycles.
 7. After the supervisor is stable, collect additional clean demonstrations and
    decide whether load/current should become learned observation features.
+8. In a separate worktree, begin human-interaction phases H0/H1: define the
+   pose/gesture event contracts and implement recorded-video pose inference,
+   fake/replay sources, GUI overlay and fail-closed automated QA. Do not access
+   Jetson, cameras, ROS or motors in this first milestone.

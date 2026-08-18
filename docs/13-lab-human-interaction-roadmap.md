@@ -133,6 +133,26 @@ Before connecting gesture output to any robot skill:
 - a human remains able to cut 12 V immediately during supervised trials; and
 - chemical/biological procedures receive a separate task-specific risk review.
 
+## Planned phases
+
+This is now an official parallel project track. It does not replace the active
+ACT reliability work or the base-wheel repair gate.
+
+| Phase | Scope | Output and acceptance | Hardware boundary |
+| --- | --- | --- | --- |
+| H0: contract and fixtures | Define `PersonTrack`, `PoseFrame`, `GestureEvent`, timestamps, confidence, stale/lost states, and a small labelled recorded-video fixture | Schemas reject missing/non-finite/stale data; fake source and replay are deterministic | No Jetson, camera, ROS, serial, or motors |
+| H1: offline perception MVP | Run `yolo11n-pose.pt`, lock one person, recognize the initial gesture vocabulary, draw a GUI overlay, and produce JSONL | Recorded videos reopen; gesture stability/cooldown and false-trigger tests pass; ambiguous scenes fail closed | No live camera or hardware imports |
+| H2: live camera-only observation | Create a separate versioned interaction gimbal reference, consume the existing Gemini stream, and measure rate, latency, frame age, and track loss | Stable face-to-face skeleton and gesture events for a supervised session; no duplicate camera owner | Requires separate approval for camera, gimbal pose, container, and any dependency/image change; still no motor output |
+| H3: mirror retarget dry-run | Convert a tracked upper body into bounded robot target poses with explicit face-to-face mirroring, neutral-pose alignment, workspace limits, and collision/rate checks | Replayed and live targets remain finite, bounded, smooth, and observable in a GUI; target loss produces hold then stop | No torque or motor connection |
+| H4: supervised mirror pilot | Connect the dry-run target stream to one arm through the existing controller and hardware lock, initially at very low rate and range | Neutral handover, dead-man timeout, joint/rate limits, stop gesture, disconnect stop, and immediate 12 V cutoff all pass | Separate approval for every powered test; one arm before dual-arm work |
+| H5: lab task orchestration | Let the existing constrained LLM select only verified navigation/manipulation skills; compose them with deterministic preconditions and recovery | Schema-valid plans, allow-listed skills, operator confirmation for hazardous steps, complete audit log, and safe rollback | No unsupervised chemical/biological operation; task-specific risk review required |
+
+Dependencies between phases are strict: H1 requires H0, H2 requires H1, H3
+requires H2, H4 requires H3, and H5 may call only skills that have already
+passed their independent hardware acceptance. TensorRT, hand/finger models,
+ROS4HRI, BehaviorTree.CPP, and a local LLM remain optional optimizations rather
+than prerequisites for H0/H1.
+
 ## Next implementation step
 
 Create a separate branch/worktree and implement only the recorded-video
