@@ -133,6 +133,27 @@ directory. With all three wheels raised and the operator holding immediate
    verification passes. A pass of this bus test does not validate localization,
    planning or physical navigation.
 
+## Read-only cadence result
+
+The approved wheels-raised read-only test passed on 2026-08-18. Its artifact is
+stored at:
+
+`/home/jetsonl7/robot-data/slam/base-bus-cadence/20260818T215621Z.json`
+
+- all three preflight cycles reported goal velocity 0, present velocity 0 and
+  torque disabled for IDs 7/8/9;
+- the low-rate profile completed 90/90 reads with no failure;
+- the high-rate profile completed 900/900 reads with no failure;
+- the largest register-read latency was 2.052 ms;
+- no `communication=-6` or packet error occurred;
+- the container exited and the hardware lock was released.
+
+This clears the static torque-off communication gate only. It narrows the
+failure toward the write/torque transition, loaded operation, a transient
+electrical condition, or their interaction. It does not authorize grounded
+motion. The next separate gate is a wheels-raised zero-velocity-only shutdown
+transaction test using the revised low-read-pressure sequence.
+
 ## Rollback
 
 Keep 12 V off, remove only the temporary diagnostic checkout after artifacts
