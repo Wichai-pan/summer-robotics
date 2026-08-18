@@ -76,6 +76,63 @@ def nearest_forward_waypoint(
     return start_index + min(range(len(distances)), key=distances.__getitem__)
 
 
+def advance_waypoint_index(
+    points: list[tuple[float, float, float]],
+    current_x: float,
+    current_y: float,
+    start_index: int,
+    position_tolerance_m: float,
+    *,
+    allow_translation_progress: bool,
+) -> int:
+    """Advance only when the pose follows a commanded translation."""
+    if not allow_translation_progress:
+        return start_index
+    waypoint_index = nearest_forward_waypoint(points, current_x, current_y, start_index)
+    while waypoint_index < len(points) - 1 and math.hypot(
+        points[waypoint_index][0] - current_x, points[waypoint_index][1] - current_y
+    ) < position_tolerance_m:
+        waypoint_index += 1
+    return waypoint_index
+
+
+def path_alignment_progress(
+    goal_distance_m: float,
+    best_goal_distance_m: float,
+    heading_error_deg: float,
+    best_heading_error_deg: float,
+    *,
+    feedback_mode: str,
+) -> tuple[bool, float, float]:
+    """Accept only progress consistent with the command that produced it."""
+    if feedback_mode not in {"stopped", "rotate", "translate"}:
+        raise ValueError(f"unknown feedback mode: {feedback_mode}")
+    distance_progress = feedback_mode == "translate" and goal_distance_m + 0.015 < best_goal_distance_m
+    heading_error_abs = abs(heading_error_deg)
+    heading_progress = feedback_mode == "rotate" and heading_error_abs + 2.0 < best_heading_error_deg
+    return (
+        distance_progress or heading_progress,
+        min(best_goal_distance_m, goal_distance_m) if distance_progress else best_goal_distance_m,
+        min(best_heading_error_deg, heading_error_abs) if heading_progress else best_heading_error_deg,
+    )
+
+
+def validate_rotate_only_feedback(
+    anchor_xy: tuple[float, float],
+    current_x: float,
+    current_y: float,
+    maximum_translation_m: float,
+) -> float:
+    """Reject camera-only translation produced by an in-place turn."""
+    translation_m = math.hypot(current_x - anchor_xy[0], current_y - anchor_xy[1])
+    if translation_m > maximum_translation_m:
+        raise RuntimeError(
+            "rotate-only RGB-D pose reported "
+            f"{translation_m:.3f} m translation; camera-only base feedback is inconsistent"
+        )
+    return translation_m
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--path-json", type=Path, required=True)
@@ -91,6 +148,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-tf-stale-s", type=float, default=1.25)
     parser.add_argument("--max-tracked-travel-m", type=float, default=0.40)
     parser.add_argument("--progress-timeout-s", type=float, default=5.0)
+    parser.add_argument(
+        "--max-rotate-translation-m",
+        type=float,
+        default=0.05,
+        help="abort if rotate-only feedback translates base_link farther than this",
+    )
     parser.add_argument(
         "--brake-s",
         type=float,
@@ -113,6 +176,7 @@ def validate_limits(args: argparse.Namespace) -> None:
         args.max_tf_stale_s,
         args.max_tracked_travel_m,
         args.progress_timeout_s,
+        args.max_rotate_translation_m,
         args.brake_s,
     )
     if not all(math.isfinite(value) and value > 0 for value in values):
@@ -257,6 +321,7 @@ def main() -> int:
             "max_linear_mps": args.max_linear_mps,
             "max_angular_deg_s": args.max_angular_deg_s,
             "max_tracked_travel_m": args.max_tracked_travel_m,
+            "max_rotate_translation_m": args.max_rotate_translation_m,
         },
     }
     if args.dry_run:
@@ -378,11 +443,21 @@ def main() -> int:
         start_time = time.monotonic()
         previous_pose = first_pose
         tracked_travel = 0.0
-        waypoint_index = 0
+        waypoint_index = advance_waypoint_index(
+            points,
+            first_pose[0],
+            first_pose[1],
+            0,
+            args.position_tolerance_m,
+            allow_translation_progress=True,
+        )
         best_goal_distance = math.hypot(first_pose[0] - points[-1][0], first_pose[1] - points[-1][1])
+        best_path_heading_error = 180.0
         best_goal_yaw_error = abs(wrap_degrees(points[-1][2] - first_pose[2]))
         last_progress_time = start_time
         final_goal = points[-1]
+        rotation_anchor_xy: tuple[float, float] | None = None
+        feedback_mode = "stopped"
         period = 1.0 / LOOP_HZ
         while True:
             loop_started = time.monotonic()
@@ -403,9 +478,37 @@ def main() -> int:
 
             goal_distance = math.hypot(final_goal[0] - current_x, final_goal[1] - current_y)
             yaw_error_to_goal = wrap_degrees(final_goal[2] - current_yaw)
+            if feedback_mode == "rotate":
+                if rotation_anchor_xy is None:
+                    raise RuntimeError("rotate-only feedback is missing its pose anchor")
+                validate_rotate_only_feedback(
+                    rotation_anchor_xy,
+                    current_x,
+                    current_y,
+                    args.max_rotate_translation_m,
+                )
+            waypoint_index = advance_waypoint_index(
+                points,
+                current_x,
+                current_y,
+                waypoint_index,
+                args.position_tolerance_m,
+                allow_translation_progress=feedback_mode == "translate",
+            )
+            target_x, target_y, _ = points[waypoint_index]
+            target_distance = math.hypot(target_x - current_x, target_y - current_y)
+            desired_heading = math.degrees(math.atan2(target_y - current_y, target_x - current_x))
+            heading_error = wrap_degrees(desired_heading - current_yaw)
+            rotate_only = abs(heading_error) > 12.0
             if goal_distance > args.position_tolerance_m:
-                if goal_distance + 0.015 < best_goal_distance:
-                    best_goal_distance = goal_distance
+                made_progress, best_goal_distance, best_path_heading_error = path_alignment_progress(
+                    goal_distance,
+                    best_goal_distance,
+                    heading_error,
+                    best_path_heading_error,
+                    feedback_mode=feedback_mode,
+                )
+                if made_progress:
                     last_progress_time = loop_started
                 elif loop_started - last_progress_time > args.progress_timeout_s:
                     raise RuntimeError("no meaningful goal-distance progress within timeout")
@@ -417,14 +520,6 @@ def main() -> int:
                 last_progress_time = loop_started
             elif loop_started - last_progress_time > args.progress_timeout_s:
                 raise RuntimeError("no meaningful final-yaw progress within timeout")
-
-            waypoint_index = nearest_forward_waypoint(points, current_x, current_y, waypoint_index)
-            while waypoint_index < len(points) - 1 and math.hypot(
-                points[waypoint_index][0] - current_x, points[waypoint_index][1] - current_y
-            ) < args.position_tolerance_m:
-                waypoint_index += 1
-            target_x, target_y, _ = points[waypoint_index]
-            target_distance = math.hypot(target_x - current_x, target_y - current_y)
 
             if goal_distance <= args.position_tolerance_m:
                 yaw_error = yaw_error_to_goal
@@ -448,13 +543,11 @@ def main() -> int:
                 linear = 0.0
                 angular = max(-args.max_angular_deg_s, min(args.max_angular_deg_s, 0.6 * yaw_error))
             else:
-                desired_heading = math.degrees(math.atan2(target_y - current_y, target_x - current_x))
-                heading_error = wrap_degrees(desired_heading - current_yaw)
                 angular = max(-args.max_angular_deg_s, min(args.max_angular_deg_s, 0.6 * heading_error))
                 # For the first real run, rotate before driving rather than
                 # combining translation and yaw. This keeps observed motion
                 # simple and makes Ctrl-C/cutoff behaviour unambiguous.
-                linear = 0.0 if abs(heading_error) > 12.0 else min(
+                linear = 0.0 if rotate_only else min(
                     args.max_linear_mps, max(0.015, 0.45 * target_distance)
                 )
                 yaw_error = heading_error
@@ -466,6 +559,12 @@ def main() -> int:
                 [encode_sm(velocity) for velocity in raw],
                 COMM_SUCCESS,
             )
+            next_feedback_mode = "translate" if linear > 0.0 else "rotate" if angular != 0.0 else "stopped"
+            if next_feedback_mode == "rotate" and feedback_mode != "rotate":
+                rotation_anchor_xy = (current_x, current_y)
+            elif next_feedback_mode != "rotate":
+                rotation_anchor_xy = None
+            feedback_mode = next_feedback_mode
             samples.append(
                 {
                     "elapsed_s": round(elapsed, 3),
