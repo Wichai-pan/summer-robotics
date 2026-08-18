@@ -28,6 +28,8 @@ WHEEL_IDS = [7, 8, 9]
 GOAL_VEL = 46
 TORQUE = 40
 LOOP_HZ = 5.0
+STOP_BUS_SETTLE_S = 0.2
+STOP_READBACK_PERIOD_S = 0.5
 
 
 def wrap_degrees(value: float) -> float:
@@ -277,29 +279,27 @@ def write_and_verify_byte(
     label: str,
     retries: int = 3,
 ) -> str | None:
-    """Write one byte with a status reply and verify its stored value.
+    """Write one byte without requesting an ACK, then verify it separately.
 
-    ``TxOnly`` is appropriate for high-rate velocity broadcasts, but was not
-    sufficient for the safety-critical final torque-off: an acknowledged
-    broadcast cannot prove every wheel accepted the change. This helper is
-    deliberately slow and per-wheel because it runs only while stopping.
+    STS writes can take effect even when their immediate status packet times
+    out. A Tx-only write avoids coupling the safety action to that ACK; the
+    following delayed read remains the independent proof required for stop.
     """
     last_error = "unknown response"
     for _ in range(retries):
-        # scservo_sdk's write call returns (communication, packet_error),
-        # unlike its read call which also returns the register value.
-        communication, packet_error = packet.write1ByteTxRx(port_handler, motor_id, address, value)
-        if communication != communication_success or packet_error != 0:
-            last_error = f"write communication={communication}, packet_error={packet_error}"
-            time.sleep(0.05)
+        communication = packet.write1ByteTxOnly(port_handler, motor_id, address, value)
+        if communication != communication_success:
+            last_error = f"write communication={communication}"
+            time.sleep(0.1)
             continue
+        time.sleep(0.05)
         observed, communication, packet_error = packet.read1ByteTxRx(port_handler, motor_id, address)
         if communication == communication_success and packet_error == 0 and int(observed) == value:
             return None
         last_error = (
             f"read value={observed}, communication={communication}, packet_error={packet_error}"
         )
-        time.sleep(0.05)
+        time.sleep(0.1)
     return f"{label} ID {motor_id} failed after {retries} attempts: {last_error}"
 
 
@@ -600,27 +600,31 @@ def main() -> int:
                     except Exception as exc:
                         shutdown_errors.append(f"active zero velocity failed: {exc}")
                     brake_report["active_samples"].append(
-                        {"phase": "brake_torque_on", **read_wheels(packet, port_handler)}
+                        {"phase": "brake_zero_command", "time_monotonic_s": time.monotonic()}
                     )
                     time.sleep(0.1)
+
+                # Let any pending status bytes clear before per-wheel
+                # torque-off writes and their independent verification reads.
+                time.sleep(STOP_BUS_SETTLE_S)
 
                 # Keep the port open for a final register read-back after
                 # torque release. The evidence is recorded in the run JSON.
                 for motor_id in WHEEL_IDS:
                     # Velocity was repeatedly zeroed in the broadcast above.
-                    # Torque-off itself must use request/reply + register
-                    # verification: the prior TxOnly write left ID 9 enabled
-                    # despite no transport error.
+                    # Each Tx-only torque write is followed by a delayed,
+                    # independent register read in write_and_verify_byte().
                     error = write_and_verify_byte(
                         packet, port_handler, motor_id, TORQUE, 0, COMM_SUCCESS, "disable torque"
                     )
                     if error is not None:
                         shutdown_errors.append(error)
+                time.sleep(STOP_BUS_SETTLE_S)
                 for _ in range(3):
                     brake_report["torque_off_samples"].append(
                         {"phase": "torque_off_observe", **read_wheels(packet, port_handler)}
                     )
-                    time.sleep(0.1)
+                    time.sleep(STOP_READBACK_PERIOD_S)
                 brake_samples = [*brake_report["active_samples"], *brake_report["torque_off_samples"]]
                 brake_report["stop_readback_confirmed"] = stop_readback_confirmed(brake_samples)
                 if not brake_report["stop_readback_confirmed"]:
