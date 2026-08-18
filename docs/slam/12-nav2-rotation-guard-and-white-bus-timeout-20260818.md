@@ -154,6 +154,32 @@ electrical condition, or their interaction. It does not authorize grounded
 motion. The next separate gate is a wheels-raised zero-velocity-only shutdown
 transaction test using the revised low-read-pressure sequence.
 
+## Zero-velocity shutdown result
+
+The separately approved wheels-raised shutdown transaction passed. Its
+artifact is stored at:
+
+`/home/jetsonl7/robot-data/slam/base-shutdown-sequence/20260818T220222Z.json`
+
+- preflight passed before any write;
+- the tool sent eight zero-velocity broadcasts and no nonzero velocity;
+- IDs 7/8/9 were briefly torque-enabled only while the zero target was active;
+- all three final observations reported goal velocity 0 and torque disabled;
+- final signed velocity was 0 for IDs 8/9 and 50 raw for ID 7, within the
+  existing stopped-feedback tolerance of +/-60 raw;
+- no `communication=-6`, packet error or shutdown error occurred;
+- the operator cut 12 V after the test and reported no obvious motor sound;
+- wheel rotation was not separately reported and is not inferred from the
+  absence of sound;
+- the container exited and the hardware lock was released.
+
+This is the first successful live check of the revised low-read-pressure
+shutdown sequence. It is evidence that the write/torque transition can
+complete, but one pass is not repeatability evidence. Before any grounded
+navigation, repeat this exact wheels-raised zero-velocity transaction twice
+more. Any timeout, visible wheel rotation, unexpected sound or unverified stop
+returns the project to the power/data-path inspection gate.
+
 ## Rollback
 
 Keep 12 V off, remove only the temporary diagnostic checkout after artifacts
