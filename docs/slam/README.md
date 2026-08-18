@@ -44,6 +44,8 @@ Team review documents:
   固定低头约 20° 的候选外参、主要活动区覆盖、最终 5.4 cm / 0.71° 闭环工件，以及定位与规划的下一门槛；
 - [重定位、Nav2 规划与受监督底盘执行（2026-08-15）](10-localization-nav2-supervised-session-20260815.md):
   camera-only 重定位、目标点选取、planner-only 通过证据，以及底盘通信失联导致长路径执行暂停的完整交接记录；
+- [Gemini 手动低头与夹取位恢复（2026-08-18）](11-gemini-manual-lowering-20260818.md):
+  调整前后 raw 读数、放弃的临时姿态、低速返回 ACT/IK 夹取参考及独立只读复核；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
