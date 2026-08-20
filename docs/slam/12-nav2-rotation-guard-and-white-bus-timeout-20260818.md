@@ -180,6 +180,29 @@ navigation, repeat this exact wheels-raised zero-velocity transaction twice
 more. Any timeout, visible wheel rotation, unexpected sound or unverified stop
 returns the project to the power/data-path inspection gate.
 
+## Pre-push safety review
+
+The successful live shutdown run above used commit `f80218c`. A subsequent
+two-axis review found additional fail-closed cases that were not exercised by
+that successful run:
+
+- SDK write/read exceptions are now converted to per-wheel errors so a failure
+  on one ID cannot prevent torque-off attempts for the remaining IDs;
+- the production executor creates its shutdown writer before the first
+  torque-enable operation, so partial preparation failure enters the same
+  verified shutdown transaction;
+- the zero-speed diagnostic also performs the complete verified transaction
+  after a partial preparation failure;
+- serial ports are explicitly closed when baud-rate configuration fails;
+- each distinct path rotation receives a fresh heading-progress baseline, so a
+  later legitimate turn cannot inherit an impossible threshold from an earlier
+  segment.
+
+The final branch passed 27 relevant no-hardware tests, including an injected SDK
+exception that confirms torque-off is attempted for all three wheel IDs. These
+post-run changes have not yet had a powered retest. Teammates may review and
+reuse the branch, but must not treat it as authorization for grounded Nav2.
+
 ## Rollback
 
 Keep 12 V off, remove only the temporary diagnostic checkout after artifacts

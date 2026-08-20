@@ -119,6 +119,18 @@ def path_alignment_progress(
     )
 
 
+def rotation_progress_baseline(
+    previous_feedback_mode: str,
+    next_feedback_mode: str,
+    heading_error_deg: float,
+    previous_best_heading_error_deg: float,
+) -> float:
+    """Start each distinct rotation with its own heading-progress baseline."""
+    if next_feedback_mode == "rotate" and previous_feedback_mode != "rotate":
+        return abs(heading_error_deg)
+    return previous_best_heading_error_deg
+
+
 def validate_rotate_only_feedback(
     anchor_xy: tuple[float, float],
     current_x: float,
@@ -287,13 +299,25 @@ def write_and_verify_byte(
     """
     last_error = "unknown response"
     for _ in range(retries):
-        communication = packet.write1ByteTxOnly(port_handler, motor_id, address, value)
+        try:
+            communication = packet.write1ByteTxOnly(port_handler, motor_id, address, value)
+        except Exception as exc:
+            last_error = f"write raised {type(exc).__name__}: {exc}"
+            time.sleep(0.1)
+            continue
         if communication != communication_success:
             last_error = f"write communication={communication}"
             time.sleep(0.1)
             continue
         time.sleep(0.05)
-        observed, communication, packet_error = packet.read1ByteTxRx(port_handler, motor_id, address)
+        try:
+            observed, communication, packet_error = packet.read1ByteTxRx(
+                port_handler, motor_id, address
+            )
+        except Exception as exc:
+            last_error = f"read raised {type(exc).__name__}: {exc}"
+            time.sleep(0.1)
+            continue
         if communication == communication_success and packet_error == 0 and int(observed) == value:
             return None
         last_error = (
@@ -301,6 +325,73 @@ def write_and_verify_byte(
         )
         time.sleep(0.1)
     return f"{label} ID {motor_id} failed after {retries} attempts: {last_error}"
+
+
+def brake_and_verify_release(
+    packet: Any,
+    port_handler: Any,
+    command_writer: Any,
+    communication_success: int,
+    brake_s: float,
+    *,
+    write_zero: Any,
+    read_wheels: Any,
+    stop_readback_confirmed: Any,
+    sleep: Any = time.sleep,
+    monotonic: Any = time.monotonic,
+) -> tuple[dict[str, Any], list[str]]:
+    """Attempt the complete stop transaction without abandoning later wheels."""
+    report: dict[str, Any] = {
+        "attempted": True,
+        "active_samples": [],
+        "torque_off_samples": [],
+    }
+    errors: list[str] = []
+    brake_deadline = monotonic() + brake_s
+    while monotonic() < brake_deadline:
+        try:
+            write_zero(command_writer, port_handler, [0, 0, 0], communication_success)
+        except Exception as exc:
+            errors.append(f"active zero velocity failed: {exc}")
+        report["active_samples"].append(
+            {"phase": "brake_zero_command", "time_monotonic_s": monotonic()}
+        )
+        sleep(0.1)
+
+    sleep(STOP_BUS_SETTLE_S)
+    for motor_id in WHEEL_IDS:
+        error = write_and_verify_byte(
+            packet,
+            port_handler,
+            motor_id,
+            TORQUE,
+            0,
+            communication_success,
+            "disable torque",
+        )
+        if error is not None:
+            errors.append(error)
+    sleep(STOP_BUS_SETTLE_S)
+    for _ in range(3):
+        try:
+            report["torque_off_samples"].append(
+                {"phase": "torque_off_observe", **read_wheels(packet, port_handler)}
+            )
+        except Exception as exc:
+            errors.append(f"wheel stop read-back failed: {exc}")
+            report["torque_off_samples"].append(
+                {"phase": "torque_off_observe", "read_error": str(exc)}
+            )
+        sleep(STOP_READBACK_PERIOD_S)
+    samples = [*report["active_samples"], *report["torque_off_samples"]]
+    try:
+        report["stop_readback_confirmed"] = bool(stop_readback_confirmed(samples))
+    except Exception as exc:
+        report["stop_readback_confirmed"] = False
+        errors.append(f"wheel stop confirmation failed: {exc}")
+    if not report["stop_readback_confirmed"]:
+        errors.append("wheel stop read-back was not confirmed")
+    return report, errors
 
 
 def main() -> int:
@@ -428,6 +519,8 @@ def main() -> int:
         if not port_handler.openPort():
             raise RuntimeError(f"cannot open white base port {port}")
         if not port_handler.setBaudRate(1_000_000):
+            port_handler.closePort()
+            port_handler = None
             raise RuntimeError("cannot set white base serial baud rate")
         packet = PacketHandler(0)
         missing = []
@@ -437,8 +530,10 @@ def main() -> int:
                 missing.append(motor_id)
         if missing:
             raise RuntimeError(f"base motor IDs did not respond before torque: {missing}")
-        prepare_wheels_stopped(packet, port_handler, COMM_SUCCESS, GroupSyncWrite)
         command_writer = GroupSyncWrite(port_handler, packet, GOAL_VEL, 2)
+        # Set the shutdown-capable writer before the first torque-enable write.
+        # A partial preparation failure must still enter verified shutdown.
+        prepare_wheels_stopped(packet, port_handler, COMM_SUCCESS, GroupSyncWrite)
 
         start_time = time.monotonic()
         previous_pose = first_pose
@@ -562,6 +657,16 @@ def main() -> int:
             next_feedback_mode = "translate" if linear > 0.0 else "rotate" if angular != 0.0 else "stopped"
             if next_feedback_mode == "rotate" and feedback_mode != "rotate":
                 rotation_anchor_xy = (current_x, current_y)
+                # A later path segment can require a larger turn than an
+                # earlier one. Give each distinct rotation its own progress
+                # baseline and timeout window.
+                best_path_heading_error = rotation_progress_baseline(
+                    feedback_mode,
+                    next_feedback_mode,
+                    heading_error,
+                    best_path_heading_error,
+                )
+                last_progress_time = loop_started
             elif next_feedback_mode != "rotate":
                 rotation_anchor_xy = None
             feedback_mode = next_feedback_mode
@@ -592,43 +697,17 @@ def main() -> int:
             brake_report["attempted"] = True
             if command_writer is not None:
                 from base_stop_diagnostic import read_wheels, stop_readback_confirmed
-
-                brake_deadline = time.monotonic() + args.brake_s
-                while time.monotonic() < brake_deadline:
-                    try:
-                        write_wheel_velocities(command_writer, port_handler, [0, 0, 0], COMM_SUCCESS)
-                    except Exception as exc:
-                        shutdown_errors.append(f"active zero velocity failed: {exc}")
-                    brake_report["active_samples"].append(
-                        {"phase": "brake_zero_command", "time_monotonic_s": time.monotonic()}
-                    )
-                    time.sleep(0.1)
-
-                # Let any pending status bytes clear before per-wheel
-                # torque-off writes and their independent verification reads.
-                time.sleep(STOP_BUS_SETTLE_S)
-
-                # Keep the port open for a final register read-back after
-                # torque release. The evidence is recorded in the run JSON.
-                for motor_id in WHEEL_IDS:
-                    # Velocity was repeatedly zeroed in the broadcast above.
-                    # Each Tx-only torque write is followed by a delayed,
-                    # independent register read in write_and_verify_byte().
-                    error = write_and_verify_byte(
-                        packet, port_handler, motor_id, TORQUE, 0, COMM_SUCCESS, "disable torque"
-                    )
-                    if error is not None:
-                        shutdown_errors.append(error)
-                time.sleep(STOP_BUS_SETTLE_S)
-                for _ in range(3):
-                    brake_report["torque_off_samples"].append(
-                        {"phase": "torque_off_observe", **read_wheels(packet, port_handler)}
-                    )
-                    time.sleep(STOP_READBACK_PERIOD_S)
-                brake_samples = [*brake_report["active_samples"], *brake_report["torque_off_samples"]]
-                brake_report["stop_readback_confirmed"] = stop_readback_confirmed(brake_samples)
-                if not brake_report["stop_readback_confirmed"]:
-                    shutdown_errors.append("wheel stop read-back was not confirmed")
+                brake_report, verified_errors = brake_and_verify_release(
+                    packet,
+                    port_handler,
+                    command_writer,
+                    COMM_SUCCESS,
+                    args.brake_s,
+                    write_zero=write_wheel_velocities,
+                    read_wheels=read_wheels,
+                    stop_readback_confirmed=stop_readback_confirmed,
+                )
+                shutdown_errors.extend(verified_errors)
                 try:
                     port_handler.closePort()
                 except Exception as exc:

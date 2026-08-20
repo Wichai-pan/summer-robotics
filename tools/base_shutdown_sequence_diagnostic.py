@@ -13,19 +13,14 @@ import argparse
 import json
 import math
 import os
-import time
 from pathlib import Path
 from typing import Any
 
 
 WHEEL_IDS = (7, 8, 9)
 GOAL_VELOCITY = 46
-PRESENT_VELOCITY = 58
-TORQUE_ENABLE = 40
 OPERATING_MODE = 33
 VELOCITY_MODE = 1
-STOP_BUS_SETTLE_S = 0.2
-STOP_READBACK_PERIOD_S = 0.5
 
 
 def parse_args() -> argparse.Namespace:
@@ -93,7 +88,7 @@ def main() -> int:
 
     from base_keyboard import prepare_wheels_stopped, write_wheel_velocities
     from base_stop_diagnostic import read_wheels, stop_readback_confirmed
-    from nav2_supervised_base_execute import write_and_verify_byte, zero_and_release
+    from nav2_supervised_base_execute import brake_and_verify_release
     from portutil import BOARDS, PortResolutionError, resolve_port
 
     try:
@@ -102,11 +97,15 @@ def main() -> int:
         raise SystemExit(str(exc)) from exc
 
     port = PortHandler(port_name)
-    if not port.openPort() or not port.setBaudRate(1_000_000):
+    if not port.openPort():
         raise SystemExit(f"cannot open white board {port_name}")
+    if not port.setBaudRate(1_000_000):
+        port.closePort()
+        raise SystemExit(f"cannot configure white board {port_name} baud rate")
     packet = PacketHandler(0)
     writer = GroupSyncWrite(port, packet, GOAL_VELOCITY, 2)
     prepared = False
+    shutdown_attempted = False
     reason = "not_started"
     shutdown_errors: list[str] = []
     samples: list[dict[str, Any]] = []
@@ -143,41 +142,42 @@ def main() -> int:
             # must still issue best-effort zero and torque-off to every wheel.
             prepared = True
             prepare_wheels_stopped(packet, port, COMM_SUCCESS, GroupSyncWrite)
-            deadline = time.monotonic() + args.brake_s
-            while time.monotonic() < deadline:
-                write_wheel_velocities(writer, port, [0, 0, 0], COMM_SUCCESS)
-                samples.append(
-                    {"phase": "zero_velocity_command", "time_monotonic_s": time.monotonic()}
-                )
-                time.sleep(0.1)
-
-            time.sleep(STOP_BUS_SETTLE_S)
-            for motor_id in WHEEL_IDS:
-                error = write_and_verify_byte(
-                    packet,
-                    port,
-                    motor_id,
-                    TORQUE_ENABLE,
-                    0,
-                    COMM_SUCCESS,
-                    "disable torque",
-                )
-                if error is not None:
-                    shutdown_errors.append(error)
-            time.sleep(STOP_BUS_SETTLE_S)
-            for _ in range(3):
-                samples.append({"phase": "torque_off_observe", **read_wheels(packet, port)})
-                time.sleep(STOP_READBACK_PERIOD_S)
-            if not stop_readback_confirmed(samples):
-                shutdown_errors.append("wheel stop read-back was not confirmed")
+            brake_report, verified_errors = brake_and_verify_release(
+                packet,
+                port,
+                writer,
+                COMM_SUCCESS,
+                args.brake_s,
+                write_zero=write_wheel_velocities,
+                read_wheels=read_wheels,
+                stop_readback_confirmed=stop_readback_confirmed,
+            )
+            shutdown_attempted = True
+            samples.extend(brake_report["active_samples"])
+            samples.extend(brake_report["torque_off_samples"])
+            shutdown_errors.extend(verified_errors)
             reason = "stop_verified" if not shutdown_errors else "stop_unverified"
     except Exception as exc:
         reason = str(exc)
     finally:
-        if prepared:
-            shutdown_errors.extend(zero_and_release(packet, port, COMM_SUCCESS))
-        else:
+        if prepared and not shutdown_attempted:
+            brake_report, verified_errors = brake_and_verify_release(
+                packet,
+                port,
+                writer,
+                COMM_SUCCESS,
+                args.brake_s,
+                write_zero=write_wheel_velocities,
+                read_wheels=read_wheels,
+                stop_readback_confirmed=stop_readback_confirmed,
+            )
+            samples.extend(brake_report["active_samples"])
+            samples.extend(brake_report["torque_off_samples"])
+            shutdown_errors.extend(verified_errors)
+        try:
             port.closePort()
+        except Exception as exc:
+            shutdown_errors.append(f"serial close failed: {exc}")
 
     status = "PASS" if reason == "stop_verified" and not shutdown_errors else "FAIL"
     output = {

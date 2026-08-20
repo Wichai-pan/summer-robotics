@@ -163,8 +163,11 @@ def main() -> int:
     except PortResolutionError as exc:
         raise SystemExit(str(exc)) from exc
     port = PortHandler(port_name)
-    if not port.openPort() or not port.setBaudRate(1_000_000):
+    if not port.openPort():
         raise SystemExit(f"cannot open white board {port_name}")
+    if not port.setBaudRate(1_000_000):
+        port.closePort()
+        raise SystemExit(f"cannot configure white board {port_name} baud rate")
     packet = PacketHandler(0)
     preflight: list[dict[str, Any]] = []
     low_rate: list[dict[str, Any]] = []
