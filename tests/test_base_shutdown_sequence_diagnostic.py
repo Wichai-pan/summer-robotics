@@ -24,6 +24,23 @@ def test_preflight_accepts_zero_velocity_torque_off_wheels() -> None:
     assert validate_preflight(valid_preflight()) == []
 
 
+def test_preflight_accepts_idle_velocity_quantization() -> None:
+    record = valid_preflight()
+    record["wheels"]["7"]["present_velocity_signed_raw"] = -50  # type: ignore[index]
+    record["wheels"]["8"]["present_velocity_signed_raw"] = 60  # type: ignore[index]
+
+    assert validate_preflight(record) == []
+
+
+def test_preflight_rejects_velocity_above_idle_tolerance() -> None:
+    record = valid_preflight()
+    record["wheels"]["8"]["present_velocity_signed_raw"] = -61  # type: ignore[index]
+
+    failures = validate_preflight(record)
+
+    assert any("ID 8 present_velocity_signed_raw" in failure for failure in failures)
+
+
 def test_preflight_rejects_nonzero_goal_or_enabled_torque() -> None:
     record = valid_preflight()
     record["wheels"]["8"]["goal_velocity_raw"] = 1  # type: ignore[index]

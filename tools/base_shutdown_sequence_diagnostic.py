@@ -21,6 +21,11 @@ WHEEL_IDS = (7, 8, 9)
 GOAL_VELOCITY = 46
 OPERATING_MODE = 33
 VELOCITY_MODE = 1
+# Idle STS3215 velocity feedback on this base quantizes around +/-50 raw.
+# Keep this aligned with base_stop_diagnostic.stop_readback_confirmed(): a
+# wheel below this threshold is treated as stopped, while a nonzero goal
+# velocity or enabled torque remains an unconditional preflight failure.
+IDLE_VELOCITY_EPS_RAW = 60
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,7 +57,6 @@ def validate_preflight(record: dict[str, Any]) -> list[str]:
             continue
         expected = {
             "goal_velocity_raw": 0,
-            "present_velocity_signed_raw": 0,
             "torque_enable": 0,
             "operating_mode": VELOCITY_MODE,
         }
@@ -62,6 +66,12 @@ def validate_preflight(record: dict[str, Any]) -> list[str]:
                 failures.append(
                     f"ID {motor_id} {field}={value!r}; expected {expected_value}"
                 )
+        velocity = wheel.get("present_velocity_signed_raw")
+        if not isinstance(velocity, int) or abs(velocity) > IDLE_VELOCITY_EPS_RAW:
+            failures.append(
+                f"ID {motor_id} present_velocity_signed_raw={velocity!r}; "
+                f"expected abs(value) <= {IDLE_VELOCITY_EPS_RAW}"
+            )
     return failures
 
 
