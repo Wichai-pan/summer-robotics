@@ -46,6 +46,8 @@ Team review documents:
   camera-only 重定位、目标点选取、planner-only 通过证据，以及底盘通信失联导致长路径执行暂停的完整交接记录；
 - [Gemini 手动低头与夹取位恢复（2026-08-18）](11-gemini-manual-lowering-20260818.md):
   调整前后 raw 读数、放弃的临时姿态、低速返回 ACT/IK 夹取参考及独立只读复核；
+- [Nav2 转向守卫与底盘可靠性复核（2026-08-22）](12-nav2-rotation-guard-and-base-reliability-20260822.md):
+  规划/执行分离、原地转视觉误差的安全中止、白板间歇通信证据，以及轮速/IMU 融合前的门槛；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 

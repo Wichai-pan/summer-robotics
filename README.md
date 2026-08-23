@@ -66,7 +66,7 @@ YOLO11n-pose 人体关键点、手势事件、GUI overlay 和自动化 QA，不�
 之后按“实时 camera-only → 镜像目标 dry-run → 单臂低速监督镜像 → 大模型白名单技能编排”逐阶段验收；
 详见 [13 轻量实验室人机交互路线](docs/13-lab-human-interaction-roadmap.md)。
 
-近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md) · [06 RGB-D 抓取准备](docs/06-rgbd-grasp-bringup.md) · [07 Jetson 机载部署](docs/07-jetson-deployment.md) · [08 迁移总日志](docs/08-jetson-migration-log.md) · [09 主从臂与腕部跨圈](docs/09-leader-follower-wrap-safe-log.md) · [10 ACT 训练与 Jetson 推理](docs/10-act-training-and-jetson-inference-log.md) · [11 ACT 重复抓取与反馈分析](docs/11-act-grasp-feedback-log.md) · [12 ACT v2 抓取](docs/12-act-v2-28episode-grasp-log.md) · [13 轻量实验室人机交互路线](docs/13-lab-human-interaction-roadmap.md) · [SLAM 路线与当前记录](docs/slam/README.md)
+近期实验记录：[01 机械臂与底盘](docs/01-setup-and-first-arm-move.md) · [04 相机验收](docs/04-camera-validation.md) · [05 Jetson 与监督式 LLM 导航](docs/05-jetson-and-supervised-llm-navigation.md) · [06 RGB-D 抓取准备](docs/06-rgbd-grasp-bringup.md) · [07 Jetson 机载部署](docs/07-jetson-deployment.md) · [08 迁移总日志](docs/08-jetson-migration-log.md) · [09 主从臂与腕部跨圈](docs/09-leader-follower-wrap-safe-log.md) · [10 ACT 训练与 Jetson 推理](docs/10-act-training-and-jetson-inference-log.md) · [11 ACT 重复抓取与反馈分析](docs/11-act-grasp-feedback-log.md) · [12 ACT v2 抓取](docs/12-act-v2-28episode-grasp-log.md) · [13 轻量实验室人机交互路线](docs/13-lab-human-interaction-roadmap.md) · [Nav2 转向守卫与底盘可靠性（8 月 22 日）](docs/slam/12-nav2-rotation-guard-and-base-reliability-20260822.md) · [SLAM 路线与当前记录](docs/slam/README.md)
 
 > 目标场景现定义为受监督的化学/生物实验室助手机器人：人员与实验品隔离，通过语言、手势、镜像示教和已验证技能完成任务。近期仍坚持“窄任务 + 稳 demo”，不得把场景愿景当作未经验证的自主能力。
 
