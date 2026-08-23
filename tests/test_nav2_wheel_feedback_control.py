@@ -31,9 +31,11 @@ def test_tracker_uses_measured_velocity_not_requested_distance() -> None:
 def test_tracker_integrates_measured_rotation() -> None:
     tracker = WheelPoseTracker((0.0, 0.0, 0.0))
     tracker.update({7: 0, 8: 0, 9: 0}, 1.0)
-    _x, _y, yaw = tracker.update({7: 500, 8: 500, 9: 500}, 2.0)
+    _x, _y, yaw = tracker.update({7: 500, 8: 500, 9: 500}, 1.2)
 
-    assert yaw == pytest.approx(math.degrees(0.05 * 500 * 2 * math.pi / 4096 / 0.125), abs=1e-6)
+    assert yaw == pytest.approx(
+        math.degrees(0.05 * 500 * 2 * math.pi / 4096 / 0.125 * 0.2), abs=1e-6
+    )
 
 
 def test_wheel_feedback_rejects_missing_motor() -> None:
