@@ -15,21 +15,13 @@ import json
 import os
 import time
 from pathlib import Path
+from typing import Any
 
-from scservo_sdk import COMM_SUCCESS, GroupSyncWrite, PacketHandler, PortHandler
-
-from base_keyboard import (
-    GOAL_VEL,
-    TORQUE,
-    WHEEL_IDS,
-    body_to_wheel_raw,
-    encode_sm,
-    prepare_wheels_stopped,
-    write_wheel_velocities,
-)
-from portutil import BOARDS, PortResolutionError, resolve_port
-
-
+# Keep these register constants local so the stop-confirmation predicate can
+# be imported and tested without a serial SDK. They match base_keyboard.py.
+WHEEL_IDS = [7, 8, 9]
+GOAL_VEL = 46
+TORQUE = 40
 PRESENT_VELOCITY = 58
 STOP_VELOCITY_EPS_RAW = 60
 
@@ -76,23 +68,6 @@ def read_wheels(packet: PacketHandler, port: PortHandler) -> dict[str, object]:
     return record
 
 
-def zero_and_release(packet: PacketHandler, port: PortHandler) -> list[str]:
-    errors: list[str] = []
-    for motor_id in WHEEL_IDS:
-        for address, width, label in ((GOAL_VEL, 2, "zero velocity"), (TORQUE, 1, "torque off")):
-            try:
-                communication = (
-                    packet.write2ByteTxOnly(port, motor_id, address, 0)
-                    if width == 2
-                    else packet.write1ByteTxOnly(port, motor_id, address, 0)
-                )
-                if communication != COMM_SUCCESS:
-                    errors.append(f"{label} ID {motor_id}: communication={communication}")
-            except Exception as exc:
-                errors.append(f"{label} ID {motor_id}: {exc}")
-    return errors
-
-
 def stop_readback_confirmed(samples: list[dict[str, object]]) -> bool:
     """Require three torque-off observations with zero goal and small wheel speed."""
     observations = [sample for sample in samples if sample.get("phase") == "torque_off_observe"][-3:]
@@ -123,6 +98,17 @@ def main() -> int:
         raise SystemExit("--linear-mps must be in (0, 0.04] for this diagnostic")
     if not 0 < args.command_s <= 2.0 or not 0 < args.brake_s <= 1.0 or not 0 < args.observe_s <= 3.0:
         raise SystemExit("command/brake/observe durations exceed this diagnostic's safety bounds")
+    from scservo_sdk import COMM_SUCCESS, GroupSyncWrite, PacketHandler, PortHandler
+
+    from base_keyboard import (
+        body_to_wheel_raw,
+        encode_sm,
+        prepare_wheels_stopped,
+        write_wheel_velocities,
+    )
+    from nav2_supervised_base_execute import brake_and_verify_release
+    from portutil import BOARDS, PortResolutionError, resolve_port
+
     try:
         port_name = resolve_port(BOARDS["white"], override=os.environ.get("XLEROBOT_PORT"))
     except PortResolutionError as exc:
@@ -136,6 +122,13 @@ def main() -> int:
     samples: list[dict[str, object]] = []
     shutdown_errors: list[str] = []
     raw: list[int] = []
+    brake_report: dict[str, Any] = {
+        "attempted": False,
+        "active_samples": [],
+        "torque_off_samples": [],
+    }
+    prepared = False
+    shutdown_attempted = False
     try:
         missing = []
         for motor_id in WHEEL_IDS:
@@ -155,6 +148,9 @@ def main() -> int:
             print("Cancelled before wheel torque.")
             return 2
 
+        # Set this before the first torque-enable write. If preparation partly
+        # succeeds, finally must still run the verified all-wheel shutdown.
+        prepared = True
         prepare_wheels_stopped(packet, port, COMM_SUCCESS, GroupSyncWrite)
         started = time.monotonic()
         while time.monotonic() - started < args.command_s:
@@ -162,20 +158,49 @@ def main() -> int:
             samples.append({"phase": "command", **read_wheels(packet, port)})
             time.sleep(0.1)
 
-        brake_started = time.monotonic()
-        while time.monotonic() - brake_started < args.brake_s:
-            write_wheel_velocities(writer, port, [0, 0, 0], COMM_SUCCESS)
-            samples.append({"phase": "brake_torque_on", **read_wheels(packet, port)})
-            time.sleep(0.1)
+        brake_report, verified_errors = brake_and_verify_release(
+            packet,
+            port,
+            writer,
+            COMM_SUCCESS,
+            args.brake_s,
+            write_zero=write_wheel_velocities,
+            read_wheels=read_wheels,
+            stop_readback_confirmed=stop_readback_confirmed,
+        )
+        shutdown_attempted = True
+        samples.extend(brake_report["active_samples"])
+        samples.extend(brake_report["torque_off_samples"])
+        shutdown_errors.extend(verified_errors)
 
-        shutdown_errors.extend(zero_and_release(packet, port))
-        observe_started = time.monotonic()
-        while time.monotonic() - observe_started < args.observe_s:
+        # Keep the old observation period, but make it part of the evidence
+        # rather than merely sleeping after a best-effort TxOnly shutdown.
+        observe_deadline = time.monotonic() + args.observe_s
+        while time.monotonic() < observe_deadline:
             samples.append({"phase": "torque_off_observe", **read_wheels(packet, port)})
             time.sleep(0.2)
+        if not stop_readback_confirmed(samples):
+            shutdown_errors.append("wheel stop read-back was not confirmed after observation")
     finally:
-        shutdown_errors.extend(zero_and_release(packet, port))
-        port.closePort()
+        if prepared and not shutdown_attempted:
+            emergency_report, verified_errors = brake_and_verify_release(
+                packet,
+                port,
+                writer,
+                COMM_SUCCESS,
+                args.brake_s,
+                write_zero=write_wheel_velocities,
+                read_wheels=read_wheels,
+                stop_readback_confirmed=stop_readback_confirmed,
+            )
+            brake_report = emergency_report
+            samples.extend(emergency_report["active_samples"])
+            samples.extend(emergency_report["torque_off_samples"])
+            shutdown_errors.extend(verified_errors)
+        try:
+            port.closePort()
+        except Exception as exc:
+            shutdown_errors.append(f"serial close failed: {exc}")
 
     output = {
         "status": "DIAGNOSTIC_COMPLETE" if not shutdown_errors else "STOP_UNVERIFIED",
@@ -183,6 +208,7 @@ def main() -> int:
         "raw_forward": raw,
         "samples": samples,
         "stop_readback_confirmed": stop_readback_confirmed(samples),
+        "shutdown_brake": brake_report,
         "shutdown_errors": shutdown_errors,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
