@@ -103,6 +103,36 @@ def advance_waypoint_index(
     return waypoint_index
 
 
+def lookahead_waypoint_index(
+    points: list[tuple[float, float, float]],
+    current_x: float,
+    current_y: float,
+    start_index: int,
+    lookahead_m: float,
+) -> int:
+    """Return an ordered path point at least ``lookahead_m`` ahead of the base.
+
+    Nav2 grid paths often contain an opening point only a few centimetres from
+    the localized start pose. Steering exactly toward such a point can create
+    a needless large turn immediately followed by an opposite correction for
+    the main route.  This is a pure-pursuit-style target selection: retain the
+    ordered path index for progress, but steer toward a short distance ahead.
+    """
+    if not 0 <= start_index < len(points):
+        raise ValueError(f"invalid path start index {start_index}")
+    if not math.isfinite(lookahead_m) or lookahead_m <= 0.0:
+        raise ValueError("path lookahead must be finite and positive")
+    previous_x, previous_y = current_x, current_y
+    accumulated_m = 0.0
+    for index in range(start_index, len(points)):
+        point_x, point_y, _ = points[index]
+        accumulated_m += math.hypot(point_x - previous_x, point_y - previous_y)
+        if accumulated_m >= lookahead_m:
+            return index
+        previous_x, previous_y = point_x, point_y
+    return len(points) - 1
+
+
 def path_alignment_progress(
     goal_distance_m: float,
     best_goal_distance_m: float,
@@ -168,6 +198,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-tracked-travel-m", type=float, default=0.40)
     parser.add_argument("--progress-timeout-s", type=float, default=5.0)
     parser.add_argument(
+        "--path-lookahead-m",
+        type=float,
+        default=0.10,
+        help="ordered Nav2 path distance used for the steering target",
+    )
+    parser.add_argument(
         "--control-pose-source",
         choices=("rgbd", "wheel"),
         default="rgbd",
@@ -210,6 +246,7 @@ def validate_limits(args: argparse.Namespace) -> None:
         args.max_tf_stale_s,
         args.max_tracked_travel_m,
         args.progress_timeout_s,
+        args.path_lookahead_m,
         args.max_rotate_translation_m,
         args.max_wheel_visual_disagreement_m,
         args.brake_s,
@@ -715,7 +752,14 @@ def main() -> int:
                 args.position_tolerance_m,
                 allow_translation_progress=feedback_mode == "translate",
             )
-            target_x, target_y, _ = points[waypoint_index]
+            steering_index = lookahead_waypoint_index(
+                points,
+                current_x,
+                current_y,
+                waypoint_index,
+                args.path_lookahead_m,
+            )
+            target_x, target_y, _ = points[steering_index]
             target_distance = math.hypot(target_x - current_x, target_y - current_y)
             desired_heading = math.degrees(math.atan2(target_y - current_y, target_x - current_x))
             heading_error = wrap_degrees(desired_heading - current_yaw)
@@ -802,7 +846,8 @@ def main() -> int:
                     "y": round(current_y, 4),
                     "yaw_deg": round(current_yaw, 2),
                     "goal_distance_m": round(goal_distance, 4),
-                    "target_index": float(waypoint_index),
+                    "path_index": float(waypoint_index),
+                    "steering_index": float(steering_index),
                     "linear_mps": round(linear, 4),
                     "angular_deg_s": round(angular, 3),
                     "control_pose_source": args.control_pose_source,

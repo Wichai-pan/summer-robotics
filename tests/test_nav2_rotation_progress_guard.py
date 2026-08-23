@@ -5,6 +5,7 @@ from tools.nav2_supervised_base_execute import (
     STOP_READBACK_PERIOD_S,
     advance_waypoint_index,
     brake_and_verify_release,
+    lookahead_waypoint_index,
     path_alignment_progress,
     rotation_progress_baseline,
     validate_rotate_only_feedback,
@@ -51,6 +52,21 @@ def test_rotate_only_feedback_cannot_advance_waypoint() -> None:
     )
 
     assert waypoint_index == 0
+
+
+def test_lookahead_skips_tiny_opening_grid_kink_without_reordering_path() -> None:
+    # Reduced from the 2026-08-23 0.62 m run. The first point is 2 cm away
+    # on the opposite side of the route. Steering to it created an avoidable
+    # left turn before the actual rightward diagonal.
+    points = [
+        (0.0247, 0.0144, 0.0),
+        (0.0533, -0.0181, 0.0),
+        (0.0741, -0.0320, 0.0),
+        (0.0952, -0.0453, 0.0),
+        (0.1168, -0.0580, 0.0),
+    ]
+
+    assert lookahead_waypoint_index(points, 0.0209, -0.0049, 0, 0.10) == 3
 
 
 def test_rotate_only_distance_reduction_is_not_progress() -> None:
