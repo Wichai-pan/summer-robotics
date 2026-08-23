@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Verify the revised base shutdown sequence without commanding wheel motion.
+"""Verify or recover the revised base shutdown sequence without wheel motion.
 
 Live use requires all three wheels raised. The tool verifies that IDs 7/8/9
 start in velocity mode with zero goal velocity and torque disabled, asks for a
 typed confirmation, briefly enables torque while continuously broadcasting
-zero velocity, then disables torque and verifies three spaced readbacks.
+zero velocity, then disables torque and verifies three spaced readbacks. The
+explicit ``--recover-torque-on`` mode is for a stationary base whose old
+diagnostic left Torque_Enable=1; it is permitted only with all wheels raised.
 """
 
 from __future__ import annotations
@@ -31,6 +33,11 @@ IDLE_VELOCITY_EPS_RAW = 60
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--brake-s", type=float, default=0.8)
+    parser.add_argument(
+        "--recover-torque-on",
+        action="store_true",
+        help="allow a zero-goal, stationary wheel with Torque_Enable=1, then force a verified stop",
+    )
     parser.add_argument(
         "--output",
         type=Path,
@@ -66,6 +73,37 @@ def validate_preflight(record: dict[str, Any]) -> list[str]:
                 failures.append(
                     f"ID {motor_id} {field}={value!r}; expected {expected_value}"
                 )
+        velocity = wheel.get("present_velocity_signed_raw")
+        if not isinstance(velocity, int) or abs(velocity) > IDLE_VELOCITY_EPS_RAW:
+            failures.append(
+                f"ID {motor_id} present_velocity_signed_raw={velocity!r}; "
+                f"expected abs(value) <= {IDLE_VELOCITY_EPS_RAW}"
+            )
+    return failures
+
+
+def validate_recovery_preflight(record: dict[str, Any]) -> list[str]:
+    """Permit torque-on only for a raised-wheel, zero-motion recovery transaction."""
+    failures: list[str] = []
+    wheels = record.get("wheels")
+    if not isinstance(wheels, dict):
+        return ["preflight has no wheel records"]
+    for motor_id in WHEEL_IDS:
+        wheel = wheels.get(str(motor_id))
+        if not isinstance(wheel, dict):
+            failures.append(f"ID {motor_id} is missing")
+            continue
+        for field, expected_value in {
+            "goal_velocity_raw": 0,
+            "operating_mode": VELOCITY_MODE,
+        }.items():
+            if wheel.get(field) != expected_value:
+                failures.append(
+                    f"ID {motor_id} {field}={wheel.get(field)!r}; expected {expected_value}"
+                )
+        torque = wheel.get("torque_enable")
+        if torque not in (0, 1):
+            failures.append(f"ID {motor_id} torque_enable={torque!r}; expected 0 or 1")
         velocity = wheel.get("present_velocity_signed_raw")
         if not isinstance(velocity, int) or abs(velocity) > IDLE_VELOCITY_EPS_RAW:
             failures.append(
@@ -136,15 +174,20 @@ def main() -> int:
                 }
             )
         samples.append({"phase": "preflight", **preflight})
-        failures = validate_preflight(preflight)
+        failures = (
+            validate_recovery_preflight(preflight)
+            if args.recover_torque_on
+            else validate_preflight(preflight)
+        )
         if failures:
             raise RuntimeError("unsafe preflight: " + "; ".join(failures))
 
+        prompt_token = "RECOVER_STOP" if args.recover_torque_on else "VERIFY_STOP"
         answer = input(
             "Wheels must be raised and 12 V cutoff held. This sends ZERO velocity only. "
-            "Type VERIFY_STOP: "
+            f"Type {prompt_token}: "
         ).strip()
-        if answer != "VERIFY_STOP":
+        if answer != prompt_token:
             reason = "operator_cancelled_before_writes"
         else:
             # Set this before the first register write. If preparation fails

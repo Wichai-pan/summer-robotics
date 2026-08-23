@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.base_shutdown_sequence_diagnostic import validate_preflight
+from tools.base_shutdown_sequence_diagnostic import validate_preflight, validate_recovery_preflight
 
 
 def valid_preflight() -> dict[str, object]:
@@ -50,6 +50,14 @@ def test_preflight_rejects_nonzero_goal_or_enabled_torque() -> None:
 
     assert any("ID 8 goal_velocity_raw" in failure for failure in failures)
     assert any("ID 9 torque_enable" in failure for failure in failures)
+
+
+def test_recovery_preflight_accepts_stationary_wheels_left_torque_on() -> None:
+    record = valid_preflight()
+    for motor_id in (7, 8, 9):
+        record["wheels"][str(motor_id)]["torque_enable"] = 1  # type: ignore[index]
+
+    assert validate_recovery_preflight(record) == []
 
 
 def test_dry_run_does_not_import_hardware_modules(tmp_path: Path) -> None:
