@@ -641,14 +641,11 @@ def main() -> int:
         start_time = time.monotonic()
         previous_pose = first_pose
         tracked_travel = 0.0
-        waypoint_index = advance_waypoint_index(
-            points,
-            first_pose[0],
-            first_pose[1],
-            0,
-            args.position_tolerance_m,
-            allow_translation_progress=True,
-        )
+        # A Nav2 path is ordered.  Do not use the relatively generous arrival
+        # tolerance to skip its opening points before the base has made any
+        # verified translation: that shortcut previously selected a distant
+        # waypoint and created a large, unintended initial turn.
+        waypoint_index = 0
         best_goal_distance = math.hypot(first_pose[0] - points[-1][0], first_pose[1] - points[-1][1])
         best_path_heading_error = 180.0
         best_goal_yaw_error = abs(wrap_degrees(points[-1][2] - first_pose[2]))
