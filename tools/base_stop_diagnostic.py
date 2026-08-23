@@ -22,6 +22,9 @@ from typing import Any
 WHEEL_IDS = [7, 8, 9]
 GOAL_VEL = 46
 TORQUE = 40
+# Protocol-0 success is the SDK's stable integer value. Keeping the read-only
+# decoder importable lets the stop predicate be tested without serial modules.
+COMM_SUCCESS = 0
 PRESENT_VELOCITY = 58
 STOP_VELOCITY_EPS_RAW = 60
 
