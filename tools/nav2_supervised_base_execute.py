@@ -27,9 +27,14 @@ from typing import Any
 WHEEL_IDS = [7, 8, 9]
 GOAL_VEL = 46
 TORQUE = 40
+PRESENT_VELOCITY = 58
 LOOP_HZ = 5.0
 STOP_BUS_SETTLE_S = 0.2
 STOP_READBACK_PERIOD_S = 0.5
+WHEEL_RADIUS_M = 0.05
+BASE_RADIUS_M = 0.125
+RAW_TO_RAD_S = 2.0 * math.pi / 4096.0
+WHEEL_ANGLES_RAD = tuple(math.radians(angle - 90.0) for angle in (240.0, 0.0, 120.0))
 
 
 def wrap_degrees(value: float) -> float:
@@ -163,6 +168,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-tracked-travel-m", type=float, default=0.40)
     parser.add_argument("--progress-timeout-s", type=float, default=5.0)
     parser.add_argument(
+        "--control-pose-source",
+        choices=("rgbd", "wheel"),
+        default="rgbd",
+        help=(
+            "rgbd uses the legacy camera-only pose; wheel anchors measured wheel feedback "
+            "at the freshly localized map pose for short supervised motion"
+        ),
+    )
+    parser.add_argument(
+        "--max-wheel-visual-disagreement-m",
+        type=float,
+        default=0.20,
+        help="in wheel mode, abort translating if RGB-D and wheel poses diverge farther than this",
+    )
+    parser.add_argument(
         "--max-rotate-translation-m",
         type=float,
         default=0.05,
@@ -191,6 +211,7 @@ def validate_limits(args: argparse.Namespace) -> None:
         args.max_tracked_travel_m,
         args.progress_timeout_s,
         args.max_rotate_translation_m,
+        args.max_wheel_visual_disagreement_m,
         args.brake_s,
     )
     if not all(math.isfinite(value) and value > 0 for value in values):
@@ -213,6 +234,76 @@ def compose_map_pose(
         float(translation.y) + math.sin(yaw_rad) * odom_x + math.cos(yaw_rad) * odom_y,
         wrap_degrees(map_to_odom_yaw + odom_yaw_deg),
     )
+
+
+def decode_signed_magnitude(value: int) -> int:
+    """Decode the STS3215 velocity register's sign-magnitude representation."""
+    return -(value & 0x7FFF) if value & 0x8000 else value
+
+
+def wheel_raw_to_body_velocity(raw_by_id: dict[int, int]) -> tuple[float, float, float]:
+    """Invert the established three-wheel command geometry using measured raw velocity.
+
+    ``body_to_wheel_raw()`` uses 4096 encoder ticks per wheel revolution. The
+    same raw scale is confirmed by the 2026-08-23 1-second forward pulse: the
+    measured wheel feedback tracked the +/-452 raw command and the chassis
+    moved about 5 cm. This is intentionally a short-range feedback estimate,
+    not a replacement for global map localization.
+    """
+    if set(raw_by_id) != set(WHEEL_IDS):
+        raise RuntimeError(f"wheel feedback IDs must be {WHEEL_IDS}; got {sorted(raw_by_id)}")
+    wheel_rad_s = [float(raw_by_id[motor_id]) * RAW_TO_RAD_S for motor_id in WHEEL_IDS]
+    if not all(math.isfinite(value) for value in wheel_rad_s):
+        raise RuntimeError("wheel feedback contains a non-finite velocity")
+    linear = [WHEEL_RADIUS_M * value for value in wheel_rad_s]
+    vx = (2.0 / 3.0) * sum(math.cos(angle) * value for angle, value in zip(WHEEL_ANGLES_RAD, linear))
+    vy = (2.0 / 3.0) * sum(math.sin(angle) * value for angle, value in zip(WHEEL_ANGLES_RAD, linear))
+    wz_rad_s = sum(linear) / (3.0 * BASE_RADIUS_M)
+    return vx, vy, wz_rad_s
+
+
+class WheelPoseTracker:
+    """Integrate actual wheel feedback from a freshly localized map-frame anchor."""
+
+    def __init__(self, anchor_map_pose: tuple[float, float, float]) -> None:
+        self.x_m, self.y_m, self.yaw_deg = anchor_map_pose
+        self._last_s: float | None = None
+
+    def update(self, raw_by_id: dict[int, int], now_s: float) -> tuple[float, float, float]:
+        if not math.isfinite(now_s):
+            raise RuntimeError("wheel feedback time is non-finite")
+        vx, vy, wz_rad_s = wheel_raw_to_body_velocity(raw_by_id)
+        if self._last_s is None:
+            self._last_s = now_s
+            return self.x_m, self.y_m, self.yaw_deg
+        dt = now_s - self._last_s
+        if not 0.0 < dt <= 0.35:
+            raise RuntimeError(f"wheel feedback gap {dt:.3f} s is outside (0, 0.35]")
+        yaw_rad = math.radians(self.yaw_deg)
+        mid_yaw = yaw_rad + 0.5 * wz_rad_s * dt
+        self.x_m += (math.cos(mid_yaw) * vx - math.sin(mid_yaw) * vy) * dt
+        self.y_m += (math.sin(mid_yaw) * vx + math.cos(mid_yaw) * vy) * dt
+        self.yaw_deg = wrap_degrees(math.degrees(yaw_rad + wz_rad_s * dt))
+        self._last_s = now_s
+        return self.x_m, self.y_m, self.yaw_deg
+
+
+def read_wheel_velocity_raw(
+    packet: Any, port_handler: Any, communication_success: int
+) -> dict[int, int]:
+    """Read the three whitelisted wheel velocities; any missing reply is fatal."""
+    values: dict[int, int] = {}
+    for motor_id in WHEEL_IDS:
+        value, communication, packet_error = packet.read2ByteTxRx(
+            port_handler, motor_id, PRESENT_VELOCITY
+        )
+        if communication != communication_success or packet_error != 0:
+            raise RuntimeError(
+                f"read measured wheel velocity failed for motor {motor_id}: "
+                f"communication={communication}, packet_error={packet_error}"
+            )
+        values[motor_id] = decode_signed_magnitude(int(value))
+    return values
 
 
 class LiveRgbdOdom:
@@ -413,6 +504,8 @@ def main() -> int:
             "max_angular_deg_s": args.max_angular_deg_s,
             "max_tracked_travel_m": args.max_tracked_travel_m,
             "max_rotate_translation_m": args.max_rotate_translation_m,
+            "control_pose_source": args.control_pose_source,
+            "max_wheel_visual_disagreement_m": args.max_wheel_visual_disagreement_m,
         },
     }
     if args.dry_run:
@@ -448,6 +541,7 @@ def main() -> int:
     samples: list[dict[str, Any]] = []
     arrival: dict[str, float] | None = None
     brake_report: dict[str, Any] = {"attempted": False, "active_samples": [], "torque_off_samples": []}
+    wheel_tracker: WheelPoseTracker | None = None
     termination_signal: int | None = None
     previous_handlers: dict[int, Any] = {}
 
@@ -534,6 +628,15 @@ def main() -> int:
         # Set the shutdown-capable writer before the first torque-enable write.
         # A partial preparation failure must still enter verified shutdown.
         prepare_wheels_stopped(packet, port_handler, COMM_SUCCESS, GroupSyncWrite)
+        if args.control_pose_source == "wheel":
+            # Seed only after serial ownership and mode/torque preparation have
+            # succeeded. The global anchor remains the current map-localized
+            # pose; wheel feedback supplies the high-rate local correction.
+            wheel_tracker = WheelPoseTracker(first_pose[:3])
+            wheel_tracker.update(
+                read_wheel_velocity_raw(packet, port_handler, COMM_SUCCESS),
+                time.monotonic(),
+            )
 
         start_time = time.monotonic()
         previous_pose = first_pose
@@ -559,9 +662,34 @@ def main() -> int:
             if termination_signal is not None:
                 raise RuntimeError(f"received shutdown signal {termination_signal}")
             rclpy.spin_once(node, timeout_sec=0.05)
-            current_x, current_y, current_yaw, age_s = live_pose(tf_buffer, rgbd_odom)
+            visual_x, visual_y, visual_yaw, age_s = live_pose(tf_buffer, rgbd_odom)
             if age_s > args.max_tf_stale_s:
                 raise RuntimeError(f"RGB-D odometry receive age is {age_s:.3f} s")
+            wheel_raw: dict[int, int] | None = None
+            visual_disagreement_m: float | None = None
+            if args.control_pose_source == "wheel":
+                if wheel_tracker is None:
+                    raise RuntimeError("wheel control pose was not initialized")
+                wheel_raw = read_wheel_velocity_raw(packet, port_handler, COMM_SUCCESS)
+                current_x, current_y, current_yaw = wheel_tracker.update(
+                    wheel_raw, time.monotonic()
+                )
+                visual_disagreement_m = math.hypot(current_x - visual_x, current_y - visual_y)
+                # RGB-D is known to drift during pure turns, so do not use it
+                # to reject a rotation. Once translating, a large sustained
+                # disagreement is still unsafe and stops the base rather than
+                # silently trusting either source.
+                if (
+                    feedback_mode == "translate"
+                    and visual_disagreement_m > args.max_wheel_visual_disagreement_m
+                ):
+                    raise RuntimeError(
+                        "wheel/RGB-D translation disagreement "
+                        f"{visual_disagreement_m:.3f} m exceeds "
+                        f"{args.max_wheel_visual_disagreement_m:.3f} m"
+                    )
+            else:
+                current_x, current_y, current_yaw = visual_x, visual_y, visual_yaw
             step_distance = math.hypot(current_x - previous_pose[0], current_y - previous_pose[1])
             tracked_travel += step_distance
             previous_pose = (current_x, current_y, current_yaw, age_s)
@@ -573,7 +701,7 @@ def main() -> int:
 
             goal_distance = math.hypot(final_goal[0] - current_x, final_goal[1] - current_y)
             yaw_error_to_goal = wrap_degrees(final_goal[2] - current_yaw)
-            if feedback_mode == "rotate":
+            if feedback_mode == "rotate" and args.control_pose_source == "rgbd":
                 if rotation_anchor_xy is None:
                     raise RuntimeError("rotate-only feedback is missing its pose anchor")
                 validate_rotate_only_feedback(
@@ -680,6 +808,16 @@ def main() -> int:
                     "target_index": float(waypoint_index),
                     "linear_mps": round(linear, 4),
                     "angular_deg_s": round(angular, 3),
+                    "control_pose_source": args.control_pose_source,
+                    "visual_x": round(visual_x, 4),
+                    "visual_y": round(visual_y, 4),
+                    "visual_yaw_deg": round(visual_yaw, 2),
+                    "wheel_velocity_raw": wheel_raw,
+                    "wheel_visual_disagreement_m": (
+                        round(visual_disagreement_m, 4)
+                        if visual_disagreement_m is not None
+                        else None
+                    ),
                 }
             )
             time.sleep(max(0.0, period - (time.monotonic() - loop_started)))

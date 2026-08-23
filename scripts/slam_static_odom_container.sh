@@ -20,6 +20,7 @@ nav2_execute_max_runtime_s="20"
 nav2_execute_max_linear_mps="0.04"
 nav2_execute_max_angular_deg_s="12"
 nav2_execute_max_tracked_travel_m="0.40"
+nav2_execute_control_pose_source="rgbd"
 ready_file=""
 camera_width=0
 camera_height=0
@@ -35,7 +36,7 @@ Usage: slam_static_odom_container.sh [--duration SECONDS] [--output-root PATH] [
                                      [--nav2-supervised-execute]
                                      [--nav2-execute-max-path-m M] [--nav2-execute-max-runtime-s S]
                                      [--nav2-execute-max-linear-mps MPS] [--nav2-execute-max-angular-deg-s DEG_S]
-                                     [--nav2-execute-max-tracked-travel-m M]
+                                     [--nav2-execute-max-tracked-travel-m M] [--nav2-execute-control-pose-source rgbd|wheel]
                                      [--ready-file PATH] [--camera-width PX]
                                      [--camera-height PX] [--camera-fps HZ]
 
@@ -63,6 +64,7 @@ while [[ $# -gt 0 ]]; do
   --nav2-execute-max-linear-mps) nav2_execute_max_linear_mps="${2:?missing linear cap}"; shift 2 ;;
   --nav2-execute-max-angular-deg-s) nav2_execute_max_angular_deg_s="${2:?missing angular cap}"; shift 2 ;;
   --nav2-execute-max-tracked-travel-m) nav2_execute_max_tracked_travel_m="${2:?missing tracked travel cap}"; shift 2 ;;
+  --nav2-execute-control-pose-source) nav2_execute_control_pose_source="${2:?missing control pose source}"; shift 2 ;;
   --ready-file) ready_file="${2:?missing value for --ready-file}"; shift 2 ;;
   --camera-width) camera_width="${2:?missing value for --camera-width}"; shift 2 ;;
   --camera-height) camera_height="${2:?missing value for --camera-height}"; shift 2 ;;
@@ -110,6 +112,10 @@ if [[ "$nav2_supervised_execute" == true && -z "$nav2_goal_x" ]]; then
   echo "--nav2-supervised-execute requires a Nav2 goal" >&2
   exit 2
 fi
+[[ "$nav2_execute_control_pose_source" == "rgbd" || "$nav2_execute_control_pose_source" == "wheel" ]] || {
+  echo "--nav2-execute-control-pose-source must be rgbd or wheel" >&2
+  exit 2
+}
 
 frame_id="camera_link"
 metrics_tool="tools/slam_static_odom_metrics.py"
@@ -620,7 +626,8 @@ PY
         --max-runtime-s "$nav2_execute_max_runtime_s" \
         --max-linear-mps "$nav2_execute_max_linear_mps" \
         --max-angular-deg-s "$nav2_execute_max_angular_deg_s" \
-        --max-tracked-travel-m "$nav2_execute_max_tracked_travel_m"
+        --max-tracked-travel-m "$nav2_execute_max_tracked_travel_m" \
+        --control-pose-source "$nav2_execute_control_pose_source"
     fi
   fi
 fi
