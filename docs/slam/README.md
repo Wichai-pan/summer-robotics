@@ -48,6 +48,8 @@ Team review documents:
   调整前后 raw 读数、放弃的临时姿态、低速返回 ACT/IK 夹取参考及独立只读复核；
 - [Nav2 原地旋转保护与白板总线超时（2026-08-18）](12-nav2-rotation-guard-and-white-bus-timeout-20260818.md):
   camera-only 旋转误进展保护、停机阶段 `communication=-6` 证据、降负载修正及下一次只读诊断门槛；
+- [底盘停机验证与轮速反馈导航（2026-08-23）](13-base-stop-and-wheel-feedback-nav2-20260823.md):
+  总线/停机复测、短距离监督导航通过、长距离轮速/RGB-D 位姿分歧的安全终止及后续门槛；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 

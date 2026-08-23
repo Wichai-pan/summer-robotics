@@ -22,11 +22,16 @@
   config is `configs/slam/base_to_gemini_mapping_down_20deg_candidate.yaml`.
   Camera-only localization, overlay export and Nav2 planner-only have since
   passed against this database; a short supervised base motion also passed.
-  Long supervised paths are currently blocked: all three wheel IDs 7/8/9 have
-  simultaneously timed out during motion, and the latest run could not verify
-  torque release for IDs 7/8. Treat the base common power/data chain as a
-  hardware safety gate before any further Nav2 execution. See
-  `docs/slam/10-localization-nav2-supervised-session-20260815.md`.
+  On 2026-08-23, repeated read-only bus-cadence checks and a raised-wheel
+  zero-velocity/torque-off transaction passed, and a grounded 0.04 m/s,
+  one-second pulse moved about 5 cm before a verified stop. The base executor
+  now controls from measured wheel velocity while keeping RGB-D as a liveness
+  and translation-disagreement guard. A 0.214 m supervised run reached its
+  configured arrival tolerance and stopped safely. The current long-route
+  blocker is therefore not an unverified stop: the latest 0.598 m run stopped
+  safely after wheel/RGB-D translation disagreement reached 0.379 m versus a
+  0.200 m limit. Diagnose that inconsistency before enlarging navigation
+  limits; see `docs/slam/13-base-stop-and-wheel-feedback-nav2-20260823.md`.
 - Improve the fixed-scene ACT grasp by adding deterministic grasp-success feedback around the current policy.
 - Use gripper position/current/load plus the white-wrist RGB stream to distinguish grasp, empty close, slip and jam before allowing transport.
 - Keep all robot USB ownership and execution on the onboard Jetson.
@@ -139,21 +144,21 @@
 
 ## Next Step
 
-1. With 12 V off, inspect and reseat the white-board/base power and daisy-chain
-   data connections; then demonstrate repeated dynamic zero-velocity and
-   three-wheel torque-off readback before enabling any further navigation.
-2. After that base safety gate, repeat the same intermediate Nav2 path and
-   verify progress control before extending the route.
-3. Measure white-gripper position, velocity, load and current for open, empty
+1. Inspect the 2026-08-23 long-route trace to distinguish an RGB-D outlier from
+   genuine wheel/visual drift; do not simply widen the 0.200 m safety guard.
+2. Implement and test a temporally robust visual-consistency/fusion rule while
+   keeping immediate zero-command and three-wheel torque-off verification.
+3. Re-run the same intermediate route before extending the route or speed.
+4. Measure white-gripper position, velocity, load and current for open, empty
    close, correct jar grasp and slip/jam cases without changing torque limits.
-4. Define and validate a deterministic contact threshold on repeated samples.
-5. Add a grasp supervisor around ACT: verify contact, lift 3–5 cm, confirm with
+5. Define and validate a deterministic contact threshold on repeated samples.
+6. Add a grasp supervisor around ACT: verify contact, lift 3–5 cm, confirm with
    white-wrist RGB, hold on success and permit at most 1–2 retries on failure.
-6. Stop one trial after one completed attempt/return transition instead of
+7. Stop one trial after one completed attempt/return transition instead of
    extending rollout time into repeated grasp cycles.
-7. After the supervisor is stable, collect additional clean demonstrations and
+8. After the supervisor is stable, collect additional clean demonstrations and
    decide whether load/current should become learned observation features.
-8. In a separate worktree, begin human-interaction phases H0/H1: define the
+9. In a separate worktree, begin human-interaction phases H0/H1: define the
    pose/gesture event contracts and implement recorded-video pose inference,
    fake/replay sources, GUI overlay and fail-closed automated QA. Do not access
    Jetson, cameras, ROS or motors in this first milestone.
