@@ -1,0 +1,46 @@
+{
+  "calibrated": true,
+  "camera_to_shoulder_status": "validated",
+  "camera_to_shoulder_source": "black_arm_eye_to_hand_fit mirrored to white arm and shifted from URDF arm base to shoulder_lift pivot",
+  "camera_to_shoulder_4x4": [
+    [0.16517284868398086, -0.7526215257196444, 0.637400007123512, 0.040949035333683395],
+    [0.9839379295904905, 0.08138044713439382, -0.15888163373211459, -0.12019273270785862],
+    [0.06770584000511655, 0.6534049753771707, 0.753974706062187, -0.3534598714322857],
+    [0.0, 0.0, 0.0, 1.0]
+  ],
+  "target_offset_shoulder_m": [0.0, 0.0, 0.00],
+  "kinematics": {
+    "upper_arm_m": 0.1159,
+    "lower_arm_m": 0.1350,
+    "tool_length_m": 0.153,
+    "tool_pitch_deg": 0.0,
+    "wrist_roll_deg": 180.0
+  },
+  "joint_limits_deg": {
+    "shoulder_pan": [-90.0, 90.0],
+    "shoulder_lift": [-30.0, 110.0],
+    "elbow_flex": [-100.0, 100.0],
+    "wrist_flex": [-180.0, 0.0],
+    "wrist_roll": [-180.0, 180.0],
+    "gripper": [0.0, 100.0]
+  },
+  "gripper": {
+    "open_deg": 80.0,
+    "closed_deg": 35.0
+  },
+  "motion": {
+    "grasp_offset_shoulder_m": [0.0, 0.0, 0.020],
+    "approach_height_m": 0.080,
+    "lift_height_m": 0.130,
+    "control_hz": 30.0,
+    "max_command_step_deg": 2.0,
+    "max_tracking_error_deg": 25.0,
+    "phase_duration_s": {
+      "transit": 5.0,
+      "approach": 4.0,
+      "close": 2.0,
+      "lift": 4.0,
+      "hold": 2.0
+    }
+  }
+}

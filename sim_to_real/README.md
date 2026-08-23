@@ -91,7 +91,7 @@ python -m pytest -q
 
 ## 真实机器人抓取（默认禁止电机运动）
 
-`real_pick_blue_cylinder.py` 将流程扩展为：稳定质心采样 → 相机到机器人基座变换 →
+`real_pick_blue_cylinder.py` 将流程扩展为：稳定质心采样 → 相机到右肩关节坐标变换 →
 右臂 IK → transit → approach → close → lift → hold。它使用 XLeRobot 官方示例中的
 `SO100Follower`/`send_action()` 接口，并兼容部分新版 `SO101Follower` 导入路径。
 
@@ -103,11 +103,16 @@ Copy-Item pick_config.example.json pick_config.json
 
 必须实测并检查以下字段：
 
-- `camera_to_base_4x4`：RGB 光学坐标到 `robot_base` 的齐次变换；
-- `right_shoulder_position_base_m`：右肩 IK 原点；
+- `camera_to_shoulder_4x4`：RGB 光学坐标直接到右臂 `shoulder_lift` 转轴坐标系的齐次变换；
+- `camera_to_shoulder_status`：外参验证状态；`diagnostic_only` 只允许默认 dry-run；
+- `target_offset_shoulder_m`：在工作空间检查和 IK 之前，对肩坐标目标施加的 `[x,y,z]` 米制微调；
 - `shoulder_pan_sign/offset` 和各 `joint_command_offsets_deg`；
 - `tool_length_m`、夹爪 `open_deg/closed_deg`；
 - 安全工作空间与每个关节的保守限位。
+
+当前 `pick_config_v1.json` 中的直接外参由未通过留出验证的黑臂拟合结果按左右安装
+对称关系临时换算而来，只适合观察 dry-run 坐标。若显式用于物理运动，程序还要求
+`--allow-diagnostic-extrinsic`，且必须有人近距离监护急停。
 
 模板矩阵只是依据仓库 URDF、头部 pan=0、tilt≈0.65 rad 推出的近似值，**不能用于
 真实运动**。完成测量并低速逐关节验证后，才把 `calibrated` 改成 `true`。
@@ -136,3 +141,37 @@ Windows 串口示例为 `--port COM5`。程序把连接时读到的当前关节�
 起点，不检查预设 home 姿态；运行前必须由操作者确认当前姿态和周围空间安全。
 Ctrl+C 会中止流程并调用 `disconnect()`；不同电机固件断开后是否卸力需要现场确认。
 脚本没有力/电流抓取反馈，因此“完成 lift”不等于已经可靠夹住物体。
+
+### 手动质心 `fake_target` 模式
+
+`--fake-target X Y Z` 用一个手动质心替代 Gemini RGB-D 检测。输入单位为米，
+坐标系直接为 shoulder 轴心定义的 `base_frame`：`+x=pan 0`、`+y=positive pan`、`+z=up`。
+该模式不使用 camera-to-base 矩阵，只替换质心来源；后续 offset、workspace、IK、轨迹和
+跟踪误差保护均与完整抓取相同。
+
+先做不连接电机的 dry-run：
+
+```bash
+python3 real_pick_blue_cylinder.py \
+  --config pick_config_v1.json \
+  --fake-target 0.35000 0.00000 0.05000 \
+  --no-preview
+```
+
+真机完整动作必须同时使用 `--stage-test --execute`，且只需映射白臂，不需要 Gemini：
+
+```bash
+./scripts/jetson_robot_exec.sh --white --interactive -- \
+  python3 sim_to_real/real_pick_blue_cylinder.py \
+  --config sim_to_real/pick_config_v1.json \
+  --port /dev/ttyACM0 \
+  --robot-id white_arm_xlerobot \
+  --fake-target 0.35000 0.00000 0.05000 \
+  --duration-scale 3 \
+  --stage-test \
+  --execute
+```
+
+真实相机和 fake target 两种路径都会输出 `[TRANSFORM] base_frame centroid=...`。这里
+`base_frame` 的原点是 `shoulder_lift` 轴心，`+x=pan 0`、`+y=positive pan`、`+z=up`。
+当前配置的离线可行域投影保存在 `target_centroid_range_analysis.json`。

@@ -1,0 +1,37 @@
+{
+  "generated_at": "2026-08-23",
+  "config_file": "pick_config_v1.json",
+  "config_sha256": "c38f97cbbd2adb608cb146596a2b2ede813344f015c7899948e2e6964824b1dc",
+  "method": "Offline 1 mm base-frame XY sweep with 0.5 mm waypoint-Z feasibility intervals. Every point from grasp through max(approach_height, lift_height) is constrained by workspace, camera depth, reachability and configured joint limits.",
+  "important_note": "These min/max values are axis projections of a coupled 3D feasible volume, not a rectangular box. An arbitrary XYZ combination inside the projections may still be infeasible; validate the exact point with --fake-target dry-run.",
+  "excluded_constraints": "The JSON has no RGB image-FOV, self-collision, environment-collision, payload/torque, live start-pose or tracking-performance model; those are not represented in this geometric range.",
+  "adjusted_target_base_frame_m": {
+    "min_xyz": [0.1592, -0.217, -0.1060],
+    "max_xyz": [0.3952, 0.233, 0.1005]
+  },
+  "raw_centroid_base_frame_m": {
+    "min_xyz": [0.2092, -0.217, -0.1060],
+    "max_xyz": [0.4452, 0.233, 0.1005]
+  },
+  "centroid_camera_optical_frame_m": {
+    "min_xyz": [-0.03971, -0.12958, 0.33555],
+    "max_xyz": [0.42004, 0.18684, 0.49122]
+  },
+  "known_feasible_example": {
+    "fake_target_raw_base_frame_xyz_m": [0.35000, 0.00000, 0.05000],
+    "adjusted_base_frame_xyz_m": [0.30000, 0.00000, 0.05000]
+  },
+  "active_constraints": {
+    "shoulder_pan_deg": [-90.0, 90.0],
+    "shoulder_lift_deg": [-30.0, 110.0],
+    "elbow_flex_deg": [-100.0, 100.0],
+    "wrist_flex_deg": [-180.0, 0.0],
+    "wrist_roll_deg": [-180.0, 180.0],
+    "gripper": [0.0, 100.0],
+    "target_offset_shoulder_m": [-0.05, 0.0, 0.0],
+    "grasp_offset_shoulder_m": [0.0, 0.0, 0.02],
+    "approach_height_m": 0.08,
+    "lift_height_m": 0.13,
+    "camera_depth_m": [0.10, 1.50]
+  }
+}

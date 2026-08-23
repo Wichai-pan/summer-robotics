@@ -50,9 +50,12 @@ def color_frame_to_bgr(frame, ob) -> np.ndarray | None:
 class Gemini335Camera:
     """Capture depth registered into the RGB image and expose factory calibration."""
 
-    def __init__(self, timeout_ms: int = 1000):
+    def __init__(self, timeout_ms: int = 1000, warmup_frames: int = 45):
+        if warmup_frames < 1:
+            raise ValueError("warmup_frames must be at least 1")
         self.ob = _sdk()
         self.timeout_ms = timeout_ms
+        self.warmup_frames = int(warmup_frames)
         self.pipeline = None
         self.align_filter = None
         self.camera_param = None
@@ -86,14 +89,24 @@ class Gemini335Camera:
         self.align_filter = ob.AlignFilter(align_to_stream=ob.OBStreamType.COLOR_STREAM)
         self.pipeline.start(config)
 
-        # A delivered frameset ensures the active profile's calibration is resolved.
-        for _ in range(30):
+        # Discard startup frames while auto exposure and auto white balance settle.
+        print(
+            f"[CAMERA] warming up auto exposure/white balance; "
+            f"discarding {self.warmup_frames} RGB-D frames..."
+        )
+        received = 0
+        for _ in range(max(30, self.warmup_frames * 3)):
             frames = self.pipeline.wait_for_frames(self.timeout_ms)
             if frames:
-                break
-        else:
+                received += 1
+                if received >= self.warmup_frames:
+                    break
+        if received < self.warmup_frames:
             self.stop()
-            raise RuntimeError("Camera opened but no RGB-D frames arrived.")
+            raise RuntimeError(
+                f"Camera warm-up received only {received}/{self.warmup_frames} RGB-D frames."
+            )
+        print(f"[CAMERA] warm-up complete; discarded {received} RGB-D frames")
 
         self.camera_param = self.pipeline.get_camera_param()
         intr = self.camera_param.rgb_intrinsic
