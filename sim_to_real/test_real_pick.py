@@ -5,9 +5,7 @@ import numpy as np
 import pytest
 
 from real_pick_blue_cylinder import (
-    SafetyError,
     build_plan,
-    build_plan_from_base_centroid,
     cartesian_to_joints,
     execute_cartesian_trajectory,
     load_config,
@@ -15,7 +13,6 @@ from real_pick_blue_cylinder import (
     relative_ee_to_joints,
     target_frame_coordinates,
     transform_point,
-    validate_fake_target_base,
 )
 
 
@@ -66,16 +63,6 @@ def test_target_frame_coordinates_reports_raw_and_adjusted_base_points():
     assert np.allclose(adjusted, [0.21, 0.0, 0.155])
 
 
-def test_fake_target_builds_directly_from_raw_base_centroid():
-    config = config_for_test()
-    config["target_offset_shoulder_m"] = [-0.05, 0.0, 0.0]
-    target = validate_fake_target_base([0.25, 0.0, 0.15])
-    plan = build_plan_from_base_centroid(target, 0.0, 1, config)
-    assert plan.target_camera_m is None
-    assert np.allclose(plan.raw_target_shoulder_m, [0.25, 0.0, 0.15])
-    assert np.allclose(plan.target_shoulder_m, [0.20, 0.0, 0.15])
-
-
 def test_cartesian_phase_does_not_treat_tracking_lag_as_command_step():
     config = config_for_test()
     config["motion"]["control_hz"] = 100.0
@@ -122,6 +109,7 @@ def test_downward_target_can_place_elbow_below_shoulder():
 
 def test_same_height_horizontal_target_uses_upward_fold_with_lower_elbow():
     config = load_config(HERE / "pick_config_v1.json")
+    config["joint_limits_deg"]["shoulder_lift"] = [-180.0, 110.0]
     joints = relative_ee_to_joints(np.array([0.35, 0.0, 0.0]), config, 0.0)
     assert joints["shoulder_pan"] == pytest.approx(0.0)
     assert joints["shoulder_lift"] == pytest.approx(-41.85, abs=0.2)

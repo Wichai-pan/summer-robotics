@@ -21,18 +21,28 @@ import math
 import sys
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-import cv2
 import numpy as np
 
 from gemini335 import Gemini335Camera
-from perception import DetectorConfig, annotate, detect_blue_cylinder
+from perception import DetectorConfig, detect_blue_cylinder
 
 
 JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
+CONFIG_PATH = Path(__file__).with_name("pick_config_v1.json")
+CAMERA_WARMUP_FRAMES = 45
+PERCEPTION_SAMPLES = 10
+ACQUISITION_TIMEOUT_S = 30.0
+MAX_CENTROID_SPREAD_M = 0.012
+MIN_CONFIDENCE = 0.45
+MIN_DEPTH_M = 0.10
+MAX_DEPTH_M = 1.50
+MIN_AREA_PX = 180
+CYLINDER_RADIUS_M = 0.030
+HUE_LOW = 90
+HUE_HIGH = 140
 
 ROBOT_IMPORTS = (
     ("lerobot.robots.so_follower.so_follower", "lerobot.robots.so_follower.config_so_follower",
@@ -118,13 +128,6 @@ def target_frame_coordinates(
     return raw_target_shoulder, raw_target_shoulder + target_offset
 
 
-def validate_fake_target_base(
-    values: list[float] | tuple[float, float, float],
-) -> np.ndarray:
-    """Validate one manually supplied centroid in the shoulder/base frame."""
-    return _vector3(values, "--fake-target base-frame xyz")
-
-
 def planar_ik(x_m: float, z_m: float, l1_m: float, l2_m: float) -> tuple[float, float, float]:
     """Solve the upward-folding planar arm in the newly calibrated coordinates.
 
@@ -192,10 +195,7 @@ def relative_ee_to_joints(
     shoulder_lift, elbow_internal, forearm_pitch = planar_ik(
         wrist_x, wrist_z, float(kin["upper_arm_m"]), float(kin["lower_arm_m"])
     )
-    # Robot elbow convention: folded=+90, perpendicular=0, straight=-90.
     elbow_flex = 90.0 - elbow_internal
-    # Calibrated wrist convention: folded parallel=-180, perpendicular=-90,
-    # and straight outward=0. Start from the 0..180 internal angle and shift it.
     wrist_internal = math.degrees(
         math.acos(float(np.clip(-math.cos(pitch - math.radians(forearm_pitch)), -1.0, 1.0)))
     )
@@ -291,93 +291,45 @@ def build_plan(
     )
 
 
-def save_detection_contact_sheet(views: list[np.ndarray], output_path: Path) -> None:
-    """Save accepted detections in one image for post-run diagnosis."""
-    if not views:
-        return
-    columns = min(2, len(views))
-    tile_width = 960
-    first_height, first_width = views[0].shape[:2]
-    tile_height = max(1, round(first_height * tile_width / first_width))
-    rows = math.ceil(len(views) / columns)
-    sheet = np.zeros((rows * tile_height, columns * tile_width, 3), dtype=np.uint8)
-    for index, view in enumerate(views):
-        tile = cv2.resize(view, (tile_width, tile_height), interpolation=cv2.INTER_AREA)
-        row, column = divmod(index, columns)
-        y = row * tile_height
-        x = column * tile_width
-        sheet[y : y + tile_height, x : x + tile_width] = tile
-    cv2.imwrite(str(output_path), sheet)
-
-
-def acquire_stable_target(camera: Gemini335Camera, args, output_dir: Path):
+def acquire_stable_target(camera: Gemini335Camera):
+    """Acquire one stable centroid using the validated experiment settings."""
     intrinsics = camera.start()
     detector = DetectorConfig(
-        hsv_lower=(args.hue_low, 70, 35),
-        hsv_upper=(args.hue_high, 255, 255),
-        min_area_px=args.min_area,
-        min_depth_m=args.min_depth,
-        max_depth_m=args.max_depth,
-        cylinder_radius_m=args.radius,
+        hsv_lower=(HUE_LOW, 70, 35),
+        hsv_upper=(HUE_HIGH, 255, 255),
+        min_area_px=MIN_AREA_PX,
+        min_depth_m=MIN_DEPTH_M,
+        max_depth_m=MAX_DEPTH_M,
+        cylinder_radius_m=CYLINDER_RADIUS_M,
     )
     samples: list[np.ndarray] = []
-    accepted_views: list[np.ndarray] = []
-    deadline = time.monotonic() + args.acquisition_timeout
-    last_bgr = last_depth = last_mask = last_detection = None
-    print(f"[PERCEPTION] collecting {args.samples} stable detections...")
-    while time.monotonic() < deadline and len(samples) < args.samples:
+    deadline = time.monotonic() + ACQUISITION_TIMEOUT_S
+    print(f"[PERCEPTION] collecting {PERCEPTION_SAMPLES} stable detections...")
+    while time.monotonic() < deadline and len(samples) < PERCEPTION_SAMPLES:
         frame = camera.read()
         if frame is None:
             continue
         bgr, depth = frame
-        detection, mask = detect_blue_cylinder(bgr, depth, intrinsics, detector)
-        last_bgr, last_depth, last_mask, last_detection = bgr, depth, mask, detection
-        if detection is not None and detection.confidence >= args.min_confidence:
+        detection, _ = detect_blue_cylinder(bgr, depth, intrinsics, detector)
+        if detection is not None and detection.confidence >= MIN_CONFIDENCE:
             point = np.asarray(detection.cylinder_center_estimate_m, dtype=np.float64)
             samples.append(point)
-            diagnostic_view = annotate(bgr, mask, detection, intrinsics)
-            cv2.putText(
-                diagnostic_view,
-                f"accepted {len(samples):02d}/{args.samples}  xyz={np.round(point, 4).tolist()}  "
-                f"conf={detection.confidence:.2f}",
-                (20, diagnostic_view.shape[0] - 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.2,
-                (0, 255, 255),
-                3,
-                cv2.LINE_AA,
-            )
-            accepted_views.append(diagnostic_view)
             print(
-                f"[PERCEPTION {len(samples):02d}/{args.samples}] "
+                f"[PERCEPTION {len(samples):02d}/{PERCEPTION_SAMPLES}] "
                 f"camera_xyz={np.round(samples[-1], 4).tolist()} conf={detection.confidence:.2f}"
             )
-        if not args.no_preview:
-            view = annotate(bgr, mask, detection, intrinsics)
-            cv2.imshow("XLeRobot real pick acquisition | ESC abort", view)
-            if cv2.waitKey(1) & 0xFF == 27:
-                raise KeyboardInterrupt
 
-    if last_bgr is not None:
-        cv2.imwrite(str(output_dir / "acquisition_rgb.png"), last_bgr)
-        cv2.imwrite(str(output_dir / "acquisition_mask.png"), last_mask)
-        cv2.imwrite(
-            str(output_dir / "acquisition_annotated.png"),
-            annotate(last_bgr, last_mask, last_detection, intrinsics),
+    if len(samples) < PERCEPTION_SAMPLES:
+        raise SafetyError(
+            f"Perception timeout: received {len(samples)}/{PERCEPTION_SAMPLES} valid detections"
         )
-        np.save(output_dir / "acquisition_depth_m.npy", last_depth)
-    contact_sheet_path = output_dir / "acquisition_detections.png"
-    save_detection_contact_sheet(accepted_views, contact_sheet_path)
-    if accepted_views:
-        print(f"[PERCEPTION] accepted-detection image saved to {contact_sheet_path}")
-
-    if len(samples) < args.samples:
-        raise SafetyError(f"Perception timeout: received {len(samples)}/{args.samples} valid detections")
     stacked = np.stack(samples)
     target = np.median(stacked, axis=0)
     spread = float(np.max(np.linalg.norm(stacked - target, axis=1)))
-    if spread > args.max_spread:
-        raise SafetyError(f"Unstable centroid: max spread {spread:.4f} m > {args.max_spread:.4f} m")
+    if spread > MAX_CENTROID_SPREAD_M:
+        raise SafetyError(
+            f"Unstable centroid: max spread {spread:.4f} m > {MAX_CENTROID_SPREAD_M:.4f} m"
+        )
     print(f"[PERCEPTION] stable camera centroid={target.tolist()}, max_spread={spread:.5f} m")
     return target, spread
 
@@ -817,21 +769,9 @@ def execute_pick(
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--config", type=Path, default=Path(__file__).with_name("pick_config_v1.json"),
-        help="robot and motion configuration JSON",
-    )
-    parser.add_argument("--port", default=None, help="right-arm USB port, e.g. /dev/arm_right or COM5")
-    parser.add_argument("--robot-id", default="xlerobot_right_arm")
+    parser.add_argument("--port", default="/dev/ttyACM0")
+    parser.add_argument("--robot-id", default="white_arm_xlerobot")
     parser.add_argument("--execute", action="store_true", help="enable physical motion after all checks")
-    parser.add_argument(
-        "--allow-diagnostic-extrinsic",
-        action="store_true",
-        help=(
-            "explicitly allow --execute with a diagnostic-only camera-to-shoulder matrix; "
-            "unsafe until an independent white-arm validation passes"
-        ),
-    )
     parser.add_argument(
         "--duration-scale", type=float, default=1.0,
         help="multiply transit/approach/close/lift durations; 2.0 is approximately half speed (1-10)",
@@ -841,7 +781,7 @@ def parse_args():
         help="print measured joints and wait for Enter at every physical-motion stage boundary",
     )
     parser.add_argument(
-        "--init_only", "--init-only", "--inspect-robot",
+        "--init_only", "--init-only",
         dest="init_only",
         action="store_true",
         help="only connect, print initial joint positions, and disconnect; camera and motors are not commanded",
@@ -877,34 +817,6 @@ def parse_args():
         "--ee-test-duration", type=float, default=15.0,
         help="end-effector test movement duration in seconds (2-60; default: 15)",
     )
-    parser.add_argument("--samples", type=int, default=15)
-    parser.add_argument(
-        "--fake-target",
-        type=float,
-        nargs=3,
-        metavar=("BASE_X_M", "BASE_Y_M", "BASE_Z_M"),
-        help=(
-            "bypass RGB-D detection and use one manual centroid in the shoulder-axis base frame "
-            "(+x=pan 0, +y=positive pan, +z=up), in metres; physical execution requires --stage-test"
-        ),
-    )
-    parser.add_argument(
-        "--camera-warmup-frames",
-        type=int,
-        default=45,
-        help="discard this many RGB-D frames before perception so auto exposure/white balance can settle",
-    )
-    parser.add_argument("--acquisition-timeout", type=float, default=20.0)
-    parser.add_argument("--max-spread", type=float, default=0.012, help="metres")
-    parser.add_argument("--min-confidence", type=float, default=0.55)
-    parser.add_argument("--min-depth", type=float, default=0.10)
-    parser.add_argument("--max-depth", type=float, default=1.50)
-    parser.add_argument("--min-area", type=int, default=250)
-    parser.add_argument("--radius", type=float, default=0.018)
-    parser.add_argument("--hue-low", type=int, default=90)
-    parser.add_argument("--hue-high", type=int, default=140)
-    parser.add_argument("--no-preview", action="store_true")
-    parser.add_argument("--output-dir", type=Path, default=Path(__file__).with_name("pick_outputs"))
     return parser.parse_args()
 
 
@@ -916,9 +828,9 @@ def main() -> int:
             inspect_robot(args.port, args.robot_id)
             return 0
 
-        if not args.config.exists():
-            raise ValueError(f"Missing config: {args.config}")
-        config = load_config(args.config)
+        if not CONFIG_PATH.exists():
+            raise ValueError(f"Missing config: {CONFIG_PATH}")
+        config = load_config(CONFIG_PATH)
         extrinsic_status = str(config.get("camera_to_shoulder_status", "validated"))
         if extrinsic_status != "validated":
             source = str(config.get("camera_to_shoulder_source", "unspecified diagnostic source"))
@@ -927,11 +839,9 @@ def main() -> int:
                 f"source={source}"
             )
 
-        selected_test_modes = sum(
-            (bool(args.joint_test), bool(args.ee_test), args.fake_target is not None)
-        )
+        selected_test_modes = sum((bool(args.joint_test), bool(args.ee_test)))
         if selected_test_modes > 1:
-            raise SafetyError("choose only one of --joint_test, --ee_test and --fake-target")
+            raise SafetyError("choose only one of --joint_test and --ee_test")
 
         if args.joint_test:
             if not args.execute:
@@ -967,32 +877,15 @@ def main() -> int:
 
         if not math.isfinite(args.duration_scale) or not 1.0 <= args.duration_scale <= 10.0:
             raise SafetyError("--duration-scale must be between 1.0 and 10.0")
-        if not 1 <= args.camera_warmup_frames <= 300:
-            raise SafetyError("--camera-warmup-frames must be between 1 and 300")
         if args.stage_test and not args.execute:
             raise SafetyError("--stage-test requires --execute")
         if args.stage_test and not sys.stdin.isatty():
             raise SafetyError("--stage-test requires an interactive terminal; use wrapper --interactive")
-        if args.fake_target is not None and args.execute and not args.stage_test:
-            raise SafetyError("physical --fake-target execution requires --stage-test")
         if args.execute and not config["calibrated"]:
             raise SafetyError("Config calibrated=false; refusing to acquire or move in execute mode")
-        output = args.output_dir / datetime.now().strftime("%Y%m%d_%H%M%S")
-        output.mkdir(parents=True, exist_ok=True)
-        if args.fake_target is not None:
-            raw_target_shoulder = validate_fake_target_base(args.fake_target)
-            target_camera = None
-            spread = 0.0
-            target_samples = 1
-            print(
-                "[FAKE TARGET] bypassing Gemini acquisition; "
-                f"base_frame_centroid={raw_target_shoulder.tolist()} m"
-            )
-        else:
-            camera = Gemini335Camera(warmup_frames=args.camera_warmup_frames)
-            target_camera, spread = acquire_stable_target(camera, args, output)
-            target_samples = args.samples
-            raw_target_shoulder, _ = target_frame_coordinates(target_camera, config)
+        camera = Gemini335Camera(warmup_frames=CAMERA_WARMUP_FRAMES)
+        target_camera, spread = acquire_stable_target(camera)
+        raw_target_shoulder, _ = target_frame_coordinates(target_camera, config)
 
         target_offset = _vector3(
             config["target_offset_shoulder_m"], "target_offset_shoulder_m"
@@ -1010,26 +903,17 @@ def main() -> int:
         plan = build_plan_from_base_centroid(
             raw_target_shoulder,
             spread,
-            target_samples,
+            PERCEPTION_SAMPLES,
             config,
             target_camera_m=target_camera,
         )
-        plan_path = output / "pick_plan.json"
-        plan_path.write_text(json.dumps(asdict(plan), indent=2), encoding="utf-8")
         print(json.dumps(asdict(plan), indent=2))
-        print(f"[PLAN] saved {plan_path}")
         if not args.execute:
             print("[DRY-RUN] no motor connection or command was made. Add --execute only after calibration review.")
             return 0
-        if extrinsic_status != "validated" and not args.allow_diagnostic_extrinsic:
-            raise SafetyError(
-                "camera_to_shoulder matrix is diagnostic-only; inspect the dry-run shoulder centroid first. "
-                "Physical use requires --allow-diagnostic-extrinsic and close supervision."
-            )
         if extrinsic_status != "validated":
-            print(
-                f"[CALIBRATION] WARNING: using {extrinsic_status} camera-to-shoulder matrix "
-                "for physical motion"
+            raise SafetyError(
+                "camera_to_shoulder matrix is not validated; refusing physical motion"
             )
         execute_pick(
             plan,
@@ -1049,10 +933,6 @@ def main() -> int:
     finally:
         if camera is not None:
             camera.stop()
-        try:
-            cv2.destroyAllWindows()
-        except cv2.error:
-            pass
 
 
 if __name__ == "__main__":
