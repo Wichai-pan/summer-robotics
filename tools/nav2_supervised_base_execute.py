@@ -237,6 +237,36 @@ def parse_args() -> argparse.Namespace:
         help="maximum heading correction from one fresh RGB-D update",
     )
     parser.add_argument(
+        "--wheel-visual-relocalize-m",
+        type=float,
+        default=0.12,
+        help="pause and re-anchor the wheel pose if fresh map-frame vision disagrees by this far",
+    )
+    parser.add_argument(
+        "--max-wheel-visual-relocalizations",
+        type=int,
+        default=1,
+        help="maximum bounded map-pose re-anchors during one supervised leg",
+    )
+    parser.add_argument(
+        "--relocalization-settle-s",
+        type=float,
+        default=3.0,
+        help="zero-velocity settling time before accepting a map-pose re-anchor",
+    )
+    parser.add_argument(
+        "--relocalization-max-spread-m",
+        type=float,
+        default=0.04,
+        help="maximum XY spread of map poses accepted after a re-anchor pause",
+    )
+    parser.add_argument(
+        "--relocalization-max-yaw-spread-deg",
+        type=float,
+        default=6.0,
+        help="maximum yaw spread of map poses accepted after a re-anchor pause",
+    )
+    parser.add_argument(
         "--max-rotate-translation-m",
         type=float,
         default=0.05,
@@ -270,6 +300,10 @@ def validate_limits(args: argparse.Namespace) -> None:
         args.wheel_visual_correction_gain,
         args.max_wheel_visual_correction_step_m,
         args.max_wheel_visual_yaw_correction_deg,
+        args.wheel_visual_relocalize_m,
+        args.relocalization_settle_s,
+        args.relocalization_max_spread_m,
+        args.relocalization_max_yaw_spread_deg,
         args.brake_s,
     )
     if not all(math.isfinite(value) and value > 0 for value in values):
@@ -278,6 +312,10 @@ def validate_limits(args: argparse.Namespace) -> None:
         raise ValueError("first-motion speed caps are fixed at <=0.08 m/s and <=20 deg/s")
     if args.wheel_visual_correction_gain > 1.0:
         raise ValueError("wheel/RGB-D correction gain must be <= 1")
+    if args.wheel_visual_relocalize_m >= args.max_wheel_visual_disagreement_m:
+        raise ValueError("wheel/RGB-D re-localization threshold must be below the hard disagreement stop")
+    if args.max_wheel_visual_relocalizations < 0:
+        raise ValueError("maximum wheel/RGB-D re-localizations must be >= 0")
     if args.brake_s > 1.0:
         raise ValueError("first-motion active braking is capped at <=1.0 s")
 
@@ -388,6 +426,19 @@ class WheelPoseTracker:
         return raw_disagreement_m, applied_m, applied_yaw_deg
 
 
+def map_pose_spread(
+    poses: list[tuple[float, float, float, float]],
+) -> tuple[float, float]:
+    """Return maximum XY/yaw deviation from the newest map-frame pose."""
+    if not poses:
+        raise ValueError("at least one map pose is required")
+    anchor_x, anchor_y, anchor_yaw, _age_s = poses[-1]
+    return (
+        max(math.hypot(x - anchor_x, y - anchor_y) for x, y, _yaw, _age in poses),
+        max(abs(wrap_degrees(yaw - anchor_yaw)) for _x, _y, yaw, _age in poses),
+    )
+
+
 def read_wheel_velocity_raw(
     packet: Any, port_handler: Any, communication_success: int
 ) -> dict[int, int]:
@@ -448,6 +499,55 @@ class LiveRgbdOdom:
 
 def live_pose(tf_buffer: Any, odom: LiveRgbdOdom) -> tuple[float, float, float, float]:
     return odom.map_pose(tf_buffer)
+
+
+def settle_map_relocalization(
+    node: Any,
+    tf_buffer: Any,
+    odom: LiveRgbdOdom,
+    *,
+    settle_s: float,
+    max_spread_m: float,
+    max_yaw_spread_deg: float,
+    max_tf_stale_s: float,
+) -> tuple[tuple[float, float, float, float], dict[str, float]]:
+    """Hold zero velocity and accept a fresh, locally stable map pose.
+
+    This does not claim to create a new RTAB-Map loop closure. It ensures the
+    controller resumes from a recent ``map -> odom + RGB-D odom`` estimate,
+    rather than retaining a wheel-only pose after wheel/ground slip. A noisy
+    or stale observation fails closed, leaving the final shutdown path to
+    release the wheels.
+    """
+    import rclpy
+
+    deadline = time.monotonic() + settle_s
+    poses: list[tuple[float, float, float, float]] = []
+    last_count = -1
+    while time.monotonic() < deadline:
+        rclpy.spin_once(node, timeout_sec=0.1)
+        try:
+            candidate = live_pose(tf_buffer, odom)
+        except Exception:
+            continue
+        if candidate[3] > max_tf_stale_s or odom.count == last_count:
+            continue
+        poses.append(candidate)
+        last_count = odom.count
+    if len(poses) < 3:
+        raise RuntimeError("map re-localization received fewer than three fresh RGB-D poses")
+    spread_m, yaw_spread_deg = map_pose_spread(poses)
+    if spread_m > max_spread_m or yaw_spread_deg > max_yaw_spread_deg:
+        raise RuntimeError(
+            "map re-localization was not stable: "
+            f"spread={spread_m:.3f} m/{yaw_spread_deg:.1f} deg, "
+            f"allowed={max_spread_m:.3f} m/{max_yaw_spread_deg:.1f} deg"
+        )
+    return poses[-1], {
+        "samples": float(len(poses)),
+        "spread_m": spread_m,
+        "yaw_spread_deg": yaw_spread_deg,
+    }
 
 
 def zero_and_release(packet: Any, port_handler: Any, communication_success: int) -> list[str]:
@@ -609,6 +709,9 @@ def main() -> int:
             "wheel_visual_correction_gain": args.wheel_visual_correction_gain,
             "max_wheel_visual_correction_step_m": args.max_wheel_visual_correction_step_m,
             "max_wheel_visual_yaw_correction_deg": args.max_wheel_visual_yaw_correction_deg,
+            "wheel_visual_relocalize_m": args.wheel_visual_relocalize_m,
+            "max_wheel_visual_relocalizations": args.max_wheel_visual_relocalizations,
+            "relocalization_settle_s": args.relocalization_settle_s,
         },
     }
     if args.dry_run:
@@ -646,6 +749,7 @@ def main() -> int:
     brake_report: dict[str, Any] = {"attempted": False, "active_samples": [], "torque_off_samples": []}
     wheel_tracker: WheelPoseTracker | None = None
     last_visual_correction_count = -1
+    relocalization_events: list[dict[str, Any]] = []
     termination_signal: int | None = None
     previous_handlers: dict[int, Any] = {}
 
@@ -783,8 +887,10 @@ def main() -> int:
                 # features can report false translation while the chassis is
                 # rotating in place. During actual translation, incorporate
                 # each *new* RGB-D sample with a bounded complementary update.
-                # A raw innovation beyond the pre-existing guard still stops
-                # before it can be blended into the control pose.
+                # A moderate disagreement gets one bounded stop-and-reanchor
+                # from the map-frame visual pose. A larger innovation, or a
+                # second disagreement beyond the supervised cap, still fails
+                # closed before it can be blended into the control pose.
                 if feedback_mode == "translate":
                     if wheel_visual_disagreement_m > args.max_wheel_visual_disagreement_m:
                         raise RuntimeError(
@@ -792,6 +898,55 @@ def main() -> int:
                             f"{wheel_visual_disagreement_m:.3f} m exceeds "
                             f"{args.max_wheel_visual_disagreement_m:.3f} m"
                         )
+                    if wheel_visual_disagreement_m > args.wheel_visual_relocalize_m:
+                        if len(relocalization_events) >= args.max_wheel_visual_relocalizations:
+                            raise RuntimeError(
+                                "wheel/RGB-D disagreement requires another map re-localization "
+                                f"({wheel_visual_disagreement_m:.3f} m), but the supervised cap is "
+                                f"{args.max_wheel_visual_relocalizations}"
+                            )
+                        # The chassis must be still before using the map-frame
+                        # pose as a new anchor. Keep torque enabled but command
+                        # zero throughout the short observation window; any
+                        # observation failure exits through verified shutdown.
+                        write_wheel_velocities(
+                            command_writer,
+                            port_handler,
+                            [0, 0, 0],
+                            COMM_SUCCESS,
+                        )
+                        reanchored_pose, reanchor_stats = settle_map_relocalization(
+                            node,
+                            tf_buffer,
+                            rgbd_odom,
+                            settle_s=args.relocalization_settle_s,
+                            max_spread_m=args.relocalization_max_spread_m,
+                            max_yaw_spread_deg=args.relocalization_max_yaw_spread_deg,
+                            max_tf_stale_s=args.max_tf_stale_s,
+                        )
+                        wheel_tracker = WheelPoseTracker(reanchored_pose[:3])
+                        wheel_tracker.update(
+                            read_wheel_velocity_raw(packet, port_handler, COMM_SUCCESS),
+                            time.monotonic(),
+                        )
+                        last_visual_correction_count = rgbd_odom.count
+                        current_x, current_y, current_yaw = wheel_tracker.x_m, wheel_tracker.y_m, wheel_tracker.yaw_deg
+                        previous_pose = (current_x, current_y, current_yaw, reanchored_pose[3])
+                        rotation_anchor_xy = None
+                        feedback_mode = "stopped"
+                        last_progress_time = time.monotonic()
+                        event = {
+                            "event": "map_relocalized_after_wheel_visual_disagreement",
+                            "elapsed_s": round(loop_started - start_time, 3),
+                            "raw_wheel_visual_disagreement_m": round(wheel_visual_disagreement_m, 4),
+                            "map_x": round(current_x, 4),
+                            "map_y": round(current_y, 4),
+                            "map_yaw_deg": round(current_yaw, 2),
+                            **{key: round(value, 4) for key, value in reanchor_stats.items()},
+                        }
+                        relocalization_events.append(event)
+                        samples.append(event)
+                        continue
                     if rgbd_odom.count != last_visual_correction_count:
                         (
                             wheel_visual_disagreement_m,
@@ -1012,6 +1167,7 @@ def main() -> int:
             "reason": reason,
             "samples": samples,
             "arrival": arrival,
+            "map_relocalizations": relocalization_events,
             "shutdown_brake": brake_report,
             "shutdown_errors": shutdown_errors,
         }

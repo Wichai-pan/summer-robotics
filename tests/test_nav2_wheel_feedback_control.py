@@ -4,6 +4,7 @@ import pytest
 
 from tools.nav2_supervised_base_execute import (
     WheelPoseTracker,
+    map_pose_spread,
     wheel_raw_to_body_velocity,
 )
 
@@ -67,6 +68,24 @@ def test_visual_correction_rejects_invalid_parameters() -> None:
             max_position_step_m=0.01,
             max_yaw_step_deg=1.0,
         )
+
+
+def test_map_pose_spread_accepts_small_stable_relocalization_window() -> None:
+    spread_m, yaw_spread_deg = map_pose_spread(
+        [
+            (0.100, -0.200, 179.0, 0.0),
+            (0.105, -0.198, -179.0, 0.0),
+            (0.102, -0.201, -180.0, 0.0),
+        ]
+    )
+
+    assert spread_m == pytest.approx(math.hypot(0.003, 0.003), abs=1e-6)
+    assert yaw_spread_deg == pytest.approx(1.0, abs=1e-6)
+
+
+def test_map_pose_spread_rejects_empty_window() -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        map_pose_spread([])
 
 
 def test_wheel_feedback_rejects_missing_motor() -> None:
