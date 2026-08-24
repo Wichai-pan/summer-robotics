@@ -26,7 +26,7 @@ database, asks Nav2 for a path, then requires a second MOVE confirmation before
 opening the white base controller. Base motion is limited to 0.04 m/s and 12
 deg/s. Any error actively brakes and checks all three torque registers before
 releasing the serial port. White arm IDs 1-6 are never commanded. The
-supervised path cap cannot exceed 1.10 m.
+supervised path cap cannot exceed 1.40 m.
 EOF
 }
 
@@ -59,12 +59,12 @@ done
 python3 - "$max_path_m" "$max_runtime_s" "$max_tracked_travel_m" <<'PY'
 import sys
 path_m, runtime_s, tracked_m = map(float, sys.argv[1:])
-if not 0.0 < path_m <= 1.10:
-    raise SystemExit("--max-path-m must be in (0, 1.10] for supervised motion")
+if not 0.0 < path_m <= 1.40:
+    raise SystemExit("--max-path-m must be in (0, 1.40] for supervised motion")
 if not 0.0 < runtime_s <= 35.0:
     raise SystemExit("--max-runtime-s must be in (0, 35] for supervised motion")
-if not path_m < tracked_m <= 1.25:
-    raise SystemExit("--max-tracked-travel-m must exceed --max-path-m and be <=1.25")
+if not path_m < tracked_m <= 1.55:
+    raise SystemExit("--max-tracked-travel-m must exceed --max-path-m and be <=1.55")
 PY
 
 echo "[1/3] Read-only Gemini gimbal reference check (no torque write)."
