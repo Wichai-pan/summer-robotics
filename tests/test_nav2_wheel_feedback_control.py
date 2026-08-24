@@ -38,6 +38,37 @@ def test_tracker_integrates_measured_rotation() -> None:
     )
 
 
+def test_fresh_visual_update_smoothly_corrects_wheel_slip_without_pose_jump() -> None:
+    tracker = WheelPoseTracker((0.0, 0.0, 0.0))
+    tracker.update({7: 0, 8: 0, 9: 0}, 1.0)
+    tracker.update({7: -452, 8: 0, 9: 452}, 1.2)
+
+    disagreement, correction_m, correction_yaw_deg = tracker.correct_toward_visual(
+        (0.004, 0.0, 10.0),
+        gain=0.5,
+        max_position_step_m=0.002,
+        max_yaw_step_deg=2.0,
+    )
+
+    assert disagreement == pytest.approx(0.004, abs=0.001)
+    assert correction_m == pytest.approx(0.002, abs=1e-6)
+    assert correction_yaw_deg == pytest.approx(2.0, abs=1e-6)
+    assert tracker.x_m == pytest.approx(0.006, abs=0.001)
+    assert tracker.yaw_deg == pytest.approx(2.0, abs=1e-6)
+
+
+def test_visual_correction_rejects_invalid_parameters() -> None:
+    tracker = WheelPoseTracker((0.0, 0.0, 0.0))
+
+    with pytest.raises(ValueError, match="gain"):
+        tracker.correct_toward_visual(
+            (0.0, 0.0, 0.0),
+            gain=0.0,
+            max_position_step_m=0.01,
+            max_yaw_step_deg=1.0,
+        )
+
+
 def test_wheel_feedback_rejects_missing_motor() -> None:
     with pytest.raises(RuntimeError, match="wheel feedback IDs"):
         wheel_raw_to_body_velocity({7: 0, 8: 0})

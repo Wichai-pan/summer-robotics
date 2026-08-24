@@ -219,6 +219,24 @@ def parse_args() -> argparse.Namespace:
         help="in wheel mode, abort translating if RGB-D and wheel poses diverge farther than this",
     )
     parser.add_argument(
+        "--wheel-visual-correction-gain",
+        type=float,
+        default=0.15,
+        help="fresh RGB-D blend gain applied to wheel pose during commanded translation",
+    )
+    parser.add_argument(
+        "--max-wheel-visual-correction-step-m",
+        type=float,
+        default=0.012,
+        help="maximum map-frame position correction from one fresh RGB-D update",
+    )
+    parser.add_argument(
+        "--max-wheel-visual-yaw-correction-deg",
+        type=float,
+        default=2.0,
+        help="maximum heading correction from one fresh RGB-D update",
+    )
+    parser.add_argument(
         "--max-rotate-translation-m",
         type=float,
         default=0.05,
@@ -249,12 +267,17 @@ def validate_limits(args: argparse.Namespace) -> None:
         args.path_lookahead_m,
         args.max_rotate_translation_m,
         args.max_wheel_visual_disagreement_m,
+        args.wheel_visual_correction_gain,
+        args.max_wheel_visual_correction_step_m,
+        args.max_wheel_visual_yaw_correction_deg,
         args.brake_s,
     )
     if not all(math.isfinite(value) and value > 0 for value in values):
         raise ValueError("all execution limits must be finite and > 0")
     if args.max_linear_mps > 0.08 or args.max_angular_deg_s > 20.0:
         raise ValueError("first-motion speed caps are fixed at <=0.08 m/s and <=20 deg/s")
+    if args.wheel_visual_correction_gain > 1.0:
+        raise ValueError("wheel/RGB-D correction gain must be <= 1")
     if args.brake_s > 1.0:
         raise ValueError("first-motion active braking is capped at <=1.0 s")
 
@@ -323,6 +346,46 @@ class WheelPoseTracker:
         self.yaw_deg = wrap_degrees(math.degrees(yaw_rad + wz_rad_s * dt))
         self._last_s = now_s
         return self.x_m, self.y_m, self.yaw_deg
+
+    def correct_toward_visual(
+        self,
+        visual_pose: tuple[float, float, float],
+        *,
+        gain: float,
+        max_position_step_m: float,
+        max_yaw_step_deg: float,
+    ) -> tuple[float, float, float]:
+        """Blend one fresh RGB-D update into the wheel-predicted map pose.
+
+        Motor velocity measures shaft rotation, so floor slip can drift a
+        wheel-only pose. RGB-D can correct that drift but is visibly noisy in
+        this room. Each fresh update is therefore bounded; it never replaces
+        the control pose in one jump. The result is raw disagreement, applied
+        translation and applied yaw correction.
+        """
+        if not 0.0 < gain <= 1.0:
+            raise ValueError("visual correction gain must be in (0, 1]")
+        if not math.isfinite(max_position_step_m) or max_position_step_m <= 0.0:
+            raise ValueError("maximum visual position correction must be positive")
+        if not math.isfinite(max_yaw_step_deg) or max_yaw_step_deg <= 0.0:
+            raise ValueError("maximum visual yaw correction must be positive")
+        visual_x, visual_y, visual_yaw = visual_pose
+        if not all(math.isfinite(value) for value in visual_pose):
+            raise RuntimeError("visual correction pose is non-finite")
+        dx = visual_x - self.x_m
+        dy = visual_y - self.y_m
+        raw_disagreement_m = math.hypot(dx, dy)
+        applied_m = min(max_position_step_m, gain * raw_disagreement_m)
+        if raw_disagreement_m > 0.0:
+            self.x_m += dx * applied_m / raw_disagreement_m
+            self.y_m += dy * applied_m / raw_disagreement_m
+        yaw_innovation_deg = wrap_degrees(visual_yaw - self.yaw_deg)
+        applied_yaw_deg = max(
+            -max_yaw_step_deg,
+            min(max_yaw_step_deg, gain * yaw_innovation_deg),
+        )
+        self.yaw_deg = wrap_degrees(self.yaw_deg + applied_yaw_deg)
+        return raw_disagreement_m, applied_m, applied_yaw_deg
 
 
 def read_wheel_velocity_raw(
@@ -543,6 +606,9 @@ def main() -> int:
             "max_rotate_translation_m": args.max_rotate_translation_m,
             "control_pose_source": args.control_pose_source,
             "max_wheel_visual_disagreement_m": args.max_wheel_visual_disagreement_m,
+            "wheel_visual_correction_gain": args.wheel_visual_correction_gain,
+            "max_wheel_visual_correction_step_m": args.max_wheel_visual_correction_step_m,
+            "max_wheel_visual_yaw_correction_deg": args.max_wheel_visual_yaw_correction_deg,
         },
     }
     if args.dry_run:
@@ -579,6 +645,7 @@ def main() -> int:
     arrival: dict[str, float] | None = None
     brake_report: dict[str, Any] = {"attempted": False, "active_samples": [], "torque_off_samples": []}
     wheel_tracker: WheelPoseTracker | None = None
+    last_visual_correction_count = -1
     termination_signal: int | None = None
     previous_handlers: dict[int, Any] = {}
 
@@ -700,7 +767,10 @@ def main() -> int:
             if age_s > args.max_tf_stale_s:
                 raise RuntimeError(f"RGB-D odometry receive age is {age_s:.3f} s")
             wheel_raw: dict[int, int] | None = None
-            visual_disagreement_m: float | None = None
+            wheel_visual_disagreement_m: float | None = None
+            fused_visual_disagreement_m: float | None = None
+            visual_correction_m: float | None = None
+            visual_yaw_correction_deg: float | None = None
             if args.control_pose_source == "wheel":
                 if wheel_tracker is None:
                     raise RuntimeError("wheel control pose was not initialized")
@@ -708,19 +778,40 @@ def main() -> int:
                 current_x, current_y, current_yaw = wheel_tracker.update(
                     wheel_raw, time.monotonic()
                 )
-                visual_disagreement_m = math.hypot(current_x - visual_x, current_y - visual_y)
-                # RGB-D is known to drift during pure turns, so do not use it
-                # to reject a rotation. Once translating, a large sustained
-                # disagreement is still unsafe and stops the base rather than
-                # silently trusting either source.
-                if (
-                    feedback_mode == "translate"
-                    and visual_disagreement_m > args.max_wheel_visual_disagreement_m
-                ):
-                    raise RuntimeError(
-                        "wheel/RGB-D translation disagreement "
-                        f"{visual_disagreement_m:.3f} m exceeds "
-                        f"{args.max_wheel_visual_disagreement_m:.3f} m"
+                wheel_visual_disagreement_m = math.hypot(current_x - visual_x, current_y - visual_y)
+                # Pure turns are intentionally wheel-only: moving camera
+                # features can report false translation while the chassis is
+                # rotating in place. During actual translation, incorporate
+                # each *new* RGB-D sample with a bounded complementary update.
+                # A raw innovation beyond the pre-existing guard still stops
+                # before it can be blended into the control pose.
+                if feedback_mode == "translate":
+                    if wheel_visual_disagreement_m > args.max_wheel_visual_disagreement_m:
+                        raise RuntimeError(
+                            "wheel/RGB-D translation disagreement "
+                            f"{wheel_visual_disagreement_m:.3f} m exceeds "
+                            f"{args.max_wheel_visual_disagreement_m:.3f} m"
+                        )
+                    if rgbd_odom.count != last_visual_correction_count:
+                        (
+                            wheel_visual_disagreement_m,
+                            visual_correction_m,
+                            visual_yaw_correction_deg,
+                        ) = wheel_tracker.correct_toward_visual(
+                            (visual_x, visual_y, visual_yaw),
+                            gain=args.wheel_visual_correction_gain,
+                            max_position_step_m=args.max_wheel_visual_correction_step_m,
+                            max_yaw_step_deg=args.max_wheel_visual_yaw_correction_deg,
+                        )
+                        last_visual_correction_count = rgbd_odom.count
+                        current_x, current_y, current_yaw = (
+                            wheel_tracker.x_m,
+                            wheel_tracker.y_m,
+                            wheel_tracker.yaw_deg,
+                        )
+                    fused_visual_disagreement_m = math.hypot(
+                        current_x - visual_x,
+                        current_y - visual_y,
                     )
             else:
                 current_x, current_y, current_yaw = visual_x, visual_y, visual_yaw
@@ -856,8 +947,23 @@ def main() -> int:
                     "visual_yaw_deg": round(visual_yaw, 2),
                     "wheel_velocity_raw": wheel_raw,
                     "wheel_visual_disagreement_m": (
-                        round(visual_disagreement_m, 4)
-                        if visual_disagreement_m is not None
+                        round(wheel_visual_disagreement_m, 4)
+                        if wheel_visual_disagreement_m is not None
+                        else None
+                    ),
+                    "fused_visual_disagreement_m": (
+                        round(fused_visual_disagreement_m, 4)
+                        if fused_visual_disagreement_m is not None
+                        else None
+                    ),
+                    "visual_correction_m": (
+                        round(visual_correction_m, 4)
+                        if visual_correction_m is not None
+                        else None
+                    ),
+                    "visual_yaw_correction_deg": (
+                        round(visual_yaw_correction_deg, 3)
+                        if visual_yaw_correction_deg is not None
                         else None
                     ),
                 }
