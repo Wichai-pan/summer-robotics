@@ -50,6 +50,8 @@ Team review documents:
   camera-only 旋转误进展保护、停机阶段 `communication=-6` 证据、降负载修正及下一次只读诊断门槛；
 - [底盘停机验证与轮速反馈导航（2026-08-23）](13-base-stop-and-wheel-feedback-nav2-20260823.md):
   总线/停机复测、短距离监督导航通过、长距离轮速/RGB-D 位姿分歧的安全终止及后续门槛；
+- [监督式 Nav2 长程运行与转向分歧（2026-08-24）](14-supervised-nav2-long-leg-and-rotation-divergence-20260824.md):
+  约 1.3 m 长程到达、停车复核、桌边短路线失败证据及下一次转向验证门槛；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 

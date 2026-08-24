@@ -24,14 +24,18 @@
   passed against this database; a short supervised base motion also passed.
   On 2026-08-23, repeated read-only bus-cadence checks and a raised-wheel
   zero-velocity/torque-off transaction passed, and a grounded 0.04 m/s,
-  one-second pulse moved about 5 cm before a verified stop. The base executor
-  now controls from measured wheel velocity while keeping RGB-D as a liveness
-  and translation-disagreement guard. A 0.214 m supervised run reached its
-  configured arrival tolerance and stopped safely. The current long-route
-  blocker is therefore not an unverified stop: the latest 0.598 m run stopped
-  safely after wheel/RGB-D translation disagreement reached 0.379 m versus a
-  0.200 m limit. Diagnose that inconsistency before enlarging navigation
-  limits; see `docs/slam/13-base-stop-and-wheel-feedback-nav2-20260823.md`.
+  one-second pulse moved about 5 cm before a verified stop. On 2026-08-24,
+  a 1.284 m supervised Nav2 leg near the known map start reached the configured
+  7 cm / 8 degree arrival tolerance in 56.488 s; the operator measured about
+  1.30 m travel and all three wheels were subsequently read back at zero
+  velocity and torque-off. This is a useful long-leg baseline, but the old map
+  is not a robust arbitrary-start localization source. A later short table-side
+  route exposed a more immediate blocker: during the initial nominal rotation,
+  wheel and RGB-D yaw diverged sharply and individual wheel feedback was not
+  rotation-consistent, leading to repeated reorientation and reported desk
+  contact. Do not loosen limits or repeat table-side motion; add a pure-turn
+  consistency abort and validate in open space first. See
+  `docs/slam/14-supervised-nav2-long-leg-and-rotation-divergence-20260824.md`.
 - Improve the fixed-scene ACT grasp by adding deterministic grasp-success feedback around the current policy.
 - Use gripper position/current/load plus the white-wrist RGB stream to distinguish grasp, empty close, slip and jam before allowing transport.
 - Keep all robot USB ownership and execution on the onboard Jetson.
@@ -144,11 +148,13 @@
 
 ## Next Step
 
-1. Inspect the 2026-08-23 long-route trace to distinguish an RGB-D outlier from
-   genuine wheel/visual drift; do not simply widen the 0.200 m safety guard.
-2. Implement and test a temporally robust visual-consistency/fusion rule while
-   keeping immediate zero-command and three-wheel torque-off verification.
-3. Re-run the same intermediate route before extending the route or speed.
+1. Add a pure-rotation wheel-consistency guard: during a rotate-only command,
+   reject incompatible ID7/8/9 signed velocity feedback before translation.
+2. In open space, validate a marked 90-degree turn and a short straight segment
+   against physical observation; retain active braking and three-wheel torque-off
+   verification on every exit.
+3. Only after that gate passes, re-test a fixed table docking pose, then make a
+   gated navigation-to-ACT-grasp state machine.
 4. Measure white-gripper position, velocity, load and current for open, empty
    close, correct jar grasp and slip/jam cases without changing torque limits.
 5. Define and validate a deterministic contact threshold on repeated samples.
