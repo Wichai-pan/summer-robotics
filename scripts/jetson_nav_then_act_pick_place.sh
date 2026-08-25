@@ -102,7 +102,7 @@ echo "=== 1/4 RETURN GEMINI TO MAPPING REFERENCE ==="
   return --execute
 
 echo "=== 2/4 NAVIGATE TO TABLE DOCKING POSE ==="
-"$repo_root/scripts/jetson_slam_nav2_supervised_execute.sh" \
+bash "$repo_root/scripts/jetson_slam_nav2_supervised_execute.sh" \
   --database "$database" \
   --goal-x "$goal_x" \
   --goal-y "$goal_y" \
@@ -125,6 +125,6 @@ echo "=== 3/4 RETURN GEMINI TO ACT GRASP REFERENCE ==="
   return --execute
 
 echo "=== 4/4 RUN SUPERVISED ACT PICK/PLACE ==="
-"$repo_root/scripts/jetson_act_trial.sh" \
+bash "$repo_root/scripts/jetson_act_trial.sh" \
   --label "$label" \
   --steps "$steps"
