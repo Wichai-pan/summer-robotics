@@ -81,6 +81,17 @@ the same 5 cm rotate-only drift guard, and then uses the verified brake and
 torque-release transaction. It is intended to test 30 degrees first and 90
 degrees only after the small physical test is correct.
 
+### Floor-reference yaw calibration (2026-08-25)
+
+With the chassis manually aligned to a tape start line, left and right tests
+each accumulated 90 degrees plus 30 degrees of wheel-feedback target and
+ended at approximately the same physical 90-degree tape reference. The
+observed chassis-yaw-to-feedback ratio is therefore provisionally `0.75`.
+The executor applies this only to the wheel pose tracker's yaw integration
+through the bounded `--wheel-yaw-scale` option (default `0.75`); it does not
+raise motor speed or relax any guard. This requires a subsequent supervised
+route test before it can be treated as a navigation result.
+
 ## Next gate
 
 1. In clear open space, validate the new rotate-only 5 cm drift guard while

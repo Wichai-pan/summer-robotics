@@ -243,6 +243,15 @@ def parse_args() -> argparse.Namespace:
         help="maximum heading correction from one fresh RGB-D update",
     )
     parser.add_argument(
+        "--wheel-yaw-scale",
+        type=float,
+        default=0.75,
+        help=(
+            "physical chassis yaw per wheel-velocity-integrated yaw; calibrated "
+            "from the 2026-08-25 left/right 120-degree feedback ~= 90-degree floor turn"
+        ),
+    )
+    parser.add_argument(
         "--wheel-visual-relocalize-m",
         type=float,
         default=0.12,
@@ -306,6 +315,7 @@ def validate_limits(args: argparse.Namespace) -> None:
         args.wheel_visual_correction_gain,
         args.max_wheel_visual_correction_step_m,
         args.max_wheel_visual_yaw_correction_deg,
+        args.wheel_yaw_scale,
         args.wheel_visual_relocalize_m,
         args.relocalization_settle_s,
         args.relocalization_max_spread_m,
@@ -318,6 +328,8 @@ def validate_limits(args: argparse.Namespace) -> None:
         raise ValueError("first-motion speed caps are fixed at <=0.08 m/s and <=20 deg/s")
     if args.wheel_visual_correction_gain > 1.0:
         raise ValueError("wheel/RGB-D correction gain must be <= 1")
+    if not 0.5 <= args.wheel_yaw_scale <= 1.0:
+        raise ValueError("wheel yaw scale must be in [0.5, 1.0]")
     if args.wheel_visual_relocalize_m >= args.max_wheel_visual_disagreement_m:
         raise ValueError("wheel/RGB-D re-localization threshold must be below the hard disagreement stop")
     if args.max_wheel_visual_relocalizations < 0:
@@ -369,8 +381,16 @@ def wheel_raw_to_body_velocity(raw_by_id: dict[int, int]) -> tuple[float, float,
 class WheelPoseTracker:
     """Integrate actual wheel feedback from a freshly localized map-frame anchor."""
 
-    def __init__(self, anchor_map_pose: tuple[float, float, float]) -> None:
+    def __init__(
+        self,
+        anchor_map_pose: tuple[float, float, float],
+        *,
+        yaw_scale: float = 1.0,
+    ) -> None:
+        if not math.isfinite(yaw_scale) or not 0.5 <= yaw_scale <= 1.0:
+            raise ValueError("wheel yaw scale must be in [0.5, 1.0]")
         self.x_m, self.y_m, self.yaw_deg = anchor_map_pose
+        self.yaw_scale = yaw_scale
         self._last_s: float | None = None
 
     def update(self, raw_by_id: dict[int, int], now_s: float) -> tuple[float, float, float]:
@@ -384,10 +404,11 @@ class WheelPoseTracker:
         if not 0.0 < dt <= 0.35:
             raise RuntimeError(f"wheel feedback gap {dt:.3f} s is outside (0, 0.35]")
         yaw_rad = math.radians(self.yaw_deg)
-        mid_yaw = yaw_rad + 0.5 * wz_rad_s * dt
+        scaled_wz_rad_s = self.yaw_scale * wz_rad_s
+        mid_yaw = yaw_rad + 0.5 * scaled_wz_rad_s * dt
         self.x_m += (math.cos(mid_yaw) * vx - math.sin(mid_yaw) * vy) * dt
         self.y_m += (math.sin(mid_yaw) * vx + math.cos(mid_yaw) * vy) * dt
-        self.yaw_deg = wrap_degrees(math.degrees(yaw_rad + wz_rad_s * dt))
+        self.yaw_deg = wrap_degrees(math.degrees(yaw_rad + scaled_wz_rad_s * dt))
         self._last_s = now_s
         return self.x_m, self.y_m, self.yaw_deg
 
@@ -715,6 +736,7 @@ def main() -> int:
             "wheel_visual_correction_gain": args.wheel_visual_correction_gain,
             "max_wheel_visual_correction_step_m": args.max_wheel_visual_correction_step_m,
             "max_wheel_visual_yaw_correction_deg": args.max_wheel_visual_yaw_correction_deg,
+            "wheel_yaw_scale": args.wheel_yaw_scale,
             "wheel_visual_relocalize_m": args.wheel_visual_relocalize_m,
             "max_wheel_visual_relocalizations": args.max_wheel_visual_relocalizations,
             "relocalization_settle_s": args.relocalization_settle_s,
@@ -846,7 +868,7 @@ def main() -> int:
             # Seed only after serial ownership and mode/torque preparation have
             # succeeded. The global anchor remains the current map-localized
             # pose; wheel feedback supplies the high-rate local correction.
-            wheel_tracker = WheelPoseTracker(first_pose[:3])
+            wheel_tracker = WheelPoseTracker(first_pose[:3], yaw_scale=args.wheel_yaw_scale)
             wheel_tracker.update(
                 read_wheel_velocity_raw(packet, port_handler, COMM_SUCCESS),
                 time.monotonic(),
@@ -930,7 +952,9 @@ def main() -> int:
                             max_yaw_spread_deg=args.relocalization_max_yaw_spread_deg,
                             max_tf_stale_s=args.max_tf_stale_s,
                         )
-                        wheel_tracker = WheelPoseTracker(reanchored_pose[:3])
+                        wheel_tracker = WheelPoseTracker(
+                            reanchored_pose[:3], yaw_scale=args.wheel_yaw_scale
+                        )
                         wheel_tracker.update(
                             read_wheel_velocity_raw(packet, port_handler, COMM_SUCCESS),
                             time.monotonic(),

@@ -40,6 +40,22 @@ def test_tracker_integrates_measured_rotation() -> None:
     )
 
 
+def test_tracker_applies_measured_chassis_yaw_scale() -> None:
+    # Floor references on 2026-08-25 showed approximately 120 degrees of
+    # symmetric left/right wheel feedback is a 90-degree chassis turn.
+    tracker = WheelPoseTracker((0.0, 0.0, 0.0), yaw_scale=0.75)
+    tracker.update({7: 0, 8: 0, 9: 0}, 1.0)
+    _x, _y, yaw = tracker.update({7: 500, 8: 500, 9: 500}, 1.2)
+
+    expected_unscaled = math.degrees(0.05 * 500 * 2 * math.pi / 4096 / 0.125 * 0.2)
+    assert yaw == pytest.approx(0.75 * expected_unscaled, abs=1e-6)
+
+
+def test_tracker_rejects_unbounded_yaw_scale() -> None:
+    with pytest.raises(ValueError, match="yaw scale"):
+        WheelPoseTracker((0.0, 0.0, 0.0), yaw_scale=1.01)
+
+
 def test_wheel_rotate_only_guard_rejects_accumulated_lateral_drift() -> None:
     # Reduced from the 2026-08-24 table-side trace. The wheel-controlled pose
     # began near this anchor but drifted laterally while the command remained
