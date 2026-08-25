@@ -252,6 +252,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--wheel-visual-policy",
+        choices=("bounded", "liveness"),
+        default="bounded",
+        help=(
+            "bounded blends/re-localizes from fresh RGB-D during translation; "
+            "liveness still requires a fresh RGB-D stream and initial map pose, "
+            "but logs rather than applies unstable old-map translation updates"
+        ),
+    )
+    parser.add_argument(
         "--wheel-visual-relocalize-m",
         type=float,
         default=0.12,
@@ -737,6 +747,7 @@ def main() -> int:
             "max_wheel_visual_correction_step_m": args.max_wheel_visual_correction_step_m,
             "max_wheel_visual_yaw_correction_deg": args.max_wheel_visual_yaw_correction_deg,
             "wheel_yaw_scale": args.wheel_yaw_scale,
+            "wheel_visual_policy": args.wheel_visual_policy,
             "wheel_visual_relocalize_m": args.wheel_visual_relocalize_m,
             "max_wheel_visual_relocalizations": args.max_wheel_visual_relocalizations,
             "relocalization_settle_s": args.relocalization_settle_s,
@@ -919,7 +930,7 @@ def main() -> int:
                 # from the map-frame visual pose. A larger innovation, or a
                 # second disagreement beyond the supervised cap, still fails
                 # closed before it can be blended into the control pose.
-                if feedback_mode == "translate":
+                if feedback_mode == "translate" and args.wheel_visual_policy == "bounded":
                     if wheel_visual_disagreement_m > args.max_wheel_visual_disagreement_m:
                         raise RuntimeError(
                             "wheel/RGB-D translation disagreement "

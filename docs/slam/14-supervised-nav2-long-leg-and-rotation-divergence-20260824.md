@@ -92,6 +92,19 @@ through the bounded `--wheel-yaw-scale` option (default `0.75`); it does not
 raise motor speed or relax any guard. This requires a subsequent supervised
 route test before it can be treated as a navigation result.
 
+### Corrected short-route result (2026-08-25)
+
+The corrected 0.625 m route started with wheel and visual heading in close
+agreement (at 7.4 s: wheel `-28.26` degrees, visual `-28.08` degrees), so the
+yaw calibration did not cause the stop. During the subsequent translation, the
+old-map visual pose exceeded the 12 cm wheel/visual re-localization threshold.
+The required 3 s visual settle had a spread of 8.6 cm and 9.2 degrees, above
+the 4 cm/6 degree acceptance bound, so the executor safely braked and released
+all wheels. For a clearly supervised, short, obstacle-free wheel-control
+experiment, `--wheel-visual-policy liveness` keeps fresh RGB-D and initial
+map-pose requirements but records rather than applies that unstable old-map
+translation correction. The default `bounded` policy is unchanged.
+
 ## Next gate
 
 1. In clear open space, validate the new rotate-only 5 cm drift guard while

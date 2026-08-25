@@ -1,11 +1,14 @@
 import math
+import sys
 
 import pytest
 
 from tools.nav2_supervised_base_execute import (
     WheelPoseTracker,
     map_pose_spread,
+    parse_args,
     validate_rotate_only_feedback,
+    validate_limits,
     wheel_raw_to_body_velocity,
 )
 
@@ -54,6 +57,27 @@ def test_tracker_applies_measured_chassis_yaw_scale() -> None:
 def test_tracker_rejects_unbounded_yaw_scale() -> None:
     with pytest.raises(ValueError, match="yaw scale"):
         WheelPoseTracker((0.0, 0.0, 0.0), yaw_scale=1.01)
+
+
+def test_wheel_liveness_policy_is_an_explicit_valid_execution_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "nav2_supervised_base_execute.py",
+            "--path-json",
+            "path.json",
+            "--output",
+            "report.json",
+            "--wheel-visual-policy",
+            "liveness",
+        ],
+    )
+    args = parse_args()
+    validate_limits(args)
+    assert args.wheel_visual_policy == "liveness"
 
 
 def test_wheel_rotate_only_guard_rejects_accumulated_lateral_drift() -> None:
