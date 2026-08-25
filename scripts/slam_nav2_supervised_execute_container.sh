@@ -13,6 +13,7 @@ max_path_m=0.30
 max_runtime_s=20
 max_tracked_travel_m=0.40
 control_pose_source="rgbd"
+wheel_visual_policy="bounded"
 
 usage() {
   cat <<'EOF'
@@ -20,6 +21,7 @@ Usage: slam_nav2_supervised_execute_container.sh --database PATH --goal-x M --go
        [--goal-yaw-deg DEG] [--duration S] [--config PATH]
        [--gimbal-reference PATH] [--robot-radius-m M] [--max-path-m M]
        [--max-runtime-s S] [--max-tracked-travel-m M] [--control-pose-source rgbd|wheel]
+       [--wheel-visual-policy bounded|liveness]
 
 First-motion navigation test only: localizes Gemini against a read-only RTAB-Map
 database, asks Nav2 for a path, then requires a second MOVE confirmation before
@@ -44,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     --max-runtime-s) max_runtime_s="${2:?missing maximum runtime}"; shift 2 ;;
     --max-tracked-travel-m) max_tracked_travel_m="${2:?missing maximum travel}"; shift 2 ;;
     --control-pose-source) control_pose_source="${2:?missing control pose source}"; shift 2 ;;
+    --wheel-visual-policy) wheel_visual_policy="${2:?missing wheel visual policy}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -54,6 +57,10 @@ done
 [[ "$duration" =~ ^[1-9][0-9]*$ ]] || { echo "--duration must be a positive integer" >&2; exit 2; }
 [[ "$control_pose_source" == "rgbd" || "$control_pose_source" == "wheel" ]] || {
   echo "--control-pose-source must be rgbd or wheel" >&2
+  exit 2
+}
+[[ "$wheel_visual_policy" == "bounded" || "$wheel_visual_policy" == "liveness" ]] || {
+  echo "--wheel-visual-policy must be bounded or liveness" >&2
   exit 2
 }
 python3 - "$max_path_m" "$max_runtime_s" "$max_tracked_travel_m" <<'PY'
@@ -75,7 +82,7 @@ cat <<EOF
 [3/3] Supervised first-motion test: RTAB-Map database remains read-only; Nav2
 will plan first. The base stays torque-free until the later MOVE confirmation.
 Safety caps: planned path <=${max_path_m} m; base <=0.04 m/s and <=12 deg/s;
-${max_runtime_s} s max. Control pose=${control_pose_source}. Any stop must verify all three wheel torque registers.
+${max_runtime_s} s max. Control pose=${control_pose_source}; wheel visual policy=${wheel_visual_policy}. Any stop must verify all three wheel torque registers.
 EOF
 read -r -p "Type PLAN to open Gemini, localize, and compute the short path: " answer
 [[ "$answer" == "PLAN" ]] || { echo "Cancelled before camera or base torque was enabled."; exit 2; }
@@ -92,6 +99,7 @@ bash scripts/slam_static_odom_container.sh \
   --nav2-execute-max-linear-mps 0.04 \
   --nav2-execute-max-angular-deg-s 12 \
   --nav2-execute-max-tracked-travel-m "$max_tracked_travel_m" \
-  --nav2-execute-control-pose-source "$control_pose_source"
+  --nav2-execute-control-pose-source "$control_pose_source" \
+  --nav2-execute-wheel-visual-policy "$wheel_visual_policy"
 
 echo "PASS supervised Nav2 first-motion session. Inspect the printed /data/slam/nav2-supervised-execute timestamp directory."
