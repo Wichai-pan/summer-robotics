@@ -24,6 +24,7 @@ nav2_execute_control_pose_source="rgbd"
 nav2_execute_wheel_visual_policy="bounded"
 nav2_execute_dock_entry_distance_m="0"
 nav2_execute_dock_yaw_align_tolerance_deg="6"
+nav2_execute_position_tolerance_m="0.07"
 ready_file=""
 camera_width=0
 camera_height=0
@@ -42,6 +43,7 @@ Usage: slam_static_odom_container.sh [--duration SECONDS] [--output-root PATH] [
                                      [--nav2-execute-max-tracked-travel-m M] [--nav2-execute-control-pose-source rgbd|wheel]
                                      [--nav2-execute-wheel-visual-policy bounded|liveness]
                                      [--nav2-execute-dock-entry-distance-m M] [--nav2-execute-dock-yaw-align-tolerance-deg DEG]
+                                     [--nav2-execute-position-tolerance-m M]
                                      [--ready-file PATH] [--camera-width PX]
                                      [--camera-height PX] [--camera-fps HZ]
 
@@ -73,6 +75,7 @@ while [[ $# -gt 0 ]]; do
   --nav2-execute-wheel-visual-policy) nav2_execute_wheel_visual_policy="${2:?missing wheel visual policy}"; shift 2 ;;
   --nav2-execute-dock-entry-distance-m) nav2_execute_dock_entry_distance_m="${2:?missing dock entry distance}"; shift 2 ;;
   --nav2-execute-dock-yaw-align-tolerance-deg) nav2_execute_dock_yaw_align_tolerance_deg="${2:?missing dock yaw tolerance}"; shift 2 ;;
+  --nav2-execute-position-tolerance-m) nav2_execute_position_tolerance_m="${2:?missing position tolerance}"; shift 2 ;;
   --ready-file) ready_file="${2:?missing value for --ready-file}"; shift 2 ;;
   --camera-width) camera_width="${2:?missing value for --camera-width}"; shift 2 ;;
   --camera-height) camera_height="${2:?missing value for --camera-height}"; shift 2 ;;
@@ -642,7 +645,8 @@ PY
         --control-pose-source "$nav2_execute_control_pose_source" \
         --wheel-visual-policy "$nav2_execute_wheel_visual_policy" \
         --dock-entry-distance-m "$nav2_execute_dock_entry_distance_m" \
-        --dock-yaw-align-tolerance-deg "$nav2_execute_dock_yaw_align_tolerance_deg"
+        --dock-yaw-align-tolerance-deg "$nav2_execute_dock_yaw_align_tolerance_deg" \
+        --position-tolerance-m "$nav2_execute_position_tolerance_m"
     fi
   fi
 fi

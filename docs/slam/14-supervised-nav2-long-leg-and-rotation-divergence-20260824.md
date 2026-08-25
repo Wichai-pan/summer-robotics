@@ -146,3 +146,9 @@ The first physical use must start with a generous entry radius in a clear
 approach corridor and a short table-free validation of lateral direction. It
 does not authorize pressing the base into a table; the final base pose must
 still leave room for the arm and its safety clearance.
+
+The wrapper exposes `--position-tolerance-m` (default `0.07`) so a confirmed
+table docking pose can explicitly tighten its final XY arrival gate, for
+example to `0.025`. This changes only when the controller declares arrival; it
+does not silently change map coordinates or the default supervised-navigation
+behaviour.
