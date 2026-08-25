@@ -61,16 +61,34 @@ area. This evidence does not yet identify whether the primary cause is motor
 response, wheel slip, feedback semantics or visual-yaw error; it does prove
 that the current rotate-only condition is insufficient.
 
+## Implemented software gate (2026-08-25)
+
+Commit `379f2bb` applies the pre-existing `max_rotate_translation_m` bound to
+wheel-feedback control as well as RGB-D-only control. A rotate-only command
+whose current control pose drifts farther than 5 cm from its rotation anchor
+now raises an error before later path correction can steer toward furniture;
+the existing active zero-velocity brake and three-wheel torque-off readback
+remain the common exit path. The targeted Jetson-container tests
+`test_nav2_rotation_progress_guard.py` and `test_nav2_wheel_feedback_control.py`
+passed 20 tests without mapping hardware devices. This has not yet been
+physically validated and does not by itself establish the faulty sensor or
+wheel.
+
+`tools/base_turn_diagnostic.py` adds a separate open-space test that does not
+load the map or command Gemini/arm motors. It commands only IDs 7/8/9 for one
+bounded 5--90 degree turn, records their present-velocity integration, applies
+the same 5 cm rotate-only drift guard, and then uses the verified brake and
+torque-release transaction. It is intended to test 30 degrees first and 90
+degrees only after the small physical test is correct.
+
 ## Next gate
 
-1. Add a fail-closed rotate-only feedback-consistency check before continuing
-   any navigation work. It must command zero velocity and perform the existing
-   three-wheel brake/torque-off verification on a violation.
-2. In clear open space, validate one marked approximately 90-degree turn and
+1. In clear open space, validate the new rotate-only 5 cm drift guard while
+   performing one marked approximately 90-degree turn and
    one short forward segment; compare operator observation, commanded values,
    per-wheel feedback and visual pose without furniture nearby.
-3. If that gate passes, select a fixed map-frame docking pose in front of the
+2. If that gate passes, select a fixed map-frame docking pose in front of the
    table, run navigation to it, then switch Gemini from the mapping reference
    to the fixed ACT/IK grasp reference before any arm action.
-4. Do not relax speed, travel, runtime or visual-disagreement safety limits as
+3. Do not relax speed, travel, runtime or visual-disagreement safety limits as
    a substitute for this validation.

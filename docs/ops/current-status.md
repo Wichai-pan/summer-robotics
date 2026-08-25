@@ -148,9 +148,11 @@
 
 ## Next Step
 
-1. Add a pure-rotation wheel-consistency guard: during a rotate-only command,
-   reject incompatible ID7/8/9 signed velocity feedback before translation.
-2. In open space, validate a marked 90-degree turn and a short straight segment
+1. Commit `379f2bb` applies the 5 cm rotate-only drift guard to wheel control
+   and passed 20 targeted non-hardware Nav2 tests in the Jetson container.
+   Validate this fail-closed condition on the physical base.
+2. Use `tools/base_turn_diagnostic.py` to validate a marked 30-degree turn
+   before repeating it at 90 degrees, then test a short straight segment
    against physical observation; retain active braking and three-wheel torque-off
    verification on every exit.
 3. Only after that gate passes, re-test a fixed table docking pose, then make a
