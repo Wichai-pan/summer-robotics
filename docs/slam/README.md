@@ -52,6 +52,8 @@ Team review documents:
   总线/停机复测、短距离监督导航通过、长距离轮速/RGB-D 位姿分歧的安全终止及后续门槛；
 - [监督式 Nav2 长程运行与转向分歧（2026-08-24）](14-supervised-nav2-long-leg-and-rotation-divergence-20260824.md):
   约 1.3 m 长程到达、停车复核、桌边短路线失败证据及下一次转向验证门槛；
+- [监督式 Nav2 到 ACT 抓取放置编排（2026-08-25）](15-nav-to-act-pick-place-pipeline-20260825.md):
+  保留独立诊断入口的四阶段 MVP 编排、人工确认门和当前边界；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
