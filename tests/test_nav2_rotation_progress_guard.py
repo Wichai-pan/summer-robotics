@@ -141,7 +141,7 @@ def test_20260818_rotate_only_trace_aborts_on_false_translation() -> None:
     for current_x, current_y in rotate_only_poses[:-1]:
         validate_rotate_only_feedback(anchor, current_x, current_y, 0.05)
 
-    with pytest.raises(RuntimeError, match="camera-only base feedback is inconsistent"):
+    with pytest.raises(RuntimeError, match="base feedback is inconsistent"):
         validate_rotate_only_feedback(anchor, *rotate_only_poses[-1], 0.05)
 
 

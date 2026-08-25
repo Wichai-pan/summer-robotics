@@ -5,6 +5,7 @@ import pytest
 from tools.nav2_supervised_base_execute import (
     WheelPoseTracker,
     map_pose_spread,
+    validate_rotate_only_feedback,
     wheel_raw_to_body_velocity,
 )
 
@@ -37,6 +38,19 @@ def test_tracker_integrates_measured_rotation() -> None:
     assert yaw == pytest.approx(
         math.degrees(0.05 * 500 * 2 * math.pi / 4096 / 0.125 * 0.2), abs=1e-6
     )
+
+
+def test_wheel_rotate_only_guard_rejects_accumulated_lateral_drift() -> None:
+    # Reduced from the 2026-08-24 table-side trace. The wheel-controlled pose
+    # began near this anchor but drifted laterally while the command remained
+    # rotate-only. The guard must apply before a later path correction can turn
+    # the chassis toward furniture.
+    anchor = (0.0176, -0.0136)
+
+    assert validate_rotate_only_feedback(anchor, 0.0326, -0.0141, 0.05) < 0.05
+
+    with pytest.raises(RuntimeError, match="base feedback is inconsistent"):
+        validate_rotate_only_feedback(anchor, 0.0700, -0.0120, 0.05)
 
 
 def test_fresh_visual_update_smoothly_corrects_wheel_slip_without_pose_jump() -> None:

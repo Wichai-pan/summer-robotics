@@ -172,12 +172,18 @@ def validate_rotate_only_feedback(
     current_y: float,
     maximum_translation_m: float,
 ) -> float:
-    """Reject camera-only translation produced by an in-place turn."""
+    """Reject any control-pose translation produced by an in-place turn.
+
+    RGB-D-only control originally used this check to reject false camera
+    translation. Wheel-feedback control needs the same physical invariant: a
+    rotate-only command must not be allowed to accumulate a large XY motion,
+    even if that motion comes from wheel slip or inconsistent wheel feedback.
+    """
     translation_m = math.hypot(current_x - anchor_xy[0], current_y - anchor_xy[1])
     if translation_m > maximum_translation_m:
         raise RuntimeError(
-            "rotate-only RGB-D pose reported "
-            f"{translation_m:.3f} m translation; camera-only base feedback is inconsistent"
+            "rotate-only control pose reported "
+            f"{translation_m:.3f} m translation; base feedback is inconsistent"
         )
     return translation_m
 
@@ -981,7 +987,7 @@ def main() -> int:
 
             goal_distance = math.hypot(final_goal[0] - current_x, final_goal[1] - current_y)
             yaw_error_to_goal = wrap_degrees(final_goal[2] - current_yaw)
-            if feedback_mode == "rotate" and args.control_pose_source == "rgbd":
+            if feedback_mode == "rotate":
                 if rotation_anchor_xy is None:
                     raise RuntimeError("rotate-only feedback is missing its pose anchor")
                 validate_rotate_only_feedback(
