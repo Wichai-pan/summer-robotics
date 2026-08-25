@@ -14,6 +14,8 @@ max_runtime_s=20
 max_tracked_travel_m=0.40
 control_pose_source="rgbd"
 wheel_visual_policy="bounded"
+dock_entry_distance_m="0"
+dock_yaw_align_tolerance_deg="6"
 
 usage() {
   cat <<'EOF'
@@ -22,6 +24,7 @@ Usage: slam_nav2_supervised_execute_container.sh --database PATH --goal-x M --go
        [--gimbal-reference PATH] [--robot-radius-m M] [--max-path-m M]
        [--max-runtime-s S] [--max-tracked-travel-m M] [--control-pose-source rgbd|wheel]
        [--wheel-visual-policy bounded|liveness]
+       [--dock-entry-distance-m M] [--dock-yaw-align-tolerance-deg DEG]
 
 First-motion navigation test only: localizes Gemini against a read-only RTAB-Map
 database, asks Nav2 for a path, then requires a second MOVE confirmation before
@@ -47,6 +50,8 @@ while [[ $# -gt 0 ]]; do
     --max-tracked-travel-m) max_tracked_travel_m="${2:?missing maximum travel}"; shift 2 ;;
     --control-pose-source) control_pose_source="${2:?missing control pose source}"; shift 2 ;;
     --wheel-visual-policy) wheel_visual_policy="${2:?missing wheel visual policy}"; shift 2 ;;
+    --dock-entry-distance-m) dock_entry_distance_m="${2:?missing dock entry distance}"; shift 2 ;;
+    --dock-yaw-align-tolerance-deg) dock_yaw_align_tolerance_deg="${2:?missing dock yaw tolerance}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -100,6 +105,8 @@ bash scripts/slam_static_odom_container.sh \
   --nav2-execute-max-angular-deg-s 12 \
   --nav2-execute-max-tracked-travel-m "$max_tracked_travel_m" \
   --nav2-execute-control-pose-source "$control_pose_source" \
-  --nav2-execute-wheel-visual-policy "$wheel_visual_policy"
+  --nav2-execute-wheel-visual-policy "$wheel_visual_policy" \
+  --nav2-execute-dock-entry-distance-m "$dock_entry_distance_m" \
+  --nav2-execute-dock-yaw-align-tolerance-deg "$dock_yaw_align_tolerance_deg"
 
 echo "PASS supervised Nav2 first-motion session. Inspect the printed /data/slam/nav2-supervised-execute timestamp directory."

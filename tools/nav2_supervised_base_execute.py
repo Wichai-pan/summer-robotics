@@ -188,6 +188,24 @@ def validate_rotate_only_feedback(
     return translation_m
 
 
+def map_delta_to_body_velocity(
+    delta_x_m: float, delta_y_m: float, yaw_deg: float, speed_mps: float
+) -> tuple[float, float]:
+    """Map-frame displacement to holonomic base-frame translation without yaw."""
+    distance_m = math.hypot(delta_x_m, delta_y_m)
+    if not all(math.isfinite(value) for value in (delta_x_m, delta_y_m, yaw_deg, speed_mps)):
+        raise ValueError("dock velocity inputs must be finite")
+    if distance_m <= 0.0 or speed_mps <= 0.0:
+        return 0.0, 0.0
+    yaw_rad = math.radians(yaw_deg)
+    map_vx = speed_mps * delta_x_m / distance_m
+    map_vy = speed_mps * delta_y_m / distance_m
+    return (
+        math.cos(yaw_rad) * map_vx + math.sin(yaw_rad) * map_vy,
+        -math.sin(yaw_rad) * map_vx + math.cos(yaw_rad) * map_vy,
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--path-json", type=Path, required=True)
@@ -303,6 +321,21 @@ def parse_args() -> argparse.Namespace:
         default=0.8,
         help="active zero-velocity braking time before wheel torque is released",
     )
+    parser.add_argument(
+        "--dock-entry-distance-m",
+        type=float,
+        default=0.0,
+        help=(
+            "explicit table-docking mode: align goal yaw at this distance, then translate "
+            "holonomically with no further yaw commands; 0 disables docking mode"
+        ),
+    )
+    parser.add_argument(
+        "--dock-yaw-align-tolerance-deg",
+        type=float,
+        default=6.0,
+        help="maximum yaw error allowed while translating in explicit docking mode",
+    )
     parser.add_argument("--dry-run", action="store_true", help="validate plan only; never open serial or ROS TF")
     return parser.parse_args()
 
@@ -331,6 +364,7 @@ def validate_limits(args: argparse.Namespace) -> None:
         args.relocalization_max_spread_m,
         args.relocalization_max_yaw_spread_deg,
         args.brake_s,
+        args.dock_yaw_align_tolerance_deg,
     )
     if not all(math.isfinite(value) and value > 0 for value in values):
         raise ValueError("all execution limits must be finite and > 0")
@@ -346,6 +380,10 @@ def validate_limits(args: argparse.Namespace) -> None:
         raise ValueError("maximum wheel/RGB-D re-localizations must be >= 0")
     if args.brake_s > 1.0:
         raise ValueError("first-motion active braking is capped at <=1.0 s")
+    if args.dock_entry_distance_m and args.dock_entry_distance_m <= args.position_tolerance_m:
+        raise ValueError("dock entry distance must exceed position tolerance when docking mode is enabled")
+    if not math.isfinite(args.dock_entry_distance_m) or args.dock_entry_distance_m < 0.0:
+        raise ValueError("dock entry distance must be finite and >= 0")
 
 
 def compose_map_pose(
@@ -751,6 +789,8 @@ def main() -> int:
             "wheel_visual_relocalize_m": args.wheel_visual_relocalize_m,
             "max_wheel_visual_relocalizations": args.max_wheel_visual_relocalizations,
             "relocalization_settle_s": args.relocalization_settle_s,
+            "dock_entry_distance_m": args.dock_entry_distance_m,
+            "dock_yaw_align_tolerance_deg": args.dock_yaw_align_tolerance_deg,
         },
     }
     if args.dry_run:
@@ -900,6 +940,7 @@ def main() -> int:
         final_goal = points[-1]
         rotation_anchor_xy: tuple[float, float] | None = None
         feedback_mode = "stopped"
+        dock_phase = "disabled" if args.dock_entry_distance_m == 0.0 else "approach"
         period = 1.0 / LOOP_HZ
         while True:
             loop_started = time.monotonic()
@@ -1051,11 +1092,16 @@ def main() -> int:
             desired_heading = math.degrees(math.atan2(target_y - current_y, target_x - current_x))
             heading_error = wrap_degrees(desired_heading - current_yaw)
             rotate_only = abs(heading_error) > 12.0
+            if dock_phase == "approach" and goal_distance <= args.dock_entry_distance_m:
+                # At the entry radius there is still clearance to align the
+                # chassis. Once aligned, the table-side phase never rotates.
+                dock_phase = "align"
+            progress_heading_error = yaw_error_to_goal if dock_phase == "align" else heading_error
             if goal_distance > args.position_tolerance_m:
                 made_progress, best_goal_distance, best_path_heading_error = path_alignment_progress(
                     goal_distance,
                     best_goal_distance,
-                    heading_error,
+                    progress_heading_error,
                     best_path_heading_error,
                     feedback_mode=feedback_mode,
                 )
@@ -1072,7 +1118,48 @@ def main() -> int:
             elif loop_started - last_progress_time > args.progress_timeout_s:
                 raise RuntimeError("no meaningful final-yaw progress within timeout")
 
-            if goal_distance <= args.position_tolerance_m:
+            body_vx = 0.0
+            body_vy = 0.0
+            if dock_phase == "align" and abs(yaw_error_to_goal) <= args.dock_yaw_align_tolerance_deg:
+                dock_phase = "translate"
+                rotation_anchor_xy = None
+
+            if dock_phase == "translate":
+                if abs(yaw_error_to_goal) > args.dock_yaw_align_tolerance_deg:
+                    raise RuntimeError(
+                        "dock yaw drift %.1f deg exceeds %.1f deg; braking rather than rotating near table"
+                        % (abs(yaw_error_to_goal), args.dock_yaw_align_tolerance_deg)
+                    )
+                if goal_distance <= args.position_tolerance_m:
+                    write_wheel_velocities(command_writer, port_handler, [0, 0, 0], COMM_SUCCESS)
+                    arrival = {
+                        "elapsed_s": round(elapsed, 3),
+                        "x": round(current_x, 4),
+                        "y": round(current_y, 4),
+                        "yaw_deg": round(current_yaw, 2),
+                        "goal_distance_m": round(goal_distance, 4),
+                        "goal_yaw_error_deg": round(yaw_error_to_goal, 2),
+                        "dock_phase": dock_phase,
+                    }
+                    samples.append({"event": "goal_reached", **arrival})
+                    status = "PASS"
+                    reason = "dock_goal_position_and_yaw_reached"
+                    break
+                speed = min(args.max_linear_mps, max(0.015, 0.45 * goal_distance))
+                body_vx, body_vy = map_delta_to_body_velocity(
+                    final_goal[0] - current_x, final_goal[1] - current_y, current_yaw, speed
+                )
+                linear = math.hypot(body_vx, body_vy)
+                angular = 0.0
+                yaw_error = yaw_error_to_goal
+            elif dock_phase == "align":
+                linear = 0.0
+                angular = max(
+                    -args.max_angular_deg_s,
+                    min(args.max_angular_deg_s, 0.6 * yaw_error_to_goal),
+                )
+                yaw_error = yaw_error_to_goal
+            elif goal_distance <= args.position_tolerance_m:
                 yaw_error = yaw_error_to_goal
                 if abs(yaw_error) <= args.yaw_tolerance_deg:
                     write_wheel_velocities(command_writer, port_handler, [0, 0, 0], COMM_SUCCESS)
@@ -1103,7 +1190,10 @@ def main() -> int:
                 )
                 yaw_error = heading_error
 
-            raw = body_to_wheel_raw(linear, 0.0, angular)
+            if dock_phase != "translate":
+                body_vx = linear
+                body_vy = 0.0
+            raw = body_to_wheel_raw(body_vx, body_vy, angular)
             write_wheel_velocities(
                 command_writer,
                 port_handler,
@@ -1119,7 +1209,7 @@ def main() -> int:
                 best_path_heading_error = rotation_progress_baseline(
                     feedback_mode,
                     next_feedback_mode,
-                    heading_error,
+                    progress_heading_error,
                     best_path_heading_error,
                 )
                 last_progress_time = loop_started
@@ -1136,7 +1226,10 @@ def main() -> int:
                     "path_index": float(waypoint_index),
                     "steering_index": float(steering_index),
                     "linear_mps": round(linear, 4),
+                    "body_vx_mps": round(body_vx, 4),
+                    "body_vy_mps": round(body_vy, 4),
                     "angular_deg_s": round(angular, 3),
+                    "dock_phase": dock_phase,
                     "control_pose_source": args.control_pose_source,
                     "visual_x": round(visual_x, 4),
                     "visual_y": round(visual_y, 4),

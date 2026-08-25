@@ -6,11 +6,26 @@ import pytest
 from tools.nav2_supervised_base_execute import (
     WheelPoseTracker,
     map_pose_spread,
+    map_delta_to_body_velocity,
     parse_args,
     validate_rotate_only_feedback,
     validate_limits,
     wheel_raw_to_body_velocity,
 )
+
+
+def test_dock_translation_converts_map_forward_to_body_forward_at_minus_yaw() -> None:
+    vx, vy = map_delta_to_body_velocity(0.0, -0.20, -90.0, 0.04)
+
+    assert vx == pytest.approx(0.04, abs=1e-6)
+    assert vy == pytest.approx(0.0, abs=1e-6)
+
+
+def test_dock_translation_can_correct_lateral_error_without_yaw_command() -> None:
+    vx, vy = map_delta_to_body_velocity(-0.10, 0.0, -90.0, 0.04)
+
+    assert vx == pytest.approx(0.0, abs=1e-6)
+    assert vy == pytest.approx(-0.04, abs=1e-6)
 
 
 def test_measured_forward_wheel_feedback_matches_established_command_scale() -> None:

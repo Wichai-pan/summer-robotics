@@ -116,3 +116,30 @@ translation correction. The default `bounded` policy is unchanged.
    to the fixed ACT/IK grasp reference before any arm action.
 3. Do not relax speed, travel, runtime or visual-disagreement safety limits as
    a substitute for this validation.
+
+## Table docking mode (2026-08-25)
+
+The 2026-08-25 table-edge trace against the newer manual-push map reached a
+state near `(0.16, -0.32, -151 degrees)` while its configured table goal was
+`(0.052, -0.357, -90 degrees)`. It was still about 11 cm from the goal, so this
+was not a successful arrival followed by an unnecessary final-yaw correction.
+The legacy follower had no lateral command: with an X error beside the table it
+kept turning toward the final path point, which is not acceptable near furniture.
+
+`tools/nav2_supervised_base_execute.py` now has an **opt-in** docking mode:
+
+- `--dock-entry-distance-m M` is disabled at `0` (the default), preserving
+  existing supervised-nav behaviour. When enabled, it defines the clearance
+  radius at which the base stops ordinary path following and aligns to the
+  configured goal yaw.
+- After alignment, it converts the remaining map-frame XY error into the
+  holonomic base frame and commands forward/backward plus lateral translation
+  with zero angular velocity. It logs `body_vx_mps`, `body_vy_mps` and
+  `dock_phase` in the execution report.
+- If yaw exceeds `--dock-yaw-align-tolerance-deg` during that final translation,
+  the session brakes and releases torque rather than rotating beside the table.
+
+The first physical use must start with a generous entry radius in a clear
+approach corridor and a short table-free validation of lateral direction. It
+does not authorize pressing the base into a table; the final base pose must
+still leave room for the arm and its safety clearance.
