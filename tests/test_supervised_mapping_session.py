@@ -33,6 +33,8 @@ def test_manual_push_mapping_cannot_access_or_command_the_base() -> None:
     assert "slam_manual_push_mapping_container.sh" in host
     assert "Type MANUAL_MAP" in container
     assert "--mode mapping" in container
+    assert "Recording window is live" in container
+    assert "--ready-file" in container
     assert "base_keyboard.py" not in container
     assert "white/base serial device" in container
 

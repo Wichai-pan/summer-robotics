@@ -37,6 +37,18 @@ done
 
 [[ "$duration" =~ ^[1-9][0-9]*$ ]] || { echo "--duration must be a positive integer" >&2; exit 2; }
 
+ready_file="/tmp/forestbridge-slam-manual-push-ready.json"
+rm -f "$ready_file"
+mapping_pid=""
+
+cleanup() {
+  if [[ -n "$mapping_pid" ]] && kill -0 "$mapping_pid" 2>/dev/null; then
+    kill -INT "$mapping_pid" 2>/dev/null || true
+    wait "$mapping_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
 echo "[1/3] Read-only Gemini gimbal reference check (no torque write)."
 python3 tools/gemini_gimbal_pose.py \
   --reference "$gimbal_reference" check --tolerance-deg 1.0
@@ -62,6 +74,24 @@ read -r -p "Type MANUAL_MAP to open Gemini and start recording: " answer
 bash scripts/slam_static_odom_container.sh \
   --mode mapping --transform-config "$config" --duration "$duration" \
   --camera-width "$camera_width" --camera-height "$camera_height" --camera-fps "$camera_fps" \
-  --output-root /data/slam/mapping
+  --output-root /data/slam/mapping --ready-file "$ready_file" &
+mapping_pid=$!
+
+deadline=$((SECONDS + 70))
+while [[ ! -e "$ready_file" ]]; do
+  if ! kill -0 "$mapping_pid" 2>/dev/null; then
+    wait "$mapping_pid"
+    exit 1
+  fi
+  if (( SECONDS >= deadline )); then
+    echo "Timed out waiting for the recording window; no base serial device was opened." >&2
+    exit 1
+  fi
+  sleep 0.2
+done
+
+echo "Recording window is live. Begin the manual push now; no wheel command will be sent."
+wait "$mapping_pid"
+mapping_pid=""
 
 echo "PASS manual-push mapping session. Inspect the printed /data/slam/mapping timestamp directory."

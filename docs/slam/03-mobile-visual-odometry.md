@@ -114,9 +114,9 @@ bash scripts/jetson_slam_manual_push_mapping.sh \
   --gimbal-reference /data/config/gemini_gimbal_mapping_down_20deg_v1.json
 ```
 
-输入 `MANUAL_MAP` 后才会打开 Gemini。手推时保持云台固定、缓慢连续走一条外圈并增加
-一条交叉补扫路线；优先让相机看到墙角、桌腿和柜边等固定特征。无需“推一下、停一下”；
-只有经过这些明显特征时可以短暂停留。人员应避免在镜头前走动。运行结束会在
+输入 `MANUAL_MAP` 后才会打开 Gemini；看到 `Recording window is live` 后再开始推动。手推时保持
+云台固定、缓慢连续走一条外圈并增加一条交叉补扫路线；优先让相机看到墙角、桌腿和柜边等固定
+特征。无需“推一下、停一下”；只有经过这些明显特征时可以短暂停留。人员应避免在镜头前走动。运行结束会在
 `/data/slam/mapping/<UTC>/` 保存独立的 `rtabmap.db` 和质量工件，不会覆盖旧图。
 
 ## 输入、输出、验收与回退
