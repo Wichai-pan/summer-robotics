@@ -1126,11 +1126,13 @@ def main() -> int:
 
             if dock_phase == "translate":
                 if abs(yaw_error_to_goal) > args.dock_yaw_align_tolerance_deg:
-                    raise RuntimeError(
-                        "dock yaw drift %.1f deg exceeds %.1f deg; braking rather than rotating near table"
-                        % (abs(yaw_error_to_goal), args.dock_yaw_align_tolerance_deg)
-                    )
-                if goal_distance <= args.position_tolerance_m:
+                    # A table dock requires the front edge to stay parallel
+                    # to the table. Pause translation, recover that heading,
+                    # then resume the same holonomic approach. This is an
+                    # explicit dock-only state transition, not the ordinary
+                    # path follower's unconstrained turn toward a waypoint.
+                    dock_phase = "align"
+                if dock_phase == "translate" and goal_distance <= args.position_tolerance_m:
                     write_wheel_velocities(command_writer, port_handler, [0, 0, 0], COMM_SUCCESS)
                     arrival = {
                         "elapsed_s": round(elapsed, 3),
@@ -1145,21 +1147,22 @@ def main() -> int:
                     status = "PASS"
                     reason = "dock_goal_position_and_yaw_reached"
                     break
-                speed = min(args.max_linear_mps, max(0.015, 0.45 * goal_distance))
-                body_vx, body_vy = map_delta_to_body_velocity(
-                    final_goal[0] - current_x, final_goal[1] - current_y, current_yaw, speed
-                )
-                linear = math.hypot(body_vx, body_vy)
-                angular = 0.0
-                yaw_error = yaw_error_to_goal
-            elif dock_phase == "align":
+                if dock_phase == "translate":
+                    speed = min(args.max_linear_mps, max(0.015, 0.45 * goal_distance))
+                    body_vx, body_vy = map_delta_to_body_velocity(
+                        final_goal[0] - current_x, final_goal[1] - current_y, current_yaw, speed
+                    )
+                    linear = math.hypot(body_vx, body_vy)
+                    angular = 0.0
+                    yaw_error = yaw_error_to_goal
+            if dock_phase == "align":
                 linear = 0.0
                 angular = max(
                     -args.max_angular_deg_s,
                     min(args.max_angular_deg_s, 0.6 * yaw_error_to_goal),
                 )
                 yaw_error = yaw_error_to_goal
-            elif goal_distance <= args.position_tolerance_m:
+            elif dock_phase != "translate" and goal_distance <= args.position_tolerance_m:
                 yaw_error = yaw_error_to_goal
                 if abs(yaw_error) <= args.yaw_tolerance_deg:
                     write_wheel_velocities(command_writer, port_handler, [0, 0, 0], COMM_SUCCESS)
@@ -1180,7 +1183,7 @@ def main() -> int:
                     break
                 linear = 0.0
                 angular = max(-args.max_angular_deg_s, min(args.max_angular_deg_s, 0.6 * yaw_error))
-            else:
+            elif dock_phase != "translate":
                 angular = max(-args.max_angular_deg_s, min(args.max_angular_deg_s, 0.6 * heading_error))
                 # For the first real run, rotate before driving rather than
                 # combining translation and yaw. This keeps observed motion

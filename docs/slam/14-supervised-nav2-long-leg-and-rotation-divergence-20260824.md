@@ -136,8 +136,11 @@ kept turning toward the final path point, which is not acceptable near furniture
   holonomic base frame and commands forward/backward plus lateral translation
   with zero angular velocity. It logs `body_vx_mps`, `body_vy_mps` and
   `dock_phase` in the execution report.
-- If yaw exceeds `--dock-yaw-align-tolerance-deg` during that final translation,
-  the session brakes and releases torque rather than rotating beside the table.
+- If yaw exceeds `--dock-yaw-align-tolerance-deg` during final translation,
+  it pauses translation, re-enters the explicit goal-yaw alignment state, and
+  then resumes the same holonomic approach. This is deliberately different
+  from the ordinary path follower's turn toward a map waypoint: docking only
+  turns to restore the front edge parallel to the configured table-facing yaw.
 
 The first physical use must start with a generous entry radius in a clear
 approach corridor and a short table-free validation of lateral direction. It
