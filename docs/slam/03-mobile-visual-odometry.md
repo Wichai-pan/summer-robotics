@@ -99,6 +99,26 @@ docker build -f deploy/slam/Dockerfile -t forestbridge-xlerobot:slam-humble .
 `jetson_slam_motion_odom.sh` 仍故意只允许 `--dry-run`，不能与独立底盘键盘会话
 并行；真实移动和 mapping 只能使用上面的单一监督入口。
 
+## 手推建图入口
+
+当底盘轮速不适合用于采图，或需要以更连续的方式覆盖有限活动区时，使用
+`scripts/jetson_slam_manual_push_mapping.sh`。该入口只映射 Gemini 和黑板 gimbal
+参考位；**不映射白板串口**，因此容器无法上轮子扭矩、发送轮速或命令任一机械臂。
+操作者必须先确认轮子已经松扭矩且可自由转动，再手推机器人移动。
+
+```bash
+cd /home/jetsonl7/robot-data/tmp/nav2-rotation-guard-20260822
+
+bash scripts/jetson_slam_manual_push_mapping.sh \
+  --duration 300 \
+  --gimbal-reference /data/config/gemini_gimbal_mapping_down_20deg_v1.json
+```
+
+输入 `MANUAL_MAP` 后才会打开 Gemini。手推时保持云台固定、缓慢连续走一条外圈并增加
+一条交叉补扫路线；优先让相机看到墙角、桌腿和柜边等固定特征。无需“推一下、停一下”；
+只有经过这些明显特征时可以短暂停留。人员应避免在镜头前走动。运行结束会在
+`/data/slam/mapping/<UTC>/` 保存独立的 `rtabmap.db` 和质量工件，不会覆盖旧图。
+
 ## 输入、输出、验收与回退
 
 | 项目 | 内容 |

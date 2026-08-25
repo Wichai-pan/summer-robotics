@@ -11,6 +11,8 @@ import pytest
 ROOT = Path(__file__).parents[1]
 HOST_SCRIPT = ROOT / "scripts" / "jetson_slam_supervised_mapping.sh"
 CONTAINER_SCRIPT = ROOT / "scripts" / "slam_supervised_mapping_container.sh"
+MANUAL_PUSH_HOST_SCRIPT = ROOT / "scripts" / "jetson_slam_manual_push_mapping.sh"
+MANUAL_PUSH_CONTAINER_SCRIPT = ROOT / "scripts" / "slam_manual_push_mapping_container.sh"
 ROBOT_EXEC_SCRIPT = ROOT / "scripts" / "jetson_robot_exec.sh"
 SLAM_DOCKERFILE = ROOT / "deploy" / "slam" / "Dockerfile"
 
@@ -20,6 +22,19 @@ def test_supervised_mapping_has_one_locked_host_entrypoint() -> None:
     assert "jetson_slam_exec.sh" in host
     assert "--gemini --black --white --interactive" in host
     assert "slam_supervised_mapping_container.sh" in host
+
+
+def test_manual_push_mapping_cannot_access_or_command_the_base() -> None:
+    host = MANUAL_PUSH_HOST_SCRIPT.read_text(encoding="utf-8")
+    container = MANUAL_PUSH_CONTAINER_SCRIPT.read_text(encoding="utf-8")
+    assert "jetson_slam_exec.sh" in host
+    assert "--gemini --black --interactive" in host
+    assert "--white" not in host
+    assert "slam_manual_push_mapping_container.sh" in host
+    assert "Type MANUAL_MAP" in container
+    assert "--mode mapping" in container
+    assert "base_keyboard.py" not in container
+    assert "white/base serial device" in container
 
 
 def test_robot_exec_stops_container_when_host_session_exits() -> None:
