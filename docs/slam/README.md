@@ -54,6 +54,8 @@ Team review documents:
   约 1.3 m 长程到达、停车复核、桌边短路线失败证据及下一次转向验证门槛；
 - [监督式 Nav2 到 ACT 抓取放置编排（2026-08-25）](15-nav-to-act-pick-place-pipeline-20260825.md):
   保留独立诊断入口的四阶段 MVP 编排、人工确认门和当前边界；
+- [Nav2 到 ACT 抓取放置 MVP 基线（2026-08-25）](16-nav-to-act-mvp-baseline-20260825.md):
+  当日端到端里程碑、可追溯工件、ID9 安全失败与尚未解决的抓取稳定性；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
