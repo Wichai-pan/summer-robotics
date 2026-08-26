@@ -91,48 +91,53 @@ python -m pytest -q
 
 ## 真实机器人抓取（默认禁止电机运动）
 
-`real_pick_blue_cylinder.py` 将流程扩展为：稳定质心采样 → 相机到机器人基座变换 →
+`real_pick_blue_cylinder.py` 将流程扩展为：稳定质心采样 → 相机到右肩关节坐标变换 →
 右臂 IK → transit → approach → close → lift → hold。它使用 XLeRobot 官方示例中的
 `SO100Follower`/`send_action()` 接口，并兼容部分新版 `SO101Follower` 导入路径。
 
-先复制配置模板：
+脚本固定读取同目录的 `pick_config_v1.json`。必须实测并检查以下字段：
 
-```powershell
-Copy-Item pick_config.example.json pick_config.json
-```
-
-必须实测并检查以下字段：
-
-- `camera_to_base_4x4`：RGB 光学坐标到 `robot_base` 的齐次变换；
-- `right_shoulder_position_base_m`：右肩 IK 原点；
+- `camera_to_shoulder_4x4`：RGB 光学坐标直接到右臂 `shoulder_lift` 转轴坐标系的齐次变换；
+- `camera_to_shoulder_status`：外参验证状态；`diagnostic_only` 只允许默认 dry-run；
+- `target_offset_shoulder_m`：在 IK 之前，对肩坐标目标施加的 `[x,y,z]` 米制微调；
 - `shoulder_pan_sign/offset` 和各 `joint_command_offsets_deg`；
 - `tool_length_m`、夹爪 `open_deg/closed_deg`；
-- 安全工作空间与每个关节的保守限位。
+- 每个关节的保守限位。
 
-模板矩阵只是依据仓库 URDF、头部 pan=0、tilt≈0.65 rad 推出的近似值，**不能用于
-真实运动**。完成测量并低速逐关节验证后，才把 `calibrated` 改成 `true`。
+程序仅在 `calibrated=true` 且 `camera_to_shoulder_status=validated` 时允许真实运动。
+workspace 数值限制已移除，但连杆几何、工具姿态和关节限位仍会拒绝不可达目标。
 
 安装好与 XLeRobot 版本匹配的 LeRobot 后，可以只连接并读取当前关节（不会调用
 `send_action`）：
 
-```powershell
-python real_pick_blue_cylinder.py --config pick_config.json --port /dev/arm_right --inspect-robot
+```bash
+python3 real_pick_blue_cylinder.py --init-only
 ```
 
 先执行完整 dry-run（不导入 LeRobot、不连接串口、不发送电机命令）：
 
-```powershell
-python real_pick_blue_cylinder.py --config pick_config.json
+```bash
+python3 real_pick_blue_cylinder.py
 ```
 
-检查 `pick_outputs/时间戳/pick_plan.json` 中的相机坐标、基座坐标、三个笛卡尔路点和
-关节角。确认无误后，清空机械臂周围空间、准备实体急停，再运行：
+检查终端输出的相机坐标、base_frame 坐标、三个笛卡尔路点和关节角。确认无误后，
+清空机械臂周围空间、准备实体急停，再运行：
 
-```powershell
-python real_pick_blue_cylinder.py --config pick_config.json --port /dev/arm_right --execute
+```bash
+./scripts/jetson_robot_exec.sh --gemini --white --interactive -- \
+  python3 sim_to_real/real_pick_blue_cylinder.py \
+  --duration-scale 3 \
+  --stage-test \
+  --execute
 ```
 
-Windows 串口示例为 `--port COM5`。程序把连接时读到的当前关节位置直接作为轨迹
+默认串口为 `/dev/ttyACM0`，robot id 为 `white_arm_xlerobot`；仍可用 `--port` 和
+`--robot-id` 覆盖。程序把连接时读到的当前关节位置直接作为轨迹
 起点，不检查预设 home 姿态；运行前必须由操作者确认当前姿态和周围空间安全。
 Ctrl+C 会中止流程并调用 `disconnect()`；不同电机固件断开后是否卸力需要现场确认。
 脚本没有力/电流抓取反馈，因此“完成 lift”不等于已经可靠夹住物体。
+
+真实相机路径会输出 `[TRANSFORM] base_frame centroid=...`。这里
+`base_frame` 的原点是 `shoulder_lift` 轴心，`+x=pan 0`、`+y=positive pan`、`+z=up`。
+`--joint-test`、`--ee-test` 和 `--init-only` 保留用于独立硬件验证；相机采样和检测参数
+固定在脚本顶部，不再暴露为 CLI 参数。

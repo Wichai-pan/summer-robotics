@@ -56,6 +56,8 @@ Team review documents:
   保留独立诊断入口的四阶段 MVP 编排、人工确认门和当前边界；
 - [Nav2 到 ACT 抓取放置 MVP 基线（2026-08-25）](16-nav-to-act-mvp-baseline-20260825.md):
   当日端到端里程碑、可追溯工件、ID9 安全失败与尚未解决的抓取稳定性；
+- [Nav2 转向守卫与底盘可靠性复核（2026-08-22）](12-nav2-rotation-guard-and-base-reliability-20260822.md):
+  规划/执行分离、原地转视觉误差的安全中止、白板间歇通信证据，以及轮速/IMU 融合前的门槛；
 - [review checklist](review-checklist.md): repeatable code, container, camera,
   artifact, and merge checks.
 
