@@ -6,10 +6,12 @@ import pytest
 
 from real_pick_blue_cylinder import (
     build_plan,
+    build_plan_from_base_centroid,
     cartesian_to_joints,
     execute_cartesian_trajectory,
     load_config,
     planar_ik,
+    parse_args,
     relative_ee_to_joints,
     target_frame_coordinates,
     transform_point,
@@ -61,6 +63,23 @@ def test_target_frame_coordinates_reports_raw_and_adjusted_base_points():
     raw, adjusted = target_frame_coordinates(np.array([0.20, 0.02, 0.15]), config)
     assert np.allclose(raw, [0.20, 0.02, 0.15])
     assert np.allclose(adjusted, [0.21, 0.0, 0.155])
+
+
+def test_fake_target_cli_uses_three_base_frame_coordinates():
+    args = parse_args(["--fake-target", "0.20", "-0.01", "0.057"])
+    assert args.fake_target == [0.20, -0.01, 0.057]
+
+
+def test_fake_target_builds_complete_camera_free_pick_plan():
+    config = config_for_test()
+    target = np.array([0.20, -0.01, 0.057])
+    plan = build_plan_from_base_centroid(target, 0.0, 0, config)
+    assert plan.target_camera_m is None
+    assert plan.raw_target_shoulder_m == pytest.approx(target)
+    assert plan.centroid_spread_m == 0.0
+    assert plan.samples == 0
+    assert plan.overhead_shoulder_m[2] > plan.grasp_shoulder_m[2]
+    assert plan.lift_shoulder_m[2] > plan.grasp_shoulder_m[2]
 
 
 def test_cartesian_phase_does_not_treat_tracking_lag_as_command_step():

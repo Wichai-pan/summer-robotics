@@ -26,9 +26,6 @@ from typing import Any, Callable
 
 import numpy as np
 
-from gemini335 import Gemini335Camera
-from perception import DetectorConfig, detect_blue_cylinder
-
 
 JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 CONFIG_PATH = Path(__file__).with_name("pick_config_v1.json")
@@ -291,8 +288,10 @@ def build_plan(
     )
 
 
-def acquire_stable_target(camera: Gemini335Camera):
+def acquire_stable_target(camera: Any):
     """Acquire one stable centroid using the validated experiment settings."""
+    from perception import DetectorConfig, detect_blue_cylinder
+
     intrinsics = camera.start()
     detector = DetectorConfig(
         hsv_lower=(HUE_LOW, 70, 35),
@@ -767,7 +766,7 @@ def execute_pick(
             print("[ROBOT] disconnected; verify whether your motor model releases torque on disconnect")
 
 
-def parse_args():
+def parse_args(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", default="/dev/ttyACM0")
     parser.add_argument("--robot-id", default="white_arm_xlerobot")
@@ -779,6 +778,16 @@ def parse_args():
     parser.add_argument(
         "--stage-test", action="store_true",
         help="print measured joints and wait for Enter at every physical-motion stage boundary",
+    )
+    parser.add_argument(
+        "--fake-target",
+        type=float,
+        nargs=3,
+        metavar=("X", "Y", "Z"),
+        help=(
+            "bypass the camera and use a target centroid in base_frame metres "
+            "(origin=shoulder_lift pivot); the normal target/grasp offsets still apply"
+        ),
     )
     parser.add_argument(
         "--init_only", "--init-only",
@@ -817,7 +826,7 @@ def parse_args():
         "--ee-test-duration", type=float, default=15.0,
         help="end-effector test movement duration in seconds (2-60; default: 15)",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> int:
@@ -839,9 +848,13 @@ def main() -> int:
                 f"source={source}"
             )
 
-        selected_test_modes = sum((bool(args.joint_test), bool(args.ee_test)))
+        selected_test_modes = sum(
+            (bool(args.joint_test), bool(args.ee_test), args.fake_target is not None)
+        )
         if selected_test_modes > 1:
-            raise SafetyError("choose only one of --joint_test and --ee_test")
+            raise SafetyError(
+                "choose only one of --joint_test, --ee_test, and --fake-target"
+            )
 
         if args.joint_test:
             if not args.execute:
@@ -883,6 +896,47 @@ def main() -> int:
             raise SafetyError("--stage-test requires an interactive terminal; use wrapper --interactive")
         if args.execute and not config["calibrated"]:
             raise SafetyError("Config calibrated=false; refusing to acquire or move in execute mode")
+
+        if args.fake_target is not None:
+            raw_target_shoulder = _vector3(args.fake_target, "--fake-target X Y Z")
+            target_offset = _vector3(
+                config["target_offset_shoulder_m"], "target_offset_shoulder_m"
+            )
+            target_shoulder = raw_target_shoulder + target_offset
+            print(
+                "[FAKE TARGET] base_frame centroid="
+                f"{raw_target_shoulder.tolist()} m; camera acquisition bypassed; "
+                "origin=shoulder_lift pivot, +x=pan 0, +y=positive pan, +z=up"
+            )
+            print(
+                f"[TARGET] base_frame offset={target_offset.tolist()} m; "
+                f"adjusted base_frame target={target_shoulder.tolist()} m"
+            )
+            plan = build_plan_from_base_centroid(
+                raw_target_shoulder,
+                spread_m=0.0,
+                samples=0,
+                config=config,
+            )
+            print(json.dumps(asdict(plan), indent=2))
+            if not args.execute:
+                print(
+                    "[FAKE TARGET DRY-RUN] no camera, robot connection, or motor "
+                    "command was made. Add --execute only after reviewing every waypoint."
+                )
+                return 0
+            execute_pick(
+                plan,
+                config,
+                args.port,
+                args.robot_id,
+                duration_scale=args.duration_scale,
+                stage_test=args.stage_test,
+            )
+            return 0
+
+        from gemini335 import Gemini335Camera
+
         camera = Gemini335Camera(warmup_frames=CAMERA_WARMUP_FRAMES)
         target_camera, spread = acquire_stable_target(camera)
         raw_target_shoulder, _ = target_frame_coordinates(target_camera, config)

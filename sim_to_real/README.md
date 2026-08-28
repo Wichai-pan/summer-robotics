@@ -131,6 +131,28 @@ python3 real_pick_blue_cylinder.py
   --execute
 ```
 
+不用相机、直接用 `base_frame` 目标质心测试完整的 transit → approach → close → lift →
+hold 流程时，先做 dry-run。下面的示例目标比 `shoulder_lift` 轴心高 5.7 cm：
+
+```bash
+python3 sim_to_real/real_pick_blue_cylinder.py \
+  --fake-target 0.20 0.00 0.057
+```
+
+确认打印出的抓取点、上方点、抬升点和全部关节角后，再进行分阶段实机测试：
+
+```bash
+./scripts/jetson_robot_exec.sh --white --interactive -- \
+  python3 sim_to_real/real_pick_blue_cylinder.py \
+  --fake-target 0.20 0.00 0.057 \
+  --duration-scale 3 \
+  --stage-test \
+  --execute
+```
+
+`--fake-target X Y Z` 是应用 `target_offset_shoulder_m` **之前**的目标质心；当前配置的
+offset 为零。该模式不启动深度相机，但真实执行仍使用与相机模式完全相同的抓取动作。
+
 默认串口为 `/dev/ttyACM0`，robot id 为 `white_arm_xlerobot`；仍可用 `--port` 和
 `--robot-id` 覆盖。程序把连接时读到的当前关节位置直接作为轨迹
 起点，不检查预设 home 姿态；运行前必须由操作者确认当前姿态和周围空间安全。

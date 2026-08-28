@@ -1,14 +1,14 @@
 {
   "calibrated": true,
-  "camera_to_shoulder_status": "validated",
-  "camera_to_shoulder_source": "black_arm_eye_to_hand_fit mirrored to white arm and shifted from URDF arm base to shoulder_lift pivot",
+  "camera_to_shoulder_status": "diagnostic_only",
+  "camera_to_shoulder_source": "2026-08-26 hand-measured camera/shoulder geometry: camera origin [0, -0.14, 0.29] m, camera local x pitch -51.9 deg, robot +x_s reversed as specified; reflection det=-1",
   "camera_to_shoulder_4x4": [
-    [0.16517284868398086, -0.7526215257196444, 0.637400007123512, 0.040949035333683395],
-    [0.9839379295904905, 0.08138044713439382, -0.15888163373211459, -0.12019273270785862],
-    [0.06770584000511655, 0.6534049753771707, 0.753974706062187, -0.3534598714322857],
+    [0.0, -0.7869350219613372, 0.6170358751407488, 0.0],
+    [1.0, 0.0, 0.0, -0.14],
+    [0.0, -0.6170358751407488, -0.7869350219613372, 0.29],
     [0.0, 0.0, 0.0, 1.0]
   ],
-  "target_offset_shoulder_m": [0.0, 0.0, 0.00],
+  "target_offset_shoulder_m": [0.086, -0.06, -0.076],
   "kinematics": {
     "upper_arm_m": 0.1159,
     "lower_arm_m": 0.1350,
@@ -26,7 +26,7 @@
   },
   "gripper": {
     "open_deg": 80.0,
-    "closed_deg": 35.0
+    "closed_deg": 30.0
   },
   "motion": {
     "grasp_offset_shoulder_m": [0.0, 0.0, 0.020],
