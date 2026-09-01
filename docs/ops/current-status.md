@@ -13,6 +13,73 @@
 
 ## Current Focus
 
+- On 2026-08-30, manual-push mapping candidate `20260830T095346Z` passed
+  299.8 s / 9.68 m at 7.98 Hz with zero tracking loss. Three independent
+  camera-only localizations while facing map `-Y` progressed monotonically
+  from `(0.083, 0.066, -90.3 deg)` through `(0.078, -0.115, -88.7 deg)` to the
+  physically placed table pose `(0.060, -0.372, -86.5 deg)`. The fixed demo
+  target is now `(0.060, -0.372, -90 deg)`. Planner-only and operator-observed
+  short/longer docking trials passed against the new map. Three subsequent ACT
+  attempts were operator-labelled fail, success and near-success; this is not
+  a stable success-rate claim.
+- `scripts/jetson_nav_then_act_pick_place.sh --auto-demo` now accepts one
+  explicit onsite `AUTO_PIPELINE` authorization and then propagates a scoped
+  `FORESTBRIDGE_DEMO_ARMED=1` token to the existing gimbal, Nav2 and ACT
+  children. It removes only the inner RETURN/PLAN/MOVE/READY/ROLLOUT pauses;
+  all existing motion caps, fail-closed exits, active braking and torque-off
+  verification remain. The integrated path now folds the white arm before base
+  travel, runs ACT only after a successful docking, and performs a final folded
+  return after a successful rollout. Physical auto-demo runs on 2026-08-30
+  verified docking, ACT execution and final fold; program PASS is not a grasp
+  success label. A 0.477 m run passed in 38.658 s and two 0.725 m runs passed
+  in 57.083 s and 45.467 s. See `docs/19-machine-handoff-20260830.md`.
+- Repeated fixed-scene ACT trials remain inconsistent. Two rapid test sequences
+  triggered the unchanged 60°C gripper guard at measured 68°C and 67°C; both
+  failed closed with white-arm torque released. Do not raise this threshold or
+  retry before cooling. The handoff baseline therefore uses a marked object
+  placement and edited successful video evidence rather than claiming robust
+  autonomous grasping.
+
+- A 3.5-day demo freeze is active from 2026-08-27: deliver one phone-started,
+  observable fixed-scene navigation-to-ACT task before expanding object,
+  transport or interaction scope. `tools/forestbridge_task_executive.py` now
+  defines the first dry-run-only task/status contract (`status.json` plus
+  `events.jsonl`), finite retries, uncertain-result handoff and local Stop
+  behavior. No hardware adapter is connected yet. See
+  `docs/17-demo-delivery-plan-20260827.md`.
+- The first local web vertical slice now passes: `web/relay_server.py` stores
+  allow-listed tasks, robot heartbeats and events; the outbound-only
+  `tools/forestbridge_robot_worker.py` runs the dry-run executive; and the
+  mobile page under `web/static/` creates, stops and renders tasks. Browser QA
+  confirmed a complete 20-event task, offline/idle state changes and a 390 px
+  mobile layout without horizontal overflow. The opt-in Gemini monitor is now
+  connected read-only; ROS, serial and motor interfaces remain disconnected.
+  See `docs/18-web-relay-dry-run-20260827.md`.
+- The Frankfurt SSH host passed a read-only feasibility check and has Docker,
+  Node and Python, but only about 3.6 GiB RAM and no active Tailscale service.
+  Treat it as a lightweight HTTPS UI/task relay candidate, never as a robot
+  controller or vision-compute host.
+- `robot.wichai.xyz` resolves to the Frankfurt host. The authenticated relay
+  and Caddy containers are deployed under `/data/projects/forestbridge-relay`;
+  relay health passes, Let’s Encrypt certificate issuance succeeded, public
+  HTTPS works, unauthenticated state access returns 401 and UI-authenticated
+  access succeeds. Public task `4e434ea6a9954f73af676a0ec1dc2517`
+  completed 20 events through a local outbound dry-run worker. Real Jetson now
+  runs an opt-in, read-only three-camera monitor under
+  `/home/jetsonl7/robot-data/services/forestbridge-monitor`: the browser switch
+  selects automatic task following, Gemini, white-wrist or black-wrist low-rate
+  JPEG snapshots; disabling it removes the server frame, and an active relay
+  task pauses independent capture. ACT now reuses the Gemini/white-wrist arrays
+  it already reads, while SLAM/Nav2 subscribes to its existing ROS color topic;
+  neither task preview opens another physical camera handle. The non-blocking
+  publisher, actual-source metadata and a five-second task-frame lease are
+  deployed. A no-camera/no-motor synthetic Jetson smoke reached the public
+  relay with `owner=task`; physical task-stream continuity remains unverified.
+  All three idle-monitor sources produced real public-relay frames. Because user-systemd linger
+  requires unavailable sudo credentials, the verified process uses a detached
+  watchdog plus user `@reboot` crontab. The task worker, ROS, serial and motor
+  adapters remain disconnected.
+
 - The 2026-08-14 fixed downward-Gemini supervised RGB-D mapping candidate
   `20260814T140025Z` passed at 7.143 Hz with zero tracking loss, a 0.467221 s
   maximum gap, 5.4 cm position closure and 0.71° orientation closure over a
@@ -130,6 +197,8 @@
   never `/dev/videoN` or duplicate `by-id` names.
 - Camera GUI tools still need headless/web alternatives for remote use; the primary arm keyboard controller no longer depends on `pynput` when run with `--terminal`.
 - The hardware lock only protects commands that use `scripts/jetson_robot_exec.sh`; direct `docker run` or host processes bypass it and are forbidden for team operation.
+- Foreground ACT/Nav2/pipeline entrypoints and the common `scripts/jetson_slam_exec.sh` wrapper announce a local task guard before their first hardware command. The idle camera monitor observes this marker and now actively terminates only its in-flight snapshot subprocess instead of waiting for the 20-second snapshot timeout; a real Jetson lock-held smoke released the foreground task in 1.347 seconds. The task retains a 25-second fail-closed upper bound. A live nested pipeline owns one guard; confirmed stale PID/start-time markers are removed automatically. `scripts/jetson_robot_exec.sh` intentionally remains unguarded because the idle monitor itself uses that lowest-level device wrapper.
+- Nav2 wheel-mode telemetry now retries each wheel read at most three times with 30 ms spacing. This handles one isolated white-board `communication=-6/-7` without discarding a completed localization, but still brakes and aborts if any wheel fails all three attempts. The 2026-08-28 table test that motivated this change planned a 0.470 m path successfully but produced zero execution samples because motor 7 returned `-7` on the initial measured-velocity read.
 - LeRobot calibration cache, LLM `.env`, and YOLO weights remain machine state outside Git, although they are present on this Jetson.
 - Cross-internet access exists through Tailscale, but remote physical control still lacks a disconnect watchdog and remains prohibited without an on-site operator.
 - The two arms use different calibrated numerical zero references. Automatic absolute-angle alignment is not trusted; the current controller uses per-session relative zero points.
@@ -147,6 +216,11 @@
   grasp after an unsuccessful partial return.
 
 ## Next Step
+
+0. Follow `docs/19-machine-handoff-20260830.md`: update the formal Jetson clone
+   from `origin/main`, run the read-only bus/gimbal/localization gates, then
+   reproduce one short docking and one marked-position ACT trial. The public
+   task worker remains dry-run-only; do not enable remote motor execution.
 
 1. Commit `379f2bb` applies the 5 cm rotate-only drift guard to wheel control
    and passed 20 targeted non-hardware Nav2 tests in the Jetson container.

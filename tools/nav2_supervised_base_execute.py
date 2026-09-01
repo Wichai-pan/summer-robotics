@@ -515,20 +515,43 @@ def map_pose_spread(
 
 
 def read_wheel_velocity_raw(
-    packet: Any, port_handler: Any, communication_success: int
+    packet: Any,
+    port_handler: Any,
+    communication_success: int,
+    *,
+    retries: int = 3,
+    retry_delay_s: float = 0.03,
+    sleep: Any = time.sleep,
 ) -> dict[int, int]:
-    """Read the three whitelisted wheel velocities; any missing reply is fatal."""
+    """Read all whitelisted wheel velocities with a short bounded retry.
+
+    The white-board bus has produced isolated -6/-7 replies followed by clean
+    reads. One bad telemetry packet must not cancel a whole localized demo,
+    but motion still fails closed if any wheel misses every retry.
+    """
+    if retries < 1:
+        raise ValueError("wheel velocity read retries must be positive")
     values: dict[int, int] = {}
     for motor_id in WHEEL_IDS:
-        value, communication, packet_error = packet.read2ByteTxRx(
-            port_handler, motor_id, PRESENT_VELOCITY
-        )
-        if communication != communication_success or packet_error != 0:
-            raise RuntimeError(
-                f"read measured wheel velocity failed for motor {motor_id}: "
-                f"communication={communication}, packet_error={packet_error}"
+        last_communication = None
+        last_packet_error = None
+        for attempt in range(1, retries + 1):
+            value, communication, packet_error = packet.read2ByteTxRx(
+                port_handler, motor_id, PRESENT_VELOCITY
             )
-        values[motor_id] = decode_signed_magnitude(int(value))
+            last_communication = communication
+            last_packet_error = packet_error
+            if communication == communication_success and packet_error == 0:
+                values[motor_id] = decode_signed_magnitude(int(value))
+                break
+            if attempt < retries:
+                sleep(retry_delay_s)
+        else:
+            raise RuntimeError(
+                f"read measured wheel velocity failed for motor {motor_id} "
+                f"after {retries} attempts: communication={last_communication}, "
+                f"packet_error={last_packet_error}"
+            )
     return values
 
 
@@ -858,13 +881,16 @@ def main() -> int:
                 f"live pose is {start_error:.3f} m from Nav2 path start; refusing to execute an old plan"
             )
         print(json.dumps({**summary, "live_start_map_xy_yaw_deg": list(first_pose[:3]), "path_start_error_m": start_error}, indent=2))
-        answer = input(
-            "Clear the <=%.2f m route, hold the 12 V cutoff, and type MOVE to enable only wheel IDs 7/8/9: "
-            % args.max_planned_path_m
-        ).strip()
-        if answer != "MOVE":
-            reason = "operator_cancelled_before_torque"
-            return 2
+        if os.environ.get("FORESTBRIDGE_DEMO_ARMED") == "1":
+            print("AUTO_PIPELINE armed; MOVE is automatically confirmed within the existing path and motion caps.")
+        else:
+            answer = input(
+                "Clear the <=%.2f m route, hold the 12 V cutoff, and type MOVE to enable only wheel IDs 7/8/9: "
+                % args.max_planned_path_m
+            ).strip()
+            if answer != "MOVE":
+                reason = "operator_cancelled_before_torque"
+                return 2
 
         # ``input()`` blocks the single-threaded TF listener while the operator
         # performs the physical safety check. Drain that deliberately stale

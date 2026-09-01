@@ -84,3 +84,44 @@
 - Keep the current ACT checkpoint unchanged during this first supervisor
   validation. Adding load/current to learned observations requires a new data
   schema, new demonstrations and retraining.
+
+## 2026-08-27 — Public web relay never owns robot hardware
+
+- Keep camera, ROS and motor ownership on the Jetson behind the existing hardware lock.
+- Use the Frankfurt host only for the HTTPS UI, allow-listed task relay and status/event storage; it must not expose servo writes or arbitrary shell execution.
+- A task is accepted as a structured `TaskSpec` and executed by a deterministic Jetson state machine. LM or voice input may select and parameterize only approved tasks.
+- Internet loss, stale commands or a missing Jetson heartbeat must fail closed locally. A web Stop is useful, but it does not replace the on-site 12 V cutoff.
+- Begin with low-rate JPEG snapshots because the candidate Frankfurt host has limited memory; defer continuous video until the control path is stable.
+
+## 2026-08-27 — Camera monitoring is explicit, low-rate and subordinate to tasks
+
+- Keep Gemini monitoring off by default. Only an authenticated UI request may enable it, and disabling it removes the latest server-side frame.
+- The Jetson initiates all camera traffic and uploads low-rate JPEG snapshots; Frankfurt never opens a robot-side connection.
+- Pause monitoring whenever a relay task is active or the shared Jetson hardware lock is held. Monitoring must not compete with localization, navigation, ACT or recording for Gemini ownership.
+- The monitor may map Gemini, white wrist or black wrist through `scripts/jetson_robot_exec.sh`; it maps only the selected camera and never maps controller ports or issues motor commands.
+
+## 2026-08-28 — Task previews reuse the task-owned image stream
+
+- Never keep the independent snapshot monitor running against a camera already owned by SLAM, Nav2, ACT or recording.
+- ACT may publish a low-rate preview only from the Gemini/white-wrist RGB arrays already used for policy observations. SLAM/Nav2 may publish only by subscribing to the existing ROS color topic; this subscriber must not open Gemini itself.
+- Preview encoding and HTTPS upload run outside the robot control loop and use a latest-frame-only buffer. Network or relay failure is observational and must not delay, fail or alter motion control.
+- The relay records actual camera source and frame owner. A short task-frame lease suppresses the independent monitor even when a supervised local task was launched outside the public task queue.
+
+## 2026-08-30 — One onsite authorization for the fixed-scene Demo
+
+- `--auto-demo` replaces nested text confirmations only after an onsite operator enters one `AUTO_PIPELINE` token.
+- Fold the white arm before base travel, restore the mapping gimbal, localize/plan/move, restore the grasp gimbal, run ACT, then fold the arm again after a successful rollout.
+- Preserve all path, speed, runtime, travel, temperature, braking and torque-off limits. Any failed child stage blocks the next stage.
+- This mode is still supervised physical execution, not unattended or remote autonomy; the 12 V cutoff remains continuously attended.
+
+## 2026-08-30 — Fixed table docking uses a 5 cm Demo envelope
+
+- A physical run reached the table but missed the former 2.5 cm software threshold and timed out with a measured 4.3 cm residual.
+- Use a 5 cm XY tolerance only in the integrated fixed-table Demo; retain the stricter standalone Nav2 default and the existing yaw, path and travel caps.
+- Do not interpret this tolerance as general navigation accuracy or increase it for arbitrary goals.
+
+## 2026-08-30 — Gripper thermal protection is a hard stop
+
+- Repeated ACT trials reached 68°C and 67°C and correctly aborted with white-arm torque released.
+- Never raise the 60°C guard to finish a recording. Cool the motor with power removed, support the torque-free arm, and retry only after recovery.
+- A thermal abort must not automatically issue a folded-return motion; recovery is a later supervised action after cooling.

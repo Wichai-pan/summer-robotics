@@ -92,8 +92,12 @@ will plan first. The base stays torque-free until the later MOVE confirmation.
 Safety caps: planned path <=${max_path_m} m; base <=0.04 m/s and <=12 deg/s;
 ${max_runtime_s} s max. Control pose=${control_pose_source}; wheel visual policy=${wheel_visual_policy}. Any stop must verify all three wheel torque registers.
 EOF
-read -r -p "Type PLAN to open Gemini, localize, and compute the short path: " answer
-[[ "$answer" == "PLAN" ]] || { echo "Cancelled before camera or base torque was enabled."; exit 2; }
+if [[ "${FORESTBRIDGE_DEMO_ARMED:-0}" == "1" ]]; then
+  echo "AUTO_PIPELINE armed; PLAN is automatically confirmed."
+else
+  read -r -p "Type PLAN to open Gemini, localize, and compute the short path: " answer
+  [[ "$answer" == "PLAN" ]] || { echo "Cancelled before camera or base torque was enabled."; exit 2; }
+fi
 
 bash scripts/slam_static_odom_container.sh \
   --mode localization --localization-db "$database" --transform-config "$config" \

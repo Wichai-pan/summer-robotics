@@ -359,7 +359,9 @@ def move_to_targets(
         print("DRY RUN：未写寄存器或启用扭矩。添加 --execute 才允许运动。")
         return
     print("只控制黑板 ID 7/8；黑臂 ID 1–6 始终不参与。")
-    if input(f"清空云台和线缆活动范围；输入 {confirmation} 执行：").strip() != confirmation:
+    if os.environ.get("FORESTBRIDGE_DEMO_ARMED") == "1":
+        print(f"AUTO_PIPELINE 已授权；自动确认 {confirmation} 云台动作。")
+    elif input(f"清空云台和线缆活动范围；输入 {confirmation} 执行：").strip() != confirmation:
         print("已取消；没有启用扭矩。")
         return
 

@@ -126,6 +126,43 @@ def test_preflight_broadcasts_zero_before_any_wheel_torque_enable() -> None:
     assert events[1:] == [("torque", 7), ("torque", 8), ("torque", 9)]
 
 
+def test_preflight_retries_one_transient_torque_enable_failure() -> None:
+    torque_attempts: dict[int, int] = {}
+
+    class Packet:
+        def read1ByteTxRx(
+            self, _port: object, _motor_id: int, _address: int
+        ) -> tuple[int, int, int]:
+            return base_keyboard.MODE_VELOCITY, 0, 0
+
+        def write1ByteTxRx(
+            self, _port: object, motor_id: int, address: int, _value: int
+        ) -> tuple[int, int]:
+            assert address == base_keyboard.TORQUE
+            torque_attempts[motor_id] = torque_attempts.get(motor_id, 0) + 1
+            if motor_id == 9 and torque_attempts[motor_id] == 1:
+                return -7, 0
+            return 0, 0
+
+    class GroupWriter:
+        def __init__(self, *_args: object):
+            pass
+
+        def clearParam(self) -> None:
+            pass
+
+        def addParam(self, _motor_id: int, _data: list[int]) -> bool:
+            return True
+
+        def txPacket(self) -> int:
+            return 0
+
+    with patch.object(base_keyboard.time, "sleep"):
+        prepare_wheels_stopped(Packet(), object(), 0, GroupWriter)
+
+    assert torque_attempts == {7: 1, 8: 1, 9: 2}
+
+
 def test_input_backend_failure_never_enables_torque() -> None:
     writes: list[tuple[int, int]] = []
 

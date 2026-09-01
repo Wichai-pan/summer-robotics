@@ -1,0 +1,70 @@
+{
+  "duration_s": 299.755366,
+  "end_orientation_xyzw": [
+    -0.021805672129167643,
+    0.0022172565788411065,
+    -0.01873695849843649,
+    0.9995841749560098
+  ],
+  "end_position_m": [
+    0.011707497760653496,
+    -0.09919130802154541,
+    -0.04583549499511719
+  ],
+  "failures": [],
+  "lost_events": 0,
+  "maximum_angular_speed_deg_s": 47.146314,
+  "maximum_gap_s": 0.467918,
+  "maximum_speed_mps": 0.293035,
+  "maximum_step_rotation_deg": 7.968577,
+  "maximum_step_translation_m": 0.04018,
+  "median_features": 897,
+  "median_inliers": 344,
+  "odom_info_rate_hz": 7.975,
+  "odom_info_samples": 2391,
+  "odom_samples": 2392,
+  "path_length_m": 9.678908,
+  "rate_hz": 7.977,
+  "segment_stats": {
+    "static": {
+      "count": 1602,
+      "duration_s": 200.437969,
+      "path_length_m": 2.508266,
+      "rotation_deg": 189.934988
+    },
+    "straight": {
+      "count": 349,
+      "duration_s": 41.916849,
+      "path_length_m": 3.384387,
+      "rotation_deg": 124.675093
+    },
+    "turn": {
+      "count": 440,
+      "duration_s": 57.400548,
+      "path_length_m": 3.786255,
+      "rotation_deg": 1067.023101
+    }
+  },
+  "start_orientation_xyzw": [
+    -3.9184909661964864e-05,
+    6.632860429160241e-05,
+    -5.512699110843892e-05,
+    0.999999995513037
+  ],
+  "start_position_m": [
+    0.0003793202340602875,
+    -0.00015389639884233475,
+    0.0001589059829711914
+  ],
+  "status": "PASS",
+  "thresholds": {
+    "maximum_angular_speed_deg_s": 180.0,
+    "maximum_gap_s": 0.5,
+    "maximum_lost_events": 0,
+    "maximum_speed_mps": 1.0,
+    "maximum_step_rotation_deg": 45.0,
+    "maximum_step_translation_m": 0.25,
+    "minimum_duration_s": 240.0,
+    "minimum_rate_hz": 5.0
+  }
+}

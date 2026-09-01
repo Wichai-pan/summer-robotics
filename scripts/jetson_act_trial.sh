@@ -18,6 +18,8 @@ EOF
 }
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_root/scripts/forestbridge_task_preview_env.sh"
+source "$repo_root/scripts/forestbridge_task_guard.sh"
 data_root="${FORESTBRIDGE_DATA_ROOT:-/home/jetsonl7/robot-data}"
 log_dir="${FORESTBRIDGE_ACT_LOG_DIR:-$data_root/logs}"
 label="repeat"
@@ -26,6 +28,7 @@ checkpoint="${FORESTBRIDGE_ACT_CHECKPOINT:-/data/models/act_fixed_pick_place_v2_
 dataset_root="${FORESTBRIDGE_ACT_DATASET_ROOT:-/data/act/fixed_pick_place_v1}"
 return_first=true
 return_final=true
+auto_demo="${FORESTBRIDGE_DEMO_ARMED:-0}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -48,10 +51,13 @@ log_path="$log_dir/${timestamp}_${safe_label}.log"
 latest_path="$log_dir/act_rollout_latest.log"
 
 finish() {
+  forestbridge_task_guard_end
   ln -sfn "$log_path" "$latest_path"
   printf '\nLog saved: %s\nLatest link: %s\n' "$log_path" "$latest_path"
 }
 trap finish EXIT
+
+forestbridge_task_guard_begin
 
 run_logged() {
   set +e
@@ -84,10 +90,14 @@ fi
 
 echo
 echo "Reset the face-cream jar, cameras, lighting and workspace for this trial."
-read -r -p "Type READY when the fixed scene is ready: " ready
-if [[ "$ready" != "READY" ]]; then
-  echo "Trial cancelled before ACT; no policy motion was sent." | tee -a "$log_path"
-  exit 1
+if [[ "$auto_demo" == "1" ]]; then
+  echo "AUTO_PIPELINE armed; READY is automatically confirmed." | tee -a "$log_path"
+else
+  read -r -p "Type READY when the fixed scene is ready: " ready
+  if [[ "$ready" != "READY" ]]; then
+    echo "Trial cancelled before ACT; no policy motion was sent." | tee -a "$log_path"
+    exit 1
+  fi
 fi
 
 echo | tee -a "$log_path"
@@ -108,12 +118,18 @@ run_logged \
   --execute
 
 echo
-read -r -p "Result (SUCCESS/PARTIAL/FAIL/UNKNOWN): " result
-case "$result" in
-  SUCCESS|PARTIAL|FAIL|UNKNOWN) ;;
-  *) result="UNKNOWN" ;;
-esac
-read -r -p "Short operator note (optional): " operator_note
+if [[ "$auto_demo" == "1" ]]; then
+  result="UNKNOWN"
+  operator_note="auto demo: result not operator-labelled"
+  echo "AUTO_PIPELINE completed the ACT rollout; continuing to the automatic folded return." | tee -a "$log_path"
+else
+  read -r -p "Result (SUCCESS/PARTIAL/FAIL/UNKNOWN): " result
+  case "$result" in
+    SUCCESS|PARTIAL|FAIL|UNKNOWN) ;;
+    *) result="UNKNOWN" ;;
+  esac
+  read -r -p "Short operator note (optional): " operator_note
+fi
 {
   echo
   echo "EXPERIMENT_RESULT=$result"

@@ -442,6 +442,19 @@ wait_for_topics "$camera_pid" "$camera_log" \
   /camera/depth/image_raw \
   /tf_static
 
+# Reuse the ROS image stream already owned by this SLAM session.  This node is
+# a subscriber only: it never opens Gemini and is disabled unless the private
+# relay environment explicitly enables task preview.
+if [[ "${FORESTBRIDGE_TASK_PREVIEW:-0}" == "1" && \
+      -n "${FORESTBRIDGE_RELAY_URL:-}" && \
+      -n "${FORESTBRIDGE_ROBOT_TOKEN:-}" ]]; then
+  task_preview_log="$output_dir/task-camera-preview.log"
+  setsid python3 tools/ros_image_task_preview.py \
+    --topic /camera/color/image_raw >"$task_preview_log" 2>&1 &
+  task_preview_pid=$!
+  process_pids+=("$task_preview_pid")
+fi
+
 setsid "${odom_command[@]}" >"$odom_log" 2>&1 &
 odom_pid=$!
 process_pids+=("$odom_pid")

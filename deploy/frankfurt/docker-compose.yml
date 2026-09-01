@@ -1,0 +1,40 @@
+services:
+  relay:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: forestbridge-relay
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+    networks:
+      - shared_proxy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/api/health', timeout=2)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  https:
+    image: caddy:2-alpine
+    container_name: forestbridge-https
+    restart: unless-stopped
+    depends_on:
+      relay:
+        condition: service_healthy
+    ports:
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-data:/data
+      - ./caddy-config:/config
+    networks:
+      - shared_proxy
+
+networks:
+  shared_proxy:
+    external: true
+    name: jl_default

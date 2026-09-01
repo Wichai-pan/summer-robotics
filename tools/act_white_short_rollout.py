@@ -13,12 +13,15 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 import time
 from contextlib import nullcontext
 from pathlib import Path
 
 import torch
+
+from forestbridge_task_frame_publisher import TaskFramePublisher
 
 
 POSITION_JOINTS = (
@@ -623,6 +626,9 @@ def main() -> int:
         args.camera_height,
         args.camera_fps,
     )
+    task_preview = TaskFramePublisher(
+        preferred_sources=("wrist_white", "gemini")
+    )
     connected = False
     cameras_started = False
     torque_enabled = False
@@ -687,6 +693,7 @@ def main() -> int:
         gemini.start()
         wrist_camera.start()
         cameras_started = True
+        task_preview.start()
 
         def observation_from_live(current_state: dict[str, float]) -> dict[str, torch.Tensor]:
             values = state_values(current_state, state_names)
@@ -700,6 +707,8 @@ def main() -> int:
             )
             gemini_frame = gemini.latest(args.max_camera_age_s)
             wrist_frame = wrist_camera.latest(args.max_camera_age_s)
+            task_preview.offer("gemini", gemini_frame.rgb)
+            task_preview.offer("wrist_white", wrist_frame.rgb)
             return {
                 "observation.state": torch.tensor(
                     model_values, dtype=torch.float32
@@ -790,7 +799,9 @@ def main() -> int:
             print("DRY RUN：未启用扭矩或发送动作。添加 --execute 才允许短 rollout。")
             return 0
         confirmation = "CONTINUE" if args.start_from_current else "ROLLOUT"
-        if input(
+        if os.environ.get("FORESTBRIDGE_DEMO_ARMED") == "1":
+            print(f"AUTO_PIPELINE 已授权；自动确认 {confirmation} ACT 动作。")
+        elif input(
             "清空白臂全程运动空间并保持可立即断开12V；"
             f"输入 {confirmation} 执行："
         ).strip() != confirmation:
@@ -1040,6 +1051,7 @@ def main() -> int:
         )
         return 0
     finally:
+        task_preview.close()
         if cameras_started:
             gemini.close()
             wrist_camera.close()

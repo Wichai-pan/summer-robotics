@@ -7,8 +7,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 duration=120
-config="configs/slam/base_to_gemini_candidate.yaml"
-gimbal_reference="/data/config/gemini_gimbal_level_forward_v1.json"
+config="configs/slam/base_to_gemini_mapping_down_20deg_candidate.yaml"
+gimbal_reference="/data/config/gemini_gimbal_mapping_down_20deg_v1.json"
 xy_speed=0.04
 theta_speed=12
 camera_width=640

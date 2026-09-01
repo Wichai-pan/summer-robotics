@@ -8,10 +8,43 @@ from tools.nav2_supervised_base_execute import (
     map_pose_spread,
     map_delta_to_body_velocity,
     parse_args,
+    read_wheel_velocity_raw,
     validate_rotate_only_feedback,
     validate_limits,
     wheel_raw_to_body_velocity,
 )
+
+
+class _WheelReadPacket:
+    def __init__(self, responses: list[tuple[int, int, int]]) -> None:
+        self.responses = iter(responses)
+
+    def read2ByteTxRx(self, _port: object, _motor_id: int, _address: int) -> tuple[int, int, int]:
+        return next(self.responses)
+
+
+def test_wheel_velocity_read_recovers_one_transient_bus_reply() -> None:
+    packet = _WheelReadPacket(
+        [
+            (0, -7, 0),
+            (0, 0, 0),
+            (0, 0, 0),
+            (0, 0, 0),
+        ]
+    )
+
+    assert read_wheel_velocity_raw(
+        packet, object(), 0, retry_delay_s=0.0, sleep=lambda _seconds: None
+    ) == {7: 0, 8: 0, 9: 0}
+
+
+def test_wheel_velocity_read_fails_after_bounded_retries() -> None:
+    packet = _WheelReadPacket([(0, -7, 0)] * 3)
+
+    with pytest.raises(RuntimeError, match="motor 7 after 3 attempts"):
+        read_wheel_velocity_raw(
+            packet, object(), 0, retry_delay_s=0.0, sleep=lambda _seconds: None
+        )
 
 
 def test_dock_translation_converts_map_forward_to_body_forward_at_minus_yaw() -> None:

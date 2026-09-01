@@ -33,6 +33,17 @@ lock_path="${FORESTBRIDGE_HARDWARE_LOCK:-/tmp/forestbridge-xlerobot.lock}"
 device_args=()
 interactive_args=()
 x11_args=()
+relay_env_args=()
+
+for relay_variable in \
+  FORESTBRIDGE_RELAY_URL \
+  FORESTBRIDGE_ROBOT_TOKEN \
+  FORESTBRIDGE_TASK_PREVIEW \
+  FORESTBRIDGE_DEMO_ARMED; do
+  if [[ -n "${!relay_variable:-}" ]]; then
+    relay_env_args+=(--env "$relay_variable")
+  fi
+done
 
 resolve_board() {
   local serial="$1"
@@ -167,6 +178,7 @@ docker_cmd=(docker run --rm \
   "${x11_args[@]}" \
   --runtime nvidia \
   --ipc host \
+  "${relay_env_args[@]}" \
   "${device_args[@]}" \
   --mount "type=bind,src=$repo_root,dst=/workspace" \
   --mount "type=bind,src=$data_root,dst=/data" \

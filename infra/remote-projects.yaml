@@ -28,6 +28,18 @@ servers:
       - The deployment clone exists and currently tracks origin/main.
       - NVIDIA NGC PyTorch 25.06 py3 iGPU is the baseline; do not replace its torch with a generic PyPI wheel.
       - Add the Linux aarch64 Orbbec SDK to the derived image after the GPU and LeRobot smoke test passes.
+  - name: forestbridge-frankfurt-relay
+    ssh_alias: frankfurt
+    remote_repo_root: /data/projects/forestbridge-relay
+    scheduler: none
+    launch_modes:
+      - ssh
+      - docker-compose
+    env_activation: docker compose
+    notes:
+      - Host only the HTTPS dashboard, allow-listed task relay and small status/event state.
+      - Domain is robot.wichai.xyz; relay and HTTPS containers share the existing jl_default Docker network.
+      - Never move robot, camera, ROS, model or LM execution onto this host.
 
 policies:
   code_runs_on_jetson_for_robot_hardware: true

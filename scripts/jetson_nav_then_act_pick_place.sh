@@ -11,7 +11,9 @@ fixed ACT gimbal -> supervised ACT pick/place -> folded-arm recovery.
 This is an orchestration wrapper only. It does not replace the standalone
 mapping, Nav2, gimbal, or ACT scripts. Every existing physical-motion gate is
 preserved: PIPELINE, RETURN, PLAN, MOVE, READY and the ACT result/return
-prompts. Any failed stage stops the sequence before the next stage begins.
+prompts. With --auto-demo, one AUTO_PIPELINE authorization replaces the inner
+confirmations while all motion limits and failure stops remain active. Any
+failed stage stops the sequence before the next stage begins.
 
 Options:
   --database PATH                 RTAB-Map database
@@ -30,16 +32,18 @@ Options:
   --dock-entry-distance-m M       switch to holonomic table docking within M
   --dock-yaw-align-tolerance-deg D  yaw tolerance before/while docking
   --control-pose-source rgbd|wheel  Nav2 control pose source
+  --auto-demo                     one initial AUTO_PIPELINE authorization; no inner prompts
   -h, --help                      show this message
 EOF
 }
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-database="/data/slam/mapping/20260825T131710Z/rtabmap.db"
+source "$repo_root/scripts/forestbridge_task_guard.sh"
+database="/data/slam/mapping/20260830T095346Z/rtabmap.db"
 mapping_reference="/data/config/gemini_gimbal_mapping_down_20deg_v1.json"
 grasp_reference="/data/config/gemini_gimbal_grasp_pose_v1.json"
-goal_x="0.052"
-goal_y="-0.357"
+goal_x="0.060"
+goal_y="-0.372"
 goal_yaw_deg="-90"
 label="nav_act_pick_place"
 steps="600"
@@ -48,10 +52,14 @@ robot_radius_m="0.30"
 max_path_m="1.20"
 max_runtime_s="80"
 max_tracked_travel_m="1.35"
-position_tolerance_m="0.025"
+# The integrated table-docking demo accepts a 5 cm terminal XY envelope.  The
+# standalone Nav2 entrypoint keeps its stricter default, and callers can still
+# request a tighter pipeline tolerance explicitly.
+position_tolerance_m="0.050"
 dock_entry_distance_m="0.18"
 dock_yaw_align_tolerance_deg="6"
 control_pose_source="wheel"
+auto_demo=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -72,6 +80,7 @@ while [[ $# -gt 0 ]]; do
     --dock-entry-distance-m) dock_entry_distance_m="${2:?missing value for --dock-entry-distance-m}"; shift 2 ;;
     --dock-yaw-align-tolerance-deg) dock_yaw_align_tolerance_deg="${2:?missing value for --dock-yaw-align-tolerance-deg}"; shift 2 ;;
     --control-pose-source) control_pose_source="${2:?missing value for --control-pose-source}"; shift 2 ;;
+    --auto-demo) auto_demo=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -86,22 +95,39 @@ echo "Dock goal: x=$goal_x m, y=$goal_y m, yaw=$goal_yaw_deg deg"
 echo "ACT: $steps steps, label=$label"
 echo "This does not transport an object after pickup; ACT performs its existing local pick/place rollout."
 echo "Keep the 12 V cutoff available and clear the route, gimbal cables and arm workspace."
-read -r -p "Type PIPELINE to begin the mapping-gimbal return: " pipeline
-if [[ "$pipeline" != "PIPELINE" ]]; then
+pipeline_token="PIPELINE"
+if $auto_demo; then
+  pipeline_token="AUTO_PIPELINE"
+  echo "AUTO DEMO: this single authorization permits gimbal motion, localization/planning, bounded base motion and ACT rollout."
+  echo "No inner PLAN/MOVE/READY/ROLLOUT prompts will pause the task. The 12 V cutoff must remain attended."
+fi
+read -r -p "Type $pipeline_token to begin: " pipeline
+if [[ "$pipeline" != "$pipeline_token" ]]; then
   echo "Pipeline cancelled before any motor command."
   exit 1
 fi
 
-cd "$repo_root"
+if $auto_demo; then
+  export FORESTBRIDGE_DEMO_ARMED=1
+fi
 
-echo "=== 1/4 RETURN GEMINI TO MAPPING REFERENCE ==="
+cd "$repo_root"
+trap forestbridge_task_guard_end EXIT
+forestbridge_task_guard_begin
+
+echo "=== 1/5 RETURN WHITE ARM TO FOLDED TRAVEL POSE ==="
+"$repo_root/scripts/jetson_robot_exec.sh" \
+  --white --interactive -- \
+  python3 tools/return_white_to_folded_pose.py --execute
+
+echo "=== 2/5 RETURN GEMINI TO MAPPING REFERENCE ==="
 "$repo_root/scripts/jetson_slam_exec.sh" \
   --black --interactive -- \
   python3 tools/gemini_gimbal_pose.py \
   --reference "$mapping_reference" \
   return --execute
 
-echo "=== 2/4 NAVIGATE TO TABLE DOCKING POSE ==="
+echo "=== 3/5 NAVIGATE TO TABLE DOCKING POSE ==="
 bash "$repo_root/scripts/jetson_slam_nav2_supervised_execute.sh" \
   --database "$database" \
   --goal-x "$goal_x" \
@@ -117,14 +143,15 @@ bash "$repo_root/scripts/jetson_slam_nav2_supervised_execute.sh" \
   --dock-yaw-align-tolerance-deg "$dock_yaw_align_tolerance_deg" \
   --position-tolerance-m "$position_tolerance_m"
 
-echo "=== 3/4 RETURN GEMINI TO ACT GRASP REFERENCE ==="
+echo "=== 4/5 RETURN GEMINI TO ACT GRASP REFERENCE ==="
 "$repo_root/scripts/jetson_slam_exec.sh" \
   --black --interactive -- \
   python3 tools/gemini_gimbal_pose.py \
   --reference "$grasp_reference" \
   return --execute
 
-echo "=== 4/4 RUN SUPERVISED ACT PICK/PLACE ==="
+echo "=== 5/5 RUN SUPERVISED ACT PICK/PLACE ==="
 bash "$repo_root/scripts/jetson_act_trial.sh" \
   --label "$label" \
-  --steps "$steps"
+  --steps "$steps" \
+  --skip-return

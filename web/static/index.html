@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111713" />
+    <title>ForestBridge Robot</title>
+    <meta name="description" content="ForestBridge mobile robot mission control" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <section class="auth-gate" id="auth-gate" hidden>
+      <form class="auth-card" id="auth-form">
+        <p class="eyebrow">SECURE ACCESS</p>
+        <h2>连接 ForestBridge</h2>
+        <p class="muted">请输入演示访问码。访问码只保存在当前浏览器标签中。</p>
+        <label for="ui-token">访问码</label>
+        <input id="ui-token" type="password" autocomplete="current-password" required />
+        <button class="primary" type="submit">连接</button>
+        <p class="notice" id="auth-notice">等待访问码。</p>
+      </form>
+    </section>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">FORESTBRIDGE · MISSION CONTROL</p>
+          <h1>机器人任务面板</h1>
+        </div>
+        <div class="connection" id="connection"><span></span><b>等待 Jetson</b></div>
+      </header>
+
+      <section class="hero-grid">
+        <article class="camera-card">
+          <div class="camera-stage">
+            <img id="camera-frame" alt="机器人摄像头监看画面" hidden />
+            <div class="camera-placeholder" id="camera-placeholder">
+              <div class="reticle"></div>
+              <p>JETSON CAMERA</p>
+              <small id="monitor-message">监看模式未开启</small>
+            </div>
+          </div>
+          <div class="camera-meta">
+            <span>机器人视觉</span><span id="frame-age">尚未连接</span>
+          </div>
+          <div class="monitor-controls">
+            <div>
+              <strong>监看模式</strong>
+              <small>空闲时低频监看；任务运行时复用任务已经拥有的图像流。</small>
+            </div>
+            <div class="monitor-actions">
+              <label class="sr-only" for="monitor-source">监看摄像头</label>
+              <select id="monitor-source">
+                <option value="auto">自动跟随任务</option>
+                <option value="gemini">深度摄像头</option>
+                <option value="wrist_white">白臂手部摄像头</option>
+                <option value="wrist_black">黑臂手部摄像头</option>
+              </select>
+              <button class="monitor-toggle" id="monitor-toggle" type="button" aria-pressed="false">开启监看</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="mission-card">
+          <p class="section-label">固定演示任务</p>
+          <h2>导航至桌边并执行抓取</h2>
+          <p class="muted">当前为安全 dry-run：页面与 Jetson worker 会完整通信，但不会打开任何机器人硬件。</p>
+          <label for="request-text">任务说明</label>
+          <textarea id="request-text" rows="3">移动到桌边，拿起面霜并完成局部放置。</textarea>
+          <div class="button-row">
+            <button class="primary" id="start">开始任务</button>
+            <button class="danger" id="stop" disabled>请求停止</button>
+          </div>
+          <p class="notice" id="notice">等待创建任务。</p>
+        </article>
+      </section>
+
+      <section class="status-grid">
+        <article class="state-card">
+          <p class="section-label">当前状态</p>
+          <div class="state-value" id="state-value">IDLE</div>
+          <div class="progress"><div id="progress-bar"></div></div>
+          <p class="muted" id="task-id">尚无任务</p>
+        </article>
+
+        <article class="timeline-card">
+          <div class="section-heading">
+            <p class="section-label">任务时间线</p>
+            <span id="event-count">0 EVENTS</span>
+          </div>
+          <ol id="timeline"><li class="empty">Jetson 上报后会显示每个阶段。</li></ol>
+        </article>
+      </section>
+    </main>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

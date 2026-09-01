@@ -1,0 +1,16 @@
+[Unit]
+Description=ForestBridge opt-in Gemini camera monitor
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jetsonl7/robot-data/services/forestbridge-monitor
+EnvironmentFile=/home/jetsonl7/robot-data/services/forestbridge-monitor/.env
+ExecStart=/usr/bin/python3 /home/jetsonl7/robot-data/services/forestbridge-monitor/forestbridge_camera_monitor.py --interval-s 2.0 --poll-s 1.0
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -100,6 +100,44 @@ def require_servo_success(
         )
 
 
+def write_servo_byte_with_retry(
+    packet: object,
+    port_handler: object,
+    motor_id: int,
+    address: int,
+    value: int,
+    operation: str,
+    communication_success: int,
+    retries: int = 3,
+) -> None:
+    """Retry a bounded number of acknowledged one-byte writes.
+
+    The shared servo bus occasionally drops one status packet even after a
+    successful preflight.  Retrying the same idempotent register value avoids
+    aborting a supervised run on that single transient response while keeping
+    persistent communication failures fail-closed.
+    """
+    if retries < 1:
+        raise ValueError("retries must be at least 1")
+    communication = communication_success
+    packet_error = 0
+    for attempt in range(retries):
+        communication, packet_error = packet.write1ByteTxRx(
+            port_handler, motor_id, address, value
+        )
+        if communication == communication_success and packet_error == 0:
+            return
+        if attempt + 1 < retries:
+            time.sleep(0.1)
+    require_servo_success(
+        operation,
+        motor_id,
+        communication,
+        packet_error,
+        communication_success,
+    )
+
+
 def write_wheel_velocities(
     group_sync_write: object,
     port_handler: object,
@@ -183,14 +221,13 @@ def prepare_wheels_stopped(
         communication_success,
     )
     for motor_id in WHEEL_IDS:
-        communication, packet_error = packet.write1ByteTxRx(
-            port_handler, motor_id, TORQUE, 1
-        )
-        require_servo_success(
-            "enable torque",
+        write_servo_byte_with_retry(
+            packet,
+            port_handler,
             motor_id,
-            communication,
-            packet_error,
+            TORQUE,
+            1,
+            "enable torque",
             communication_success,
         )
 
