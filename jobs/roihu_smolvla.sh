@@ -24,10 +24,16 @@ mkdir "$run_dir"
 git rev-parse HEAD > "$run_dir/project-commit.txt"
 cp "$SMOL_ROOT/manifests/environment-freeze.txt" "$run_dir/environment-freeze.txt"
 export SMOL_RUN_DIR="$run_dir"
+checkpoint=lerobot/smolvla_base
+if [[ -f "$SMOL_ROOT/manifests/model-snapshots.json" ]]; then
+  cp "$SMOL_ROOT/manifests/model-snapshots.json" "$run_dir/model-snapshots.json"
+  checkpoint=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["lerobot/smolvla_base"]["path"])' "$run_dir/model-snapshots.json")
+  export HF_HUB_OFFLINE=1
+fi
 mode=${1:-smoke}
 shift || true
 case "$mode" in
-  smoke) python tools/smolvla_smoke.py --output "$run_dir/smoke.json" "$@" ;;
-  train) python tools/smolvla_train.py --output-dir "$run_dir/train" "$@" ;;
+  smoke) python tools/smolvla_smoke.py --checkpoint "$checkpoint" --output "$run_dir/smoke.json" "$@" ;;
+  train) python tools/smolvla_train.py --checkpoint "$checkpoint" --output-dir "$run_dir/train" "$@" ;;
   *) echo 'Usage: sbatch jobs/roihu_smolvla.sh smoke|train [arguments]'; exit 2 ;;
 esac
