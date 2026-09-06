@@ -30,7 +30,7 @@ Robotics Nation 主办的 3 个月具身智能机器人挑战赛。平台：**XL
 - Orbbec Gemini 335 —— 深度相机
 - Anker SOLIX C300X —— 电源
 
-> 当前状态：机器人全部 USB 已迁移到 Jetson，GPU 容器、Gemini RGB-D、两只手腕相机、控制板识别和跨进程硬件锁均已验证。固定房间内已完成手推建图、重定位、Nav2 桌边停靠、ACT 抓取/局部放置和自动收臂的一次授权串联 Demo；抓取仍对摆放敏感，且连续运行会触发夹爪温度保护，不能据此声称通用或稳定自主能力。机器移交以 [2026-08-30 完整交接记录](docs/19-machine-handoff-20260830.md) 为入口。
+> 当前状态：机器人全部 USB 已迁移到 Jetson，GPU 容器、Gemini RGB-D、两只手腕相机、控制板识别和跨进程硬件锁均已验证。固定房间内已完成手推建图、重定位、Nav2 桌边停靠、ACT 抓取/局部放置和自动收臂的一次授权串联 Demo；最近一次通过复核的[客厅房间建模结果](docs/slam/20-living-room-model-20260902T194820Z.md)已加入仓库。抓取仍对摆放敏感，且连续运行会触发夹爪温度保护，不能据此声称通用或稳定自主能力。机器移交以 [2026-08-30 完整交接记录](docs/19-machine-handoff-20260830.md) 为入口。
 
 ## 算力架构（三段，别混）
 
@@ -66,7 +66,7 @@ YOLO11n-pose 人体关键点、手势事件、GUI overlay 和自动化 QA，不�
 之后按“实时 camera-only → 镜像目标 dry-run → 单臂低速监督镜像 → 大模型白名单技能编排”逐阶段验收；
 详见 [13 轻量实验室人机交互路线](docs/13-lab-human-interaction-roadmap.md)。
 
-近期入口：[2026-08-30 机器交接](docs/19-machine-handoff-20260830.md) · [Demo 交付计划](docs/17-demo-delivery-plan-20260827.md) · [网页 relay dry-run](docs/18-web-relay-dry-run-20260827.md) · [ACT v2 抓取](docs/12-act-v2-28episode-grasp-log.md) · [Nav2-to-ACT 基线](docs/slam/16-nav-to-act-mvp-baseline-20260825.md) · [SLAM 路线与当前记录](docs/slam/README.md)
+近期入口：[客厅房间建模结果](docs/slam/20-living-room-model-20260902T194820Z.md) · [2026-08-30 机器交接](docs/19-machine-handoff-20260830.md) · [Demo 交付计划](docs/17-demo-delivery-plan-20260827.md) · [网页 relay dry-run](docs/18-web-relay-dry-run-20260827.md) · [ACT v2 抓取](docs/12-act-v2-28episode-grasp-log.md) · [Nav2-to-ACT 基线](docs/slam/16-nav-to-act-mvp-baseline-20260825.md) · [SLAM 路线与当前记录](docs/slam/README.md)
 
 > 目标场景现定义为受监督的化学/生物实验室助手机器人：人员与实验品隔离，通过语言、手势、镜像示教和已验证技能完成任务。近期仍坚持“窄任务 + 稳 demo”，不得把场景愿景当作未经验证的自主能力。
 
