@@ -62,6 +62,14 @@ Two local Python 3.12 unit tests and all new shell scripts' `bash -n` checks
 passed; shellcheck and shfmt were unavailable. The Mac's default Python 3.8
 cannot import `tomllib`; use Python 3.12, as required by this pinned LeRobot.
 
+Final Roihu verification: both launcher tests passed in the installed environment,
+`lerobot-train --help` completed successfully, and torch/torchvision remained
+`2.10.0+cu130` / `0.25.0+cu130`; PyAV is 15.1.0. The first CLI check hit a
+45-second timeout, while a repeat with a 180-second allowance passed. This is
+startup overhead, not a training-throughput measurement. The independent root
+including model caches occupied 3.6G at closeout. Project setup/code/model-cache
+commits and the progress log are synchronized through GitHub `main`.
+
 ## After data arrives
 
 1. Keep an immutable LeRobot dataset with RGB videos, state, recorded actions,
