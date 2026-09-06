@@ -10,6 +10,21 @@ git_sync:
   strategy: github
 
 servers:
+  - name: roihu-smolvla
+    ssh_alias: roihu
+    remote_repo_root: /scratch/project_2016517/panh/summer-robotics-smolvla/code/summer-robotics
+    scheduler: slurm
+    launch_modes:
+      - sbatch
+    env_activation: source scripts/roihu_smolvla_env.sh
+    data_root: /scratch/project_2016517/panh/summer-robotics-smolvla/data
+    checkpoint_root: /scratch/project_2016517/panh/summer-robotics-smolvla/outputs
+    logs_root: /scratch/project_2016517/panh/summer-robotics-smolvla/logs
+    notes:
+      - Independent SmolVLA stage environment; never modify summer-robotics-act/.venv.
+      - CSC python-pytorch/2.10 supplies ARM CUDA torch; dataset decoder is PyAV.
+      - Check current partition availability, project storage and SSH certificate before submission.
+      - Login nodes are for lightweight setup and submission only; compute uses Slurm.
   - name: xlerobot-jetson
     ssh_alias: jetsonl7
     remote_repo_root: /home/jetsonl7/summer-robotics-deploy

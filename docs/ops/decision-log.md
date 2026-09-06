@@ -1,5 +1,18 @@
 # ForestBridge Robot Operations Decision Log
 
+## 2026-09-06 — Isolate SmolVLA preparation from ACT and robot deployment
+
+- Keep the existing ACT environment/checkpoint and unpublished teammate Jetson
+  edits unchanged. Use a separate Roihu stage environment, not a new environment
+  per job. Sync project code via GitHub before running setup or jobs.
+- Pin LeRobot to `22bd7a2f489b367d8df42de803b1e8c4ca63a3f9`; retain CSC CUDA
+  PyTorch 2.10 and use PyAV decoding to avoid torchcodec's newer torch requirement.
+- Require explicit training episode indices and a separate held-out set. New task
+  data, action semantics and Jetson inference still require independent validation.
+- Start with SmolVLA; defer any ACT replacement until offline and supervised
+  physical tests succeed. Basket versus held transport and single versus dual arm
+  are still design choices, not implemented features.
+
 ## 2026-08-07 — Jetson is the robot hardware host
 
 - All robot USB devices connect to the onboard Jetson; laptops connect over SSH/Wi-Fi.

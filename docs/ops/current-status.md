@@ -13,6 +13,23 @@
 
 ## Current Focus
 
+- September 6 update: remote-only support now prioritizes isolated SmolVLA
+  training preparation on Roihu while teammates own physical testing. The proposed
+  medicine/water delivery task, VR dual-arm recording and carrying method are not
+  yet settled or validated; there is no new task dataset. Keep ACT as the baseline.
+  See `docs/experiments/progress-20260906.md` for teammate navigation evidence and
+  `docs/experiments/smolvla-roihu-setup-20260906.md` for setup/launch instructions.
+- Jetson teammate route changes observed on September 6 were unpublished and
+  remain untouched. A six-report sofa-to-table PASS was inspected; real VLA
+  execution and current public-web motion integration are not verified here.
+- Roihu setup installed successfully in the independent `summer-robotics-smolvla`
+  root; SmolVLA/training imports passed and both pretrained policy and VLM
+  snapshots were cached. GPU smoke is prepared but not submitted, and no new-task
+  training has run. See the runbook for exact model revisions. Scratch was near
+  its project quota (939G/1.0T before setup); check capacity before uploading data.
+
+## Historical baseline (August 2026; not current deployment instructions)
+
 - On 2026-08-30, manual-push mapping candidate `20260830T095346Z` passed
   299.8 s / 9.68 m at 7.98 Hz with zero tracking loss. Three independent
   camera-only localizations while facing map `-Y` progressed monotonically
@@ -79,6 +96,13 @@
   requires unavailable sudo credentials, the verified process uses a detached
   watchdog plus user `@reboot` crontab. The task worker, ROS, serial and motor
   adapters remain disconnected.
+- On 2026-09-04, the Frankfurt host gained the teammate SSH account
+  `forestbridge-dev`. On 2026-09-05, the forced first-login password change
+  was removed for mobile SSH compatibility, and the account was granted
+  password-required full `sudo` access for the competition. It is not configured
+  for passwordless sudo or direct Docker-group access. The password itself is
+  intentionally not stored in Git. Remove this temporary account promptly after
+  the competition.
 
 - The 2026-08-14 fixed downward-Gemini supervised RGB-D mapping candidate
   `20260814T140025Z` passed at 7.143 Hz with zero tracking loss, a 0.467221 s

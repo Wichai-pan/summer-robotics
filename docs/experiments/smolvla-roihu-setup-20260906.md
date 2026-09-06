@@ -26,6 +26,42 @@ PyTorch; pip must not replace it. Dataset decoding uses PyAV, not torchcodec
 - Slurm entry: `jobs/roihu_smolvla.sh`; default is a 15-minute single-GH200 smoke.
 - Synthetic test: `tools/smolvla_smoke.py`; data launcher: `tools/smolvla_train.py`.
 
+## Installation and model cache
+
+From the project clone on Roihu:
+
+```bash
+bash scripts/roihu_smolvla_bootstrap.sh
+source scripts/roihu_smolvla_env.sh
+python tools/smolvla_cache_models.py --manifest "$SMOL_ROOT/manifests/model-snapshots.json"
+```
+
+Run bootstrap once per stage environment, not inside every training job. It
+refuses a dirty or wrong-revision upstream clone and never installs into ACT's
+environment. Re-running the cache command can fetch a newer Hub main; preserve
+the existing manifest for reproducibility. The job uses the recorded local
+policy snapshot and offline mode when that manifest exists.
+
+Verified September 6: installation completed and both `SmolVLAPolicy` and the
+LeRobot training entrypoint imported successfully on the login node. Resolved
+Transformers is 5.5.4. Installation reported protobuf conflicts with system
+TensorFlow metadata/telemetry packages; those stacks are outside this workflow.
+Do not claim that the complete shared CSC Python distribution passes `pip check`.
+The expected login-node NVML warning is not a GPU test result.
+
+Downloaded model snapshots:
+
+- `lerobot/smolvla_base`: `c83c3163b8ca9b7e67c509fffd9121e66cb96205`.
+- `HuggingFaceTB/SmolVLM2-500M-Video-Instruct`:
+  `7b375e1b73b11138ff12fe22c8f2822d8fe03467`.
+
+Both are recorded under `manifests/model-snapshots.json`. Synthetic CUDA smoke
+is prepared but has not been submitted; GPU forward/backward success must not be
+inferred from imports or downloaded weights. No formal training was launched.
+Two local Python 3.12 unit tests and all new shell scripts' `bash -n` checks
+passed; shellcheck and shfmt were unavailable. The Mac's default Python 3.8
+cannot import `tomllib`; use Python 3.12, as required by this pinned LeRobot.
+
 ## After data arrives
 
 1. Keep an immutable LeRobot dataset with RGB videos, state, recorded actions,
