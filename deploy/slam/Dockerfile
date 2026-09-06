@@ -15,6 +15,8 @@ RUN apt-get update \
         procps \
         ros-humble-image-tools \
         ros-humble-image-transport-plugins \
+        ros-humble-navigation2 \
+        ros-humble-nav2-bringup \
         ros-humble-orbbec-camera \
         ros-humble-orbbec-description \
         ros-humble-rosbag2-storage-mcap \

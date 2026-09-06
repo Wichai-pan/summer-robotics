@@ -1,0 +1,33 @@
+schema: forestbridge/home-nav-route/v1
+workspace_config: configs/nav2/home_workspaces_20260902T194820Z.yaml
+legs:
+  - id: table_exit
+    pose_id: right_a.predock_pose
+    wheel_visual_policy: bounded
+    dock_entry_distance_m: 0.50
+    append_exact_goal: false
+  - id: cross_to_sofa
+    pose_id: right_c.predock_pose
+    wheel_visual_policy: liveness
+    motion_mode: holonomic_path
+    dock_entry_distance_m: 0.0
+    append_exact_goal: false
+  - id: sofa_predock_localize_and_correct
+    pose_id: right_c.predock_pose
+    wheel_visual_policy: bounded
+    motion_mode: holonomic_path
+    dock_entry_distance_m: 0.50
+    append_exact_goal: false
+    preplan_localization_s: 30
+  - id: sofa_dock
+    pose_id: right_c.work_pose
+    wheel_visual_policy: bounded
+    dock_entry_distance_m: 0.50
+    append_exact_goal: true
+  - id: sofa_work_localize_and_correct
+    pose_id: right_c.work_pose
+    wheel_visual_policy: bounded
+    motion_mode: holonomic_path
+    dock_entry_distance_m: 0.50
+    append_exact_goal: true
+    preplan_localization_s: 30
