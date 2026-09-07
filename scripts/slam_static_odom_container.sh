@@ -9,9 +9,19 @@ dry_run=false
 mode="static"
 transform_config=""
 localization_db=""
+expected_start_x=""
+expected_start_y=""
+expected_start_yaw_deg=""
+initial_map_pose_x=""
+initial_map_pose_y=""
+initial_map_pose_yaw_deg=""
+expected_start_max_position_error_m="0.25"
+expected_start_max_yaw_error_deg="25"
 nav2_goal_x=""
 nav2_goal_y=""
 nav2_goal_yaw_deg="0"
+nav2_route_file=""
+nav2_workspace_config="configs/nav2/home_workspaces_20260902T194820Z.yaml"
 nav2_params="configs/nav2/planning_dry_run.yaml"
 nav2_robot_radius_m="0.30"
 nav2_supervised_execute=false
@@ -24,7 +34,10 @@ nav2_execute_control_pose_source="rgbd"
 nav2_execute_wheel_visual_policy="bounded"
 nav2_execute_dock_entry_distance_m="0"
 nav2_execute_dock_yaw_align_tolerance_deg="6"
+nav2_execute_dock_yaw_realign_tolerance_deg="8"
 nav2_execute_position_tolerance_m="0.07"
+nav2_execute_yaw_tolerance_deg="8"
+nav2_append_exact_goal=false
 ready_file=""
 camera_width=0
 camera_height=0
@@ -35,7 +48,11 @@ usage() {
 Usage: slam_static_odom_container.sh [--duration SECONDS] [--output-root PATH] [--dry-run]
                                      [--mode static|motion|mapping|localization] [--transform-config PATH]
                                      [--localization-db PATH]
+                                     [--expected-start-x M --expected-start-y M --expected-start-yaw-deg DEG]
+                                     [--initial-map-pose-x M --initial-map-pose-y M --initial-map-pose-yaw-deg DEG]
+                                     [--expected-start-max-position-error-m M --expected-start-max-yaw-error-deg DEG]
                                      [--nav2-goal-x M --nav2-goal-y M] [--nav2-goal-yaw-deg DEG]
+                                     [--nav2-route-file PATH --nav2-workspace-config PATH]
                                      [--nav2-params PATH] [--nav2-robot-radius-m M]
                                      [--nav2-supervised-execute]
                                      [--nav2-execute-max-path-m M] [--nav2-execute-max-runtime-s S]
@@ -43,7 +60,9 @@ Usage: slam_static_odom_container.sh [--duration SECONDS] [--output-root PATH] [
                                      [--nav2-execute-max-tracked-travel-m M] [--nav2-execute-control-pose-source rgbd|wheel]
                                      [--nav2-execute-wheel-visual-policy bounded|liveness]
                                      [--nav2-execute-dock-entry-distance-m M] [--nav2-execute-dock-yaw-align-tolerance-deg DEG]
-                                     [--nav2-execute-position-tolerance-m M]
+                                     [--nav2-execute-dock-yaw-realign-tolerance-deg DEG]
+                                     [--nav2-execute-position-tolerance-m M] [--nav2-execute-yaw-tolerance-deg DEG]
+                                     [--nav2-append-exact-goal]
                                      [--ready-file PATH] [--camera-width PX]
                                      [--camera-height PX] [--camera-fps HZ]
 
@@ -60,9 +79,19 @@ while [[ $# -gt 0 ]]; do
   --mode) mode="${2:?missing value for --mode}"; shift 2 ;;
   --transform-config) transform_config="${2:?missing value for --transform-config}"; shift 2 ;;
   --localization-db) localization_db="${2:?missing value for --localization-db}"; shift 2 ;;
+  --expected-start-x) expected_start_x="${2:?missing value}"; shift 2 ;;
+  --expected-start-y) expected_start_y="${2:?missing value}"; shift 2 ;;
+  --expected-start-yaw-deg) expected_start_yaw_deg="${2:?missing value}"; shift 2 ;;
+  --initial-map-pose-x) initial_map_pose_x="${2:?missing value}"; shift 2 ;;
+  --initial-map-pose-y) initial_map_pose_y="${2:?missing value}"; shift 2 ;;
+  --initial-map-pose-yaw-deg) initial_map_pose_yaw_deg="${2:?missing value}"; shift 2 ;;
+  --expected-start-max-position-error-m) expected_start_max_position_error_m="${2:?missing value}"; shift 2 ;;
+  --expected-start-max-yaw-error-deg) expected_start_max_yaw_error_deg="${2:?missing value}"; shift 2 ;;
   --nav2-goal-x) nav2_goal_x="${2:?missing goal x}"; shift 2 ;;
   --nav2-goal-y) nav2_goal_y="${2:?missing goal y}"; shift 2 ;;
   --nav2-goal-yaw-deg) nav2_goal_yaw_deg="${2:?missing goal yaw}"; shift 2 ;;
+  --nav2-route-file) nav2_route_file="${2:?missing route file}"; shift 2 ;;
+  --nav2-workspace-config) nav2_workspace_config="${2:?missing workspace config}"; shift 2 ;;
   --nav2-params) nav2_params="${2:?missing Nav2 params path}"; shift 2 ;;
   --nav2-robot-radius-m) nav2_robot_radius_m="${2:?missing robot radius}"; shift 2 ;;
   --nav2-supervised-execute) nav2_supervised_execute=true; shift ;;
@@ -75,7 +104,10 @@ while [[ $# -gt 0 ]]; do
   --nav2-execute-wheel-visual-policy) nav2_execute_wheel_visual_policy="${2:?missing wheel visual policy}"; shift 2 ;;
   --nav2-execute-dock-entry-distance-m) nav2_execute_dock_entry_distance_m="${2:?missing dock entry distance}"; shift 2 ;;
   --nav2-execute-dock-yaw-align-tolerance-deg) nav2_execute_dock_yaw_align_tolerance_deg="${2:?missing dock yaw tolerance}"; shift 2 ;;
+  --nav2-execute-dock-yaw-realign-tolerance-deg) nav2_execute_dock_yaw_realign_tolerance_deg="${2:?missing dock re-align yaw tolerance}"; shift 2 ;;
   --nav2-execute-position-tolerance-m) nav2_execute_position_tolerance_m="${2:?missing position tolerance}"; shift 2 ;;
+  --nav2-execute-yaw-tolerance-deg) nav2_execute_yaw_tolerance_deg="${2:?missing yaw tolerance}"; shift 2 ;;
+  --nav2-append-exact-goal) nav2_append_exact_goal=true; shift ;;
   --ready-file) ready_file="${2:?missing value for --ready-file}"; shift 2 ;;
   --camera-width) camera_width="${2:?missing value for --camera-width}"; shift 2 ;;
   --camera-height) camera_height="${2:?missing value for --camera-height}"; shift 2 ;;
@@ -114,21 +146,42 @@ if [[ "$mode" == "localization" ]]; then
   [[ -n "$localization_db" ]] || { echo "--localization-db is required for localization mode" >&2; exit 2; }
   [[ -s "$localization_db" ]] || { echo "localization database is missing or empty: $localization_db" >&2; exit 2; }
 fi
+if [[ -n "$initial_map_pose_x" || -n "$initial_map_pose_y" || -n "$initial_map_pose_yaw_deg" ]]; then
+  [[ "$mode" == "localization" ]] || { echo "initial map pose is only supported in localization mode" >&2; exit 2; }
+  [[ -n "$initial_map_pose_x" && -n "$initial_map_pose_y" && -n "$initial_map_pose_yaw_deg" ]] || {
+    echo "initial map pose requires x, y and yaw" >&2; exit 2;
+  }
+  python3 - "$initial_map_pose_x" "$initial_map_pose_y" "$initial_map_pose_yaw_deg" <<'PY'
+import math
+import sys
+values = [float(value) for value in sys.argv[1:]]
+if not all(math.isfinite(value) for value in values):
+    raise SystemExit("initial map pose values must be finite")
+PY
+fi
 if [[ -n "$nav2_goal_x" || -n "$nav2_goal_y" ]]; then
   [[ "$mode" == "localization" ]] || { echo "Nav2 planning is only supported in localization mode" >&2; exit 2; }
   [[ -n "$nav2_goal_x" && -n "$nav2_goal_y" ]] || { echo "--nav2-goal-x and --nav2-goal-y must be supplied together" >&2; exit 2; }
   [[ -s "$nav2_params" ]] || { echo "Nav2 params file is missing or empty: $nav2_params" >&2; exit 2; }
 fi
-if [[ "$nav2_supervised_execute" == true && -z "$nav2_goal_x" ]]; then
-  echo "--nav2-supervised-execute requires a Nav2 goal" >&2
+if [[ -n "$nav2_route_file" ]]; then
+  [[ "$mode" == "localization" ]] || { echo "a Nav2 route is only supported in localization mode" >&2; exit 2; }
+  [[ -z "$nav2_goal_x" && -z "$nav2_goal_y" ]] || { echo "use either a single Nav2 goal or --nav2-route-file" >&2; exit 2; }
+  [[ -s "$nav2_route_file" ]] || { echo "Nav2 route file is missing or empty: $nav2_route_file" >&2; exit 2; }
+  [[ -s "$nav2_workspace_config" ]] || { echo "workspace config is missing or empty: $nav2_workspace_config" >&2; exit 2; }
+  python3 tools/resolve_home_navigation_route.py \
+    --route "$nav2_route_file" --workspace-config "$nav2_workspace_config" >/dev/null
+fi
+if [[ "$nav2_supervised_execute" == true && -z "$nav2_goal_x" && -z "$nav2_route_file" ]]; then
+  echo "--nav2-supervised-execute requires a Nav2 goal or route" >&2
   exit 2
 fi
 [[ "$nav2_execute_control_pose_source" == "rgbd" || "$nav2_execute_control_pose_source" == "wheel" ]] || {
   echo "--nav2-execute-control-pose-source must be rgbd or wheel" >&2
   exit 2
 }
-[[ "$nav2_execute_wheel_visual_policy" == "bounded" || "$nav2_execute_wheel_visual_policy" == "liveness" ]] || {
-  echo "--nav2-execute-wheel-visual-policy must be bounded or liveness" >&2
+[[ "$nav2_execute_wheel_visual_policy" == "bounded" || "$nav2_execute_wheel_visual_policy" == "guarded" || "$nav2_execute_wheel_visual_policy" == "liveness" ]] || {
+  echo "--nav2-execute-wheel-visual-policy must be bounded, guarded or liveness" >&2
   exit 2
 }
 
@@ -242,6 +295,15 @@ if [[ "$dry_run" == true ]]; then
         -p 'Mem/InitWMWithAllNodes:="true"' \
         -p 'Mem/LocalizationReadOnly:="true"'
       )
+      if [[ -n "$initial_map_pose_x" ]]; then
+        probe_initial_yaw_rad="$(python3 - "$initial_map_pose_yaw_deg" <<'PY'
+import math
+import sys
+print(f"{math.radians(float(sys.argv[1])):.12f}")
+PY
+)"
+        mapping_probe_command+=(-p initial_pose:="$initial_map_pose_x $initial_map_pose_y 0 0 0 $probe_initial_yaw_rad")
+      fi
     fi
     set +e
     # During a no-camera probe RTAB-Map can still be constructing ROS services
@@ -496,6 +558,17 @@ if [[ "$mode" == "mapping" || "$mode" == "localization" ]]; then
       -p 'Mem/InitWMWithAllNodes:="true"'
       -p 'Mem/LocalizationReadOnly:="true"'
     )
+    if [[ -n "$initial_map_pose_x" ]]; then
+      initial_map_pose_yaw_rad="$(python3 - "$initial_map_pose_yaw_deg" <<'PY'
+import math
+import sys
+print(f"{math.radians(float(sys.argv[1])):.12f}")
+PY
+)"
+      initial_map_pose="$initial_map_pose_x $initial_map_pose_y 0 0 0 $initial_map_pose_yaw_rad"
+      mapping_command+=(-p initial_pose:="$initial_map_pose")
+      echo "RTAB-Map startup prior: (${initial_map_pose_x}, ${initial_map_pose_y}, ${initial_map_pose_yaw_deg} deg); live localization must still pass the continuity gate."
+    fi
   fi
   setsid "${mapping_command[@]}" >"$mapping_log" 2>&1 &
   mapping_pid=$!
@@ -582,6 +655,20 @@ payload = {"status": "PASS", "database_path": sys.argv[3], "map_to_base_link": t
 target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 print(json.dumps(payload, indent=2))
 PY
+  if [[ -n "$expected_start_x" || -n "$expected_start_y" || -n "$expected_start_yaw_deg" ]]; then
+    [[ -n "$expected_start_x" && -n "$expected_start_y" && -n "$expected_start_yaw_deg" ]] || {
+      echo "expected start pose requires x, y and yaw" >&2
+      exit 2
+    }
+    python3 tools/validate_expected_localization.py \
+      --pose-json "$output_dir/localization-result.json" \
+      --expected-x "$expected_start_x" --expected-y "$expected_start_y" \
+      --expected-yaw-deg "$expected_start_yaw_deg" \
+      --max-position-error-m "$expected_start_max_position_error_m" \
+      --max-yaw-error-deg "$expected_start_max_yaw_error_deg" \
+      >"$output_dir/localization-continuity-report.json"
+    cat "$output_dir/localization-continuity-report.json"
+  fi
   export_dir="$output_dir/occupancy-map"
   mkdir -p "$export_dir"
   rtabmap-export --map --opt 2 --output map --output_dir "$export_dir" "$database_path"
@@ -591,11 +678,10 @@ PY
     --pose-json "$output_dir/localization-result.json" \
     --output "$output_dir/localization-overlay.ppm"
 
-  if [[ -n "$nav2_goal_x" ]]; then
+  if [[ -n "$nav2_goal_x" || -n "$nav2_route_file" ]]; then
     nav2_map_log="$output_dir/nav2-map-server.log"
     nav2_planner_log="$output_dir/nav2-planner-server.log"
     nav2_lifecycle_log="$output_dir/nav2-lifecycle-manager.log"
-    nav2_path_file="$output_dir/nav2-path.json"
     nav2_map_command=(
       ros2 run nav2_map_server map_server
       --ros-args -r __node:=map_server
@@ -636,31 +722,82 @@ PY
       fi
       sleep 1
     done
-    python3 tools/nav2_compute_path_dry_run.py \
-      --goal-x "$nav2_goal_x" --goal-y "$nav2_goal_y" --goal-yaw-deg "$nav2_goal_yaw_deg" \
-      --output "$nav2_path_file"
-    python3 tools/render_localization_overlay.py \
-      --map-pgm "$export_dir/map.pgm" \
-      --map-yaml "$export_dir/map.yaml" \
-      --pose-json "$output_dir/localization-result.json" \
-      --path-json "$nav2_path_file" \
-      --output "$output_dir/nav2-plan-overlay.ppm"
-    if [[ "$nav2_supervised_execute" == true ]]; then
-      echo "Nav2 path is ready. The next prompt is the only point that can enable base wheel torque."
-      python3 tools/nav2_supervised_base_execute.py \
-        --path-json "$nav2_path_file" \
-        --output "$output_dir/nav2-execution-report.json" \
-        --max-planned-path-m "$nav2_execute_max_path_m" \
-        --max-runtime-s "$nav2_execute_max_runtime_s" \
-        --max-linear-mps "$nav2_execute_max_linear_mps" \
-        --max-angular-deg-s "$nav2_execute_max_angular_deg_s" \
-        --max-tracked-travel-m "$nav2_execute_max_tracked_travel_m" \
-        --control-pose-source "$nav2_execute_control_pose_source" \
-        --wheel-visual-policy "$nav2_execute_wheel_visual_policy" \
-        --dock-entry-distance-m "$nav2_execute_dock_entry_distance_m" \
-        --dock-yaw-align-tolerance-deg "$nav2_execute_dock_yaw_align_tolerance_deg" \
-        --position-tolerance-m "$nav2_execute_position_tolerance_m"
+    route_specs_file="$output_dir/nav2-route-specs.tsv"
+    if [[ -n "$nav2_route_file" ]]; then
+      python3 tools/resolve_home_navigation_route.py \
+        --route "$nav2_route_file" --workspace-config "$nav2_workspace_config" --tsv \
+        >"$route_specs_file"
+    else
+      printf 'single_goal\t%s\t%s\t%s\t%s\t%s\t%s\tforward_path\t0\n' \
+        "$nav2_goal_x" "$nav2_goal_y" "$nav2_goal_yaw_deg" \
+        "$nav2_execute_wheel_visual_policy" "$nav2_execute_dock_entry_distance_m" \
+        "$nav2_append_exact_goal" >"$route_specs_file"
     fi
+    readarray -t route_specs <"$route_specs_file"
+    (( ${#route_specs[@]} > 0 )) || { echo "Nav2 route resolved to zero legs" >&2; exit 2; }
+
+    route_leg_index=0
+    for route_spec in "${route_specs[@]}"; do
+      IFS=$'\t' read -r leg_id leg_goal_x leg_goal_y leg_goal_yaw leg_policy leg_dock_distance leg_append_exact leg_motion_mode leg_preplan_localization_s <<<"$route_spec"
+      route_leg_index=$((route_leg_index + 1))
+      leg_prefix="$(printf 'leg-%02d-%s' "$route_leg_index" "$leg_id")"
+      nav2_path_file="$output_dir/${leg_prefix}-nav2-path.json"
+      nav2_execution_file="$output_dir/${leg_prefix}-execution-report.json"
+      echo "CONTINUOUS_ROUTE leg ${route_leg_index}/${#route_specs[@]}: ${leg_id} -> (${leg_goal_x}, ${leg_goal_y}, ${leg_goal_yaw} deg)"
+      for required_pid in "$mapping_pid" "$nav2_map_pid" "$nav2_planner_pid" "$nav2_lifecycle_pid"; do
+        kill -0 "$required_pid" 2>/dev/null || { echo "localization/Nav2 process exited before route leg ${leg_id}" >&2; exit 1; }
+      done
+      if (( leg_preplan_localization_s > 0 )); then
+        echo "PREPLAN_LOCALIZATION ${leg_preplan_localization_s}s: stopped at the destination-side predock before correction and docking."
+        leg_localization_samples="$output_dir/${leg_prefix}-preplan-localization-odom.jsonl"
+        leg_localization_report="$output_dir/${leg_prefix}-preplan-localization-report.json"
+        python3 tools/capture_static_odom.py \
+          --warmup 2 --duration "$leg_preplan_localization_s" \
+          --output "$leg_localization_samples"
+        leg_minimum_duration=$(((leg_preplan_localization_s * 8 + 9) / 10))
+        python3 "$metrics_tool" "$leg_localization_samples" \
+          --output "$leg_localization_report" \
+          --minimum-duration-s "$leg_minimum_duration"
+        cat "$leg_localization_report"
+        for required_pid in "$mapping_pid" "$nav2_map_pid" "$nav2_planner_pid" "$nav2_lifecycle_pid"; do
+          kill -0 "$required_pid" 2>/dev/null || { echo "localization/Nav2 process exited during predock localization ${leg_id}" >&2; exit 1; }
+        done
+        echo "PASS ${leg_preplan_localization_s}s predock localization; replanning correction from the fresh map pose."
+      fi
+      exact_goal_args=()
+      if [[ "$leg_append_exact" == true ]]; then
+        exact_goal_args+=(--append-exact-goal)
+      fi
+      python3 tools/nav2_compute_path_dry_run.py \
+        --goal-x "$leg_goal_x" --goal-y "$leg_goal_y" --goal-yaw-deg "$leg_goal_yaw" \
+        --output "$nav2_path_file" "${exact_goal_args[@]}"
+      python3 tools/render_localization_overlay.py \
+        --map-pgm "$export_dir/map.pgm" \
+        --map-yaml "$export_dir/map.yaml" \
+        --pose-json "$output_dir/localization-result.json" \
+        --path-json "$nav2_path_file" \
+        --output "$output_dir/${leg_prefix}-plan-overlay.ppm"
+      if [[ "$nav2_supervised_execute" == true ]]; then
+        echo "Leg ${leg_id} path is ready; supervised execution retains the current localization/Nav2 stack."
+        python3 tools/nav2_supervised_base_execute.py \
+          --path-json "$nav2_path_file" \
+          --output "$nav2_execution_file" \
+          --max-planned-path-m "$nav2_execute_max_path_m" \
+          --max-runtime-s "$nav2_execute_max_runtime_s" \
+          --max-linear-mps "$nav2_execute_max_linear_mps" \
+          --max-angular-deg-s "$nav2_execute_max_angular_deg_s" \
+          --max-tracked-travel-m "$nav2_execute_max_tracked_travel_m" \
+          --control-pose-source "$nav2_execute_control_pose_source" \
+          --wheel-visual-policy "$leg_policy" \
+          --motion-mode "$leg_motion_mode" \
+          --dock-entry-distance-m "$leg_dock_distance" \
+          --dock-yaw-align-tolerance-deg "$nav2_execute_dock_yaw_align_tolerance_deg" \
+          --dock-yaw-realign-tolerance-deg "$nav2_execute_dock_yaw_realign_tolerance_deg" \
+          --position-tolerance-m "$nav2_execute_position_tolerance_m" \
+          --yaw-tolerance-deg "$nav2_execute_yaw_tolerance_deg"
+        echo "PASS continuous route leg ${route_leg_index}/${#route_specs[@]}: ${leg_id}; wheels stopped and read back."
+      fi
+    done
   fi
 fi
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Execute one short Nav2 plan with the XLeRobot base under strict guards.
+"""Execute one bounded Nav2 plan with the XLeRobot base under strict guards.
 
-This is deliberately a supervised *first-motion* bridge, not a general
-autonomous navigation stack. It consumes a path already produced by Nav2,
+This is a supervised home-route executor, not an unrestricted autonomous
+navigation stack. It consumes a path already produced by Nav2,
 reads live RGB-D odometry composed with ``map -> odom``, and sends only bounded velocity-mode
 commands to white-board wheel IDs 7/8/9. Any transport, TF freshness, progress,
 time, path-length, or operator interruption issue immediately sends zero wheel
@@ -35,6 +35,21 @@ WHEEL_RADIUS_M = 0.05
 BASE_RADIUS_M = 0.125
 RAW_TO_RAD_S = 2.0 * math.pi / 4096.0
 WHEEL_ANGLES_RAD = tuple(math.radians(angle - 90.0) for angle in (240.0, 0.0, 120.0))
+MAX_ROUTE_PATH_M = 3.0
+MAX_TRACKED_TRAVEL_M = 3.25
+MAX_ROUTE_RUNTIME_S = 180.0
+
+
+def validate_route_envelope(path_m: float, tracked_m: float, runtime_s: float) -> None:
+    """Apply the hard envelope shared by every supervised home route."""
+    if not 0.0 < path_m <= MAX_ROUTE_PATH_M:
+        raise ValueError(f"planned path cap must be in (0, {MAX_ROUTE_PATH_M:.2f}] m")
+    if not path_m < tracked_m <= MAX_TRACKED_TRAVEL_M:
+        raise ValueError(
+            f"tracked travel cap must exceed the path cap and be <= {MAX_TRACKED_TRAVEL_M:.2f} m"
+        )
+    if not 0.0 < runtime_s <= MAX_ROUTE_RUNTIME_S:
+        raise ValueError(f"runtime cap must be in (0, {MAX_ROUTE_RUNTIME_S:.0f}] s")
 
 
 def wrap_degrees(value: float) -> float:
@@ -188,6 +203,32 @@ def validate_rotate_only_feedback(
     return translation_m
 
 
+def validate_stationary_visual_agreement(
+    wheel_pose: tuple[float, float, float],
+    visual_pose: tuple[float, float, float],
+    maximum_position_disagreement_m: float,
+    maximum_yaw_disagreement_deg: float,
+) -> tuple[float, float]:
+    """Gate a stopped visual pose without replacing the wheel pose anchor."""
+    position_disagreement_m = math.hypot(
+        wheel_pose[0] - visual_pose[0], wheel_pose[1] - visual_pose[1]
+    )
+    yaw_disagreement_deg = abs(wrap_degrees(wheel_pose[2] - visual_pose[2]))
+    if position_disagreement_m > maximum_position_disagreement_m:
+        raise RuntimeError(
+            "stationary RGB-D/wheel position disagreement "
+            f"{position_disagreement_m:.3f} m exceeds "
+            f"{maximum_position_disagreement_m:.3f} m; refusing visual XY re-anchor"
+        )
+    if yaw_disagreement_deg > maximum_yaw_disagreement_deg:
+        raise RuntimeError(
+            "stationary RGB-D/wheel yaw disagreement "
+            f"{yaw_disagreement_deg:.1f} deg exceeds "
+            f"{maximum_yaw_disagreement_deg:.1f} deg"
+        )
+    return position_disagreement_m, yaw_disagreement_deg
+
+
 def map_delta_to_body_velocity(
     delta_x_m: float, delta_y_m: float, yaw_deg: float, speed_mps: float
 ) -> tuple[float, float]:
@@ -204,6 +245,85 @@ def map_delta_to_body_velocity(
         math.cos(yaw_rad) * map_vx + math.sin(yaw_rad) * map_vy,
         -math.sin(yaw_rad) * map_vx + math.cos(yaw_rad) * map_vy,
     )
+
+
+def holonomic_path_command(
+    delta_x_m: float,
+    delta_y_m: float,
+    current_yaw_deg: float,
+    goal_yaw_deg: float,
+    speed_mps: float,
+    max_angular_deg_s: float,
+    pause_translation_yaw_error_deg: float,
+) -> tuple[float, float, float]:
+    """Follow a map-frame path laterally while holding the recorded chassis yaw."""
+    values = (
+        delta_x_m,
+        delta_y_m,
+        current_yaw_deg,
+        goal_yaw_deg,
+        speed_mps,
+        max_angular_deg_s,
+        pause_translation_yaw_error_deg,
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("holonomic path command inputs must be finite")
+    if speed_mps < 0.0 or max_angular_deg_s <= 0.0 or pause_translation_yaw_error_deg <= 0.0:
+        raise ValueError("holonomic path command limits are invalid")
+    yaw_error_deg = wrap_degrees(goal_yaw_deg - current_yaw_deg)
+    angular_deg_s = max(
+        -max_angular_deg_s,
+        min(max_angular_deg_s, 0.6 * yaw_error_deg),
+    )
+    if abs(yaw_error_deg) > pause_translation_yaw_error_deg:
+        return 0.0, 0.0, angular_deg_s
+    body_vx, body_vy = map_delta_to_body_velocity(
+        delta_x_m, delta_y_m, current_yaw_deg, speed_mps
+    )
+    return body_vx, body_vy, angular_deg_s
+
+
+def dock_heading_phase(
+    phase: str,
+    yaw_error_deg: float,
+    align_tolerance_deg: float,
+    realign_tolerance_deg: float,
+    *,
+    position_reached: bool = False,
+    arrival_tolerance_deg: float | None = None,
+) -> str:
+    """Apply travel hysteresis, but always finish yaw inside the goal radius."""
+    if position_reached:
+        if arrival_tolerance_deg is None or not math.isfinite(arrival_tolerance_deg):
+            raise ValueError("arrival tolerance is required after dock position is reached")
+        if abs(yaw_error_deg) > arrival_tolerance_deg:
+            return "align"
+    if phase == "align" and abs(yaw_error_deg) <= align_tolerance_deg:
+        return "translate"
+    if phase == "translate" and abs(yaw_error_deg) > realign_tolerance_deg:
+        return "align"
+    return phase
+
+
+def require_dock_arrival_yaw(yaw_error_deg: float, tolerance_deg: float) -> None:
+    """Translation hysteresis must never relax the final arrival tolerance."""
+    if not math.isfinite(yaw_error_deg) or abs(yaw_error_deg) > tolerance_deg:
+        raise RuntimeError(
+            f"dock position reached but yaw error {yaw_error_deg:.3f} deg exceeds "
+            f"arrival tolerance {tolerance_deg:.3f} deg; stop for independent localization"
+        )
+
+
+def final_yaw_progress_baseline(
+    was_inside_position_tolerance: bool,
+    is_inside_position_tolerance: bool,
+    yaw_error_deg: float,
+    previous_best_yaw_error_deg: float,
+) -> tuple[float, bool]:
+    """Reset the yaw watchdog when translation first enters the goal radius."""
+    if is_inside_position_tolerance and not was_inside_position_tolerance:
+        return abs(yaw_error_deg), True
+    return previous_best_yaw_error_deg, False
 
 
 def parse_args() -> argparse.Namespace:
@@ -226,6 +346,15 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.10,
         help="ordered Nav2 path distance used for the steering target",
+    )
+    parser.add_argument(
+        "--motion-mode",
+        choices=("forward_path", "holonomic_path"),
+        default="forward_path",
+        help=(
+            "forward_path turns the chassis toward each path tangent; holonomic_path follows "
+            "the Nav2 path with body vx/vy while holding the recorded goal yaw"
+        ),
     )
     parser.add_argument(
         "--control-pose-source",
@@ -271,10 +400,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--wheel-visual-policy",
-        choices=("bounded", "liveness"),
+        choices=("bounded", "guarded", "liveness"),
         default="bounded",
         help=(
             "bounded blends/re-localizes from fresh RGB-D during translation; "
+            "guarded verifies stopped RGB-D against wheel pose after turns and never re-anchors XY; "
             "liveness still requires a fresh RGB-D stream and initial map pose, "
             "but logs rather than applies unstable old-map translation updates"
         ),
@@ -310,6 +440,12 @@ def parse_args() -> argparse.Namespace:
         help="maximum yaw spread of map poses accepted after a re-anchor pause",
     )
     parser.add_argument(
+        "--post-rotation-max-yaw-disagreement-deg",
+        type=float,
+        default=15.0,
+        help="maximum stopped RGB-D/wheel yaw disagreement before translation",
+    )
+    parser.add_argument(
         "--max-rotate-translation-m",
         type=float,
         default=0.05,
@@ -335,6 +471,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=6.0,
         help="maximum yaw error allowed while translating in explicit docking mode",
+    )
+    parser.add_argument(
+        "--dock-yaw-realign-tolerance-deg",
+        type=float,
+        default=8.0,
+        help="larger yaw error that pauses docking translation to recover heading",
     )
     parser.add_argument("--dry-run", action="store_true", help="validate plan only; never open serial or ROS TF")
     return parser.parse_args()
@@ -363,11 +505,18 @@ def validate_limits(args: argparse.Namespace) -> None:
         args.relocalization_settle_s,
         args.relocalization_max_spread_m,
         args.relocalization_max_yaw_spread_deg,
+        args.post_rotation_max_yaw_disagreement_deg,
         args.brake_s,
         args.dock_yaw_align_tolerance_deg,
+        args.dock_yaw_realign_tolerance_deg,
     )
     if not all(math.isfinite(value) and value > 0 for value in values):
         raise ValueError("all execution limits must be finite and > 0")
+    validate_route_envelope(
+        args.max_planned_path_m,
+        args.max_tracked_travel_m,
+        args.max_runtime_s,
+    )
     if args.max_linear_mps > 0.08 or args.max_angular_deg_s > 20.0:
         raise ValueError("first-motion speed caps are fixed at <=0.08 m/s and <=20 deg/s")
     if args.wheel_visual_correction_gain > 1.0:
@@ -384,6 +533,8 @@ def validate_limits(args: argparse.Namespace) -> None:
         raise ValueError("dock entry distance must exceed position tolerance when docking mode is enabled")
     if not math.isfinite(args.dock_entry_distance_m) or args.dock_entry_distance_m < 0.0:
         raise ValueError("dock entry distance must be finite and >= 0")
+    if args.dock_yaw_realign_tolerance_deg <= args.dock_yaw_align_tolerance_deg:
+        raise ValueError("dock yaw re-align tolerance must exceed align tolerance")
 
 
 def compose_map_pose(
@@ -459,6 +610,24 @@ class WheelPoseTracker:
         self.yaw_deg = wrap_degrees(math.degrees(yaw_rad + scaled_wz_rad_s * dt))
         self._last_s = now_s
         return self.x_m, self.y_m, self.yaw_deg
+
+    def reset_stopped_timebase(
+        self, raw_by_id: dict[int, int], now_s: float, *, maximum_abs_raw: int = 100
+    ) -> None:
+        """Resume after an intentional stop without integrating the paused interval."""
+        wheel_raw_to_body_velocity(raw_by_id)
+        if not math.isfinite(now_s):
+            raise RuntimeError("wheel feedback time is non-finite")
+        moving = {
+            motor_id: raw
+            for motor_id, raw in raw_by_id.items()
+            if abs(raw) > maximum_abs_raw
+        }
+        if moving:
+            raise RuntimeError(
+                f"wheels were not stationary after visual verification: {moving}"
+            )
+        self._last_s = now_s
 
     def correct_toward_visual(
         self,
@@ -570,7 +739,13 @@ class LiveRgbdOdom:
         self.count = 0
         self.last_receive_monotonic_s: float | None = None
         self.odom_pose: tuple[float, float, float] | None = None
-        self._subscription = node.create_subscription(odometry_type, "/rtabmap/odom", self._callback, 20)
+        # The camera odometry normally arrives around 6--10 Hz while the
+        # supervised control loop runs at 5 Hz. A depth-20 queue made the loop
+        # consume progressively older poses during translation (the 2026-09-02
+        # 20 cm trial lagged the post-stop localization by 5--7 cm). Control
+        # needs the newest observation; old poses have no value after a newer
+        # one exists, so retain a single sample.
+        self._subscription = node.create_subscription(odometry_type, "/rtabmap/odom", self._callback, 1)
 
     def _callback(self, message: Any) -> None:
         position = message.pose.pose.position
@@ -802,6 +977,7 @@ def main() -> int:
             "max_angular_deg_s": args.max_angular_deg_s,
             "max_tracked_travel_m": args.max_tracked_travel_m,
             "max_rotate_translation_m": args.max_rotate_translation_m,
+            "motion_mode": args.motion_mode,
             "control_pose_source": args.control_pose_source,
             "max_wheel_visual_disagreement_m": args.max_wheel_visual_disagreement_m,
             "wheel_visual_correction_gain": args.wheel_visual_correction_gain,
@@ -814,6 +990,7 @@ def main() -> int:
             "relocalization_settle_s": args.relocalization_settle_s,
             "dock_entry_distance_m": args.dock_entry_distance_m,
             "dock_yaw_align_tolerance_deg": args.dock_yaw_align_tolerance_deg,
+            "dock_yaw_realign_tolerance_deg": args.dock_yaw_realign_tolerance_deg,
         },
     }
     if args.dry_run:
@@ -852,6 +1029,7 @@ def main() -> int:
     wheel_tracker: WheelPoseTracker | None = None
     last_visual_correction_count = -1
     relocalization_events: list[dict[str, Any]] = []
+    post_rotation_verifications: list[dict[str, Any]] = []
     termination_signal: int | None = None
     previous_handlers: dict[int, Any] = {}
 
@@ -962,6 +1140,7 @@ def main() -> int:
         best_goal_distance = math.hypot(first_pose[0] - points[-1][0], first_pose[1] - points[-1][1])
         best_path_heading_error = 180.0
         best_goal_yaw_error = abs(wrap_degrees(points[-1][2] - first_pose[2]))
+        was_inside_position_tolerance = best_goal_distance <= args.position_tolerance_m
         last_progress_time = start_time
         final_goal = points[-1]
         rotation_anchor_xy: tuple[float, float] | None = None
@@ -997,7 +1176,7 @@ def main() -> int:
                 # from the map-frame visual pose. A larger innovation, or a
                 # second disagreement beyond the supervised cap, still fails
                 # closed before it can be blended into the control pose.
-                if feedback_mode == "translate" and args.wheel_visual_policy == "bounded":
+                if feedback_mode == "translate" and args.wheel_visual_policy in {"bounded", "guarded"}:
                     if wheel_visual_disagreement_m > args.max_wheel_visual_disagreement_m:
                         raise RuntimeError(
                             "wheel/RGB-D translation disagreement "
@@ -1005,6 +1184,12 @@ def main() -> int:
                             f"{args.max_wheel_visual_disagreement_m:.3f} m"
                         )
                     if wheel_visual_disagreement_m > args.wheel_visual_relocalize_m:
+                        if args.wheel_visual_policy == "guarded":
+                            raise RuntimeError(
+                                "guarded wheel/RGB-D translation disagreement "
+                                f"{wheel_visual_disagreement_m:.3f} m exceeds "
+                                f"{args.wheel_visual_relocalize_m:.3f} m; refusing visual XY re-anchor"
+                            )
                         if len(relocalization_events) >= args.max_wheel_visual_relocalizations:
                             raise RuntimeError(
                                 "wheel/RGB-D disagreement requires another map re-localization "
@@ -1055,7 +1240,7 @@ def main() -> int:
                         relocalization_events.append(event)
                         samples.append(event)
                         continue
-                    if rgbd_odom.count != last_visual_correction_count:
+                    if args.wheel_visual_policy == "bounded" and rgbd_odom.count != last_visual_correction_count:
                         (
                             wheel_visual_disagreement_m,
                             visual_correction_m,
@@ -1089,6 +1274,16 @@ def main() -> int:
 
             goal_distance = math.hypot(final_goal[0] - current_x, final_goal[1] - current_y)
             yaw_error_to_goal = wrap_degrees(final_goal[2] - current_yaw)
+            is_inside_position_tolerance = goal_distance <= args.position_tolerance_m
+            best_goal_yaw_error, entered_goal_radius = final_yaw_progress_baseline(
+                was_inside_position_tolerance,
+                is_inside_position_tolerance,
+                yaw_error_to_goal,
+                best_goal_yaw_error,
+            )
+            if entered_goal_radius:
+                last_progress_time = loop_started
+            was_inside_position_tolerance = is_inside_position_tolerance
             if feedback_mode == "rotate":
                 if rotation_anchor_xy is None:
                     raise RuntimeError("rotate-only feedback is missing its pose anchor")
@@ -1122,7 +1317,11 @@ def main() -> int:
                 # At the entry radius there is still clearance to align the
                 # chassis. Once aligned, the table-side phase never rotates.
                 dock_phase = "align"
-            progress_heading_error = yaw_error_to_goal if dock_phase == "align" else heading_error
+            progress_heading_error = (
+                yaw_error_to_goal
+                if dock_phase == "align" or args.motion_mode == "holonomic_path"
+                else heading_error
+            )
             if goal_distance > args.position_tolerance_m:
                 made_progress, best_goal_distance, best_path_heading_error = path_alignment_progress(
                     goal_distance,
@@ -1146,12 +1345,20 @@ def main() -> int:
 
             body_vx = 0.0
             body_vy = 0.0
-            if dock_phase == "align" and abs(yaw_error_to_goal) <= args.dock_yaw_align_tolerance_deg:
-                dock_phase = "translate"
+            prior_dock_phase = dock_phase
+            dock_phase = dock_heading_phase(
+                dock_phase,
+                yaw_error_to_goal,
+                args.dock_yaw_align_tolerance_deg,
+                args.dock_yaw_realign_tolerance_deg,
+                position_reached=is_inside_position_tolerance,
+                arrival_tolerance_deg=args.yaw_tolerance_deg,
+            )
+            if prior_dock_phase == "align" and dock_phase == "translate":
                 rotation_anchor_xy = None
 
             if dock_phase == "translate":
-                if abs(yaw_error_to_goal) > args.dock_yaw_align_tolerance_deg:
+                if abs(yaw_error_to_goal) > args.dock_yaw_realign_tolerance_deg:
                     # A table dock requires the front edge to stay parallel
                     # to the table. Pause translation, recover that heading,
                     # then resume the same holonomic approach. This is an
@@ -1160,6 +1367,7 @@ def main() -> int:
                     dock_phase = "align"
                 if dock_phase == "translate" and goal_distance <= args.position_tolerance_m:
                     write_wheel_velocities(command_writer, port_handler, [0, 0, 0], COMM_SUCCESS)
+                    require_dock_arrival_yaw(yaw_error_to_goal, args.yaw_tolerance_deg)
                     arrival = {
                         "elapsed_s": round(elapsed, 3),
                         "x": round(current_x, 4),
@@ -1209,6 +1417,19 @@ def main() -> int:
                     break
                 linear = 0.0
                 angular = max(-args.max_angular_deg_s, min(args.max_angular_deg_s, 0.6 * yaw_error))
+            elif dock_phase != "translate" and args.motion_mode == "holonomic_path":
+                speed = min(args.max_linear_mps, max(0.015, 0.45 * target_distance))
+                body_vx, body_vy, angular = holonomic_path_command(
+                    target_x - current_x,
+                    target_y - current_y,
+                    current_yaw,
+                    final_goal[2],
+                    speed,
+                    args.max_angular_deg_s,
+                    args.dock_yaw_realign_tolerance_deg,
+                )
+                linear = math.hypot(body_vx, body_vy)
+                yaw_error = yaw_error_to_goal
             elif dock_phase != "translate":
                 angular = max(-args.max_angular_deg_s, min(args.max_angular_deg_s, 0.6 * heading_error))
                 # For the first real run, rotate before driving rather than
@@ -1219,7 +1440,7 @@ def main() -> int:
                 )
                 yaw_error = heading_error
 
-            if dock_phase != "translate":
+            if dock_phase != "translate" and args.motion_mode == "forward_path":
                 body_vx = linear
                 body_vy = 0.0
             raw = body_to_wheel_raw(body_vx, body_vy, angular)
@@ -1230,6 +1451,54 @@ def main() -> int:
                 COMM_SUCCESS,
             )
             next_feedback_mode = "translate" if linear > 0.0 else "rotate" if angular != 0.0 else "stopped"
+            if (
+                args.control_pose_source == "wheel"
+                and args.wheel_visual_policy == "guarded"
+                and feedback_mode == "rotate"
+                and next_feedback_mode == "translate"
+            ):
+                if wheel_tracker is None:
+                    raise RuntimeError("post-rotation verification has no wheel pose")
+                write_wheel_velocities(command_writer, port_handler, [0, 0, 0], COMM_SUCCESS)
+                verified_visual_pose, verification_stats = settle_map_relocalization(
+                    node,
+                    tf_buffer,
+                    rgbd_odom,
+                    settle_s=args.relocalization_settle_s,
+                    max_spread_m=args.relocalization_max_spread_m,
+                    max_yaw_spread_deg=args.relocalization_max_yaw_spread_deg,
+                    max_tf_stale_s=args.max_tf_stale_s,
+                )
+                position_disagreement_m, yaw_disagreement_deg = validate_stationary_visual_agreement(
+                    (wheel_tracker.x_m, wheel_tracker.y_m, wheel_tracker.yaw_deg),
+                    verified_visual_pose[:3],
+                    args.wheel_visual_relocalize_m,
+                    args.post_rotation_max_yaw_disagreement_deg,
+                )
+                event = {
+                    "event": "post_rotation_visual_verified_without_xy_reanchor",
+                    "elapsed_s": round(loop_started - start_time, 3),
+                    "position_disagreement_m": round(position_disagreement_m, 4),
+                    "yaw_disagreement_deg": round(yaw_disagreement_deg, 2),
+                    **{key: round(value, 4) for key, value in verification_stats.items()},
+                }
+                post_rotation_verifications.append(event)
+                samples.append(event)
+                previous_pose = (
+                    wheel_tracker.x_m,
+                    wheel_tracker.y_m,
+                    wheel_tracker.yaw_deg,
+                    verified_visual_pose[3],
+                )
+                last_visual_correction_count = rgbd_odom.count
+                wheel_tracker.reset_stopped_timebase(
+                    read_wheel_velocity_raw(packet, port_handler, COMM_SUCCESS),
+                    time.monotonic(),
+                )
+                rotation_anchor_xy = None
+                feedback_mode = "stopped"
+                last_progress_time = time.monotonic()
+                continue
             if next_feedback_mode == "rotate" and feedback_mode != "rotate":
                 rotation_anchor_xy = (current_x, current_y)
                 # A later path segment can require a larger turn than an
@@ -1331,6 +1600,7 @@ def main() -> int:
             "samples": samples,
             "arrival": arrival,
             "map_relocalizations": relocalization_events,
+            "post_rotation_verifications": post_rotation_verifications,
             "shutdown_brake": brake_report,
             "shutdown_errors": shutdown_errors,
         }

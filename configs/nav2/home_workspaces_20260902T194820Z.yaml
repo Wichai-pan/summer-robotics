@@ -1,0 +1,348 @@
+map_timestamp: "20260902T194820Z"
+frame_id: map
+reference_pose: {x: 0.038, y: 0.021, yaw_deg: -2.866}
+robot:
+  navigation_radius_m: 0.30
+  arm_operating_keepout_radius_m: 0.45
+  transit_tolerance_m: 0.10
+  staging_tolerance_m: 0.07
+  predock_tolerance_m: 0.05
+  work_tolerance_m: 0.03
+  work_yaw_tolerance_deg: 2.0
+workspaces:
+  - id: right_a
+    semantic_name: table_waiting_area
+    furniture_observation:
+      source: user_report_20260903
+      reference: reference_pose_heading
+      right_offset_m_approx: 0.60
+      direction_after_right_offset: forward
+      forward_distance_to_furniture_edge_m_approx: 0.15
+      distance_reference: base_front_edge_user_estimate
+      measurement_status: approximate_unverified
+      proposed_forward_travel_after_right_shift_m: 0.20
+      proposed_forward_travel_status: user_estimate_requires_clearance_reconciliation
+    staging_pose: {x: 0.013, y: -0.478, yaw_deg: -2.866}
+    map_reachable: true
+    intended_use: validated table waiting pose with a separately localized table-front preparation pose
+    predock_pose: {x: -0.032, y: -0.598, yaw_deg: -0.115}
+    predock_validation:
+      semantic_name: table_front_preparation_pose
+      source: stationary_localization_20260904T083220Z
+      localization_gate: PASS
+      footprint_radius_m: 0.30
+      footprint_gate: PASS
+      user_confirmed_role: true
+    work_pose: {x: 0.229, y: -0.590, yaw_deg: 1.716}
+    work_pose_validation:
+      semantic_name: table_work_pose
+      source: stationary_localization_20260904T084347Z
+      user_confirmed_role: true
+      localization_gate: PASS
+      base_footprint_radius_m: 0.30
+      base_footprint_gate: FAIL
+      arm_keepout_radius_m: 0.45
+      arm_keepout_gate: FAIL
+      navigation_goal_enabled: false
+      arm_operation_enabled: true
+      arm_operation_authorization:
+        source: user_physical_clearance_confirmation_20260904
+        basis: arms operate above the tabletop; the expected table overlap in the 2D occupancy map is height-separated
+        permitted_tasks: [pick, place, demonstration, data_collection]
+        required_conditions:
+          - base remains stationary with wheel torque disabled
+          - tabletop is the only expected object inside the task-facing arm volume
+          - side and rear arm sweep remain physically clear
+          - stop immediately on unexpected contact or obstruction
+      status: recorded_and_enabled_for_stationary_arm_operation
+  - id: right_b
+    semantic_name: intermediate_waiting_area
+    staging_pose: {x: -0.012, y: -0.978, yaw_deg: -2.866}
+    map_reachable: true
+    intended_use: intermediate waiting candidate; no furniture assigned
+    predock_pose: null
+    work_pose: null
+  - id: right_c
+    semantic_name: sofa_waiting_area
+    furniture_observation:
+      source: user_report_20260903
+      reference: reference_pose_heading
+      right_offset_m_approx: 1.60
+      direction_after_right_offset: forward
+      forward_distance_to_furniture_edge_m_approx: 0.20
+      distance_reference: base_front_edge_user_estimate
+      measurement_status: approximate_unverified
+      proposed_forward_travel_after_right_shift_m: 0.25
+      proposed_forward_travel_status: user_estimate_requires_clearance_reconciliation
+    staging_pose: {x: -0.037, y: -1.477, yaw_deg: -2.866}
+    map_reachable: true
+    intended_use: sofa waiting candidate with a separately localized sofa-front preparation pose
+    predock_pose: {x: 0.044, y: -1.482, yaw_deg: -0.689}
+    predock_validation:
+      semantic_name: sofa_front_preparation_pose
+      source: stationary_localization_20260904T090757Z
+      localization_gate: PASS
+      footprint_radius_m: 0.30
+      footprint_gate: PASS
+      user_confirmed_role: true
+    work_pose: {x: 0.229, y: -1.505, yaw_deg: 3.097}
+    work_pose_validation:
+      semantic_name: sofa_work_pose
+      source: stationary_localization_20260904T092639Z
+      user_confirmed_role: true
+      localization_gate: PASS
+      base_footprint_radius_m: 0.30
+      base_footprint_gate: FAIL
+      arm_keepout_radius_m: 0.45
+      arm_keepout_gate: FAIL
+      navigation_goal_enabled: false
+      arm_operation_enabled: true
+      arm_operation_authorization:
+        source: user_physical_clearance_confirmation_20260904
+        basis: robot and arm working volume are above the sofa; the expected sofa overlap in the 2D occupancy map is height-separated
+        permitted_tasks: [place, demonstration, data_collection]
+        required_conditions:
+          - base remains stationary with wheel torque disabled
+          - sofa is the only expected object inside the task-facing arm volume
+          - side and rear arm sweep remain physically clear
+          - stop immediately on unexpected contact or obstruction
+      status: recorded_and_enabled_for_stationary_arm_operation
+calibration_required_for_each_work_pose:
+  - furniture identity and edge direction in the map
+  - arm mounting side and preferred working direction
+  - measured base-to-object horizontal reach
+  - table or sofa height and collision clearance
+  - final RGB-D visual correction target
+  - live Gemini depth confirmation before close approach
+  - fail-closed stop on missing, stale, invalid, or inconsistent depth
+  - allow the intended furniture only through a validated task-facing exclusion sector; keep side and rear clearance fail-closed
+arm_task_intent:
+  extension_direction: forward
+  arm_side: both
+  preferred_execution_arm: right
+  demonstration_arm: left
+  demonstration_method: realtime_relative_leader_follower
+  leader_board: black
+  follower_board: white
+  implementation: tools/black_leads_white_wrap_safe.py
+  learning_intent: demonstration_data_collection_training_and_autonomous_execution
+  table_tasks: [pick, place]
+  sofa_tasks: [place]
+planned_navigation_sequence:
+  status: requires_segment_by_segment_supervised_validation
+  ordered_pose_ids:
+    - right_c.work_pose
+    - right_c.predock_pose
+    - right_a.predock_pose
+    - right_a.work_pose
+  safety_notes:
+    - fold both arms into the safe transit pose before any base motion
+    - independently localize and verify three wheel stop readbacks after every segment
+    - keep both work poses disabled as direct navigation goals until their approach and exit segments pass
+  improved_runtime_mode_20260905:
+    status: enabled
+    standard_gemini_pose_required_for_base_motion: true
+    first_localization_duration_s: 60
+    subsequent_visual_health_window_s: 30
+    retain_trusted_wheel_pose_between_route_legs: true
+    localization_continuity_gate:
+      max_position_error_m: 0.25
+      max_yaw_error_deg: 25.0
+      action_on_failure: reject_planning_and_motion
+    route_confirmation_policy: one_user_route_authorization_then_automatic_legs
+    parking_policy: three_wheel_readbacks_after_each_motion
+    emergency_stop: physical_12v_cutoff_or_scripts/jetson_home_navigation_stop.sh
+    continuous_leg_limits:
+      max_planned_path_m: 3.00
+      max_tracked_travel_m: 3.25
+      max_runtime_s: 180
+      max_linear_mps: 0.04
+      max_angular_deg_s: 12
+    work_pose_arrival_mode:
+      mode: align_goal_yaw_then_holonomic_translate
+      same_workspace_predock_work_bidirectional: true
+      exact_goal: true
+      dock_entry_distance_m: 0.50
+      reason: avoid unnecessary path-heading rotation on short forward/reverse furniture approaches
+latest_sofa_work_arrival_20260905:
+  target: {x: 0.229, y: -1.505, yaw_deg: 3.097}
+  initial_manual_nearby_localization: {x: 0.232, y: -1.570, yaw_deg: -1.259}
+  first_execution:
+    source: nav2_supervised_execute_20260905T113334Z
+    status: FAIL_safe_stop_final_yaw_watchdog_baseline
+    position_reached_online_m: 0.0271
+    stop_readback_gate: PASS
+    shutdown_errors: []
+  corrected_execution:
+    source: nav2_supervised_execute_20260905T114052Z
+    mode: align_goal_yaw_then_holonomic_translate
+    status: PASS
+    planned_path_length_m: 0.1830
+    elapsed_s: 13.421
+    online_arrival: {x: 0.2224, y: -1.5333, yaw_deg: 3.56}
+    online_position_error_m: 0.0291
+    online_yaw_error_deg: 0.46
+    stop_readback_gate: PASS
+    shutdown_errors: []
+  final_independent_localization:
+    source: stationary_localization_20260905T114343Z
+    pose: {x: 0.228, y: -1.496, yaw_deg: 4.583}
+    position_error_m: 0.0091
+    yaw_error_deg: 1.486
+    localization_gate: PASS
+    work_pose_gate: PASS
+  segments:
+    - from: right_c.work_pose
+      to: right_c.predock_pose
+      planning_source: nav2_dry_run_20260904T093551Z
+      planning_gate: PASS
+      stationary_localization_gate: PASS
+      planned_path_length_m: 0.1887
+      start_footprint_gate: FAIL
+      footprint_becomes_traversable_near_map_x_m: 0.074
+      execution_mode: supervised_holonomic_retreat
+      execution_source: nav2_supervised_execute_20260904T121704Z
+      execution_status: PASS_after_precision_correction
+      online_arrival_error_m: 0.0288
+      online_arrival_yaw_error_deg: 0.91
+      stop_readback_gate: PASS
+      post_motion_localization_source: stationary_localization_20260904T122001Z
+      post_motion_localization_gate: PASS
+      post_motion_pose: {x: 0.091, y: -1.508, yaw_deg: 1.722}
+      post_motion_target_error_m: 0.0537
+      post_motion_target_yaw_error_deg: 2.411
+      post_motion_footprint_gate: PASS
+      correction_execution_source: nav2_supervised_execute_20260904T123317Z
+      correction_planned_path_length_m: 0.0387
+      correction_position_tolerance_m: 0.01
+      correction_stop_readback_gate: PASS
+      final_localization_source: stationary_localization_20260904T123627Z
+      final_pose: {x: 0.059, y: -1.483, yaw_deg: -0.001}
+      final_target_error_m: 0.0150
+      final_target_yaw_error_deg: 0.688
+      final_footprint_gate: PASS
+      strict_arrival_gate: PASS
+    - from: right_c.predock_pose
+      to: {semantic_name: sofa_to_table_intermediate_1, x: 0.024, y: -1.256, yaw_deg: -0.689}
+      original_target: {x: 0.016, y: -1.232, yaw_deg: -0.689}
+      original_planning_source: nav2_supervised_execute_20260904T124222Z
+      original_planned_path_length_m: 0.3015
+      original_execution_status: refused_before_torque_path_limit
+      execution_source: nav2_supervised_execute_20260904T124509Z
+      planned_path_length_m: 0.2763
+      execution_status: position_pass_tighter_yaw_correction_required
+      online_arrival_error_m: 0.0300
+      online_arrival_yaw_error_deg: 1.45
+      stop_readback_gate: PASS
+      post_motion_localization_source: stationary_localization_20260904T124819Z
+      post_motion_localization_gate: PASS
+      post_motion_pose: {x: 0.021, y: -1.231, yaw_deg: 2.061}
+      post_motion_target_error_m: 0.0252
+      post_motion_target_yaw_error_deg: 2.750
+      post_motion_footprint_gate: PASS
+      strict_arrival_gate: FAIL
+      correction_execution_source: nav2_supervised_execute_20260904T125335Z
+      correction_planned_path_length_m: 0.0495
+      correction_position_tolerance_m: 0.01
+      correction_online_arrival_error_m: 0.0087
+      correction_online_arrival_yaw_error_deg: 1.67
+      correction_stop_readback_gate: PASS
+      correction_localization_source: stationary_localization_20260904T125639Z
+      correction_pose: {x: 0.014, y: -1.258, yaw_deg: 2.405}
+      correction_target_error_m: 0.0102
+      correction_target_yaw_error_deg: 3.094
+      correction_footprint_gate: PASS
+      observed_online_to_independent_yaw_offset_deg_approx: 1.43
+      next_yaw_control_tolerance_deg: 0.5
+    - from: {semantic_name: sofa_to_table_intermediate_1, x: 0.024, y: -1.256, yaw_deg: -0.689}
+      to: right_a.predock_pose
+      execution_source: nav2_supervised_execute_20260904T130226Z
+      planned_path_length_m: 0.7415
+      execution_limits: {max_path_m: 1.0, max_runtime_s: 40, max_tracked_travel_m: 1.15}
+      execution_status: FAIL_timeout_safe_stop
+      map_relocalizations: 1
+      relocalization_trigger_wheel_visual_disagreement_m: 0.1204
+      stop_readback_gate: PASS
+      post_motion_localization_source: stationary_localization_20260904T130603Z
+      post_motion_localization_gate: PASS
+      post_motion_pose: {x: -0.143, y: -0.807, yaw_deg: 72.756}
+      post_motion_target_error_m: 0.2366
+      post_motion_target_yaw_error_deg: 72.871
+      post_motion_footprint_gate: PASS
+      strict_arrival_gate: FAIL
+      default_one_metre_limit_adopted: false
+    - from: {x: -0.143, y: -0.807, yaw_deg: 72.756}
+      to: right_a.predock_pose
+      execution_source: nav2_supervised_execute_20260904T131805Z
+      planned_path_length_m: 0.2475
+      execution_limits: {max_path_m: 0.30, max_runtime_s: 30, max_tracked_travel_m: 0.40}
+      online_execution_status: FAIL_safe_stop_for_independent_localization
+      online_minimum_target_error_m: 0.0116
+      online_target_yaw_error_deg: 1.795
+      stop_readback_gate: PASS
+      post_motion_localization_source: stationary_localization_20260904T132122Z
+      post_motion_localization_gate: PASS
+      post_motion_pose: {x: -0.042, y: -0.596, yaw_deg: 0.344}
+      post_motion_target_error_m: 0.0102
+      post_motion_target_yaw_error_deg: 0.459
+      post_motion_footprint_gate: PASS
+      strict_arrival_gate: PASS
+    - from: right_a.predock_pose
+      to: right_a.work_pose
+      execution_source: nav2_supervised_execute_20260904T135006Z
+      planned_path_length_m: 0.3145
+      execution_limits: {max_path_m: 0.35, max_runtime_s: 30, max_tracked_travel_m: 0.45}
+      height_cleared_exact_goal_mode: true
+      navfn_tolerance_endpoint: {x: 0.229, y: -0.640, yaw_deg: 1.716}
+      exact_goal_appended: true
+      execution_status: PASS
+      online_arrival_error_m: 0.0097
+      online_arrival_yaw_error_deg: 0.47
+      stop_readback_gate: PASS
+      post_motion_localization_source: stationary_localization_20260904T135313Z
+      post_motion_localization_gate: PASS
+      post_motion_pose: {x: 0.233, y: -0.626, yaw_deg: 4.010}
+      post_motion_target_error_m: 0.0362
+      post_motion_target_yaw_error_deg: 2.294
+      post_motion_footprint_gate: FAIL_expected_height_separated_work_pose
+      strict_arrival_gate: FAIL
+      correction_execution_source: nav2_supervised_execute_20260904T135753Z
+      correction_planned_path_length_m: 0.0172
+      correction_limits: {max_path_m: 0.10, max_runtime_s: 15, max_tracked_travel_m: 0.20}
+      correction_online_arrival_error_m: 0.0077
+      correction_online_arrival_yaw_error_deg: 0.06
+      correction_stop_readback_gate: PASS
+      correction_localization_source: stationary_localization_20260904T140051Z
+      correction_pose: {x: 0.254, y: -0.596, yaw_deg: 3.073}
+      correction_target_error_m: 0.0257
+      correction_target_yaw_error_deg: 1.357
+      correction_footprint_gate: FAIL_expected_height_separated_work_pose
+      work_pose_arrival_gate: PASS
+    - route_attempt: [right_a.work_pose, right_a.predock_pose, sofa.predock_pose, sofa.work_pose]
+      execution_source: nav2_supervised_execute_20260905T092405Z
+      execution_status: ABORTED_localization_conflict_safe_stop
+      completed_route_segments: 0
+      first_leg_planned_path_length_m: 0.3311
+      first_leg_failure: execution_exceeded_35s_cap
+      first_leg_last_wheel_pose: {x: 0.2107, y: -0.6332, yaw_deg: -42.94}
+      first_leg_stop_readback_gate: PASS
+      retry_localization_pose: {x: 0.016, y: 0.002, yaw_deg: -1.031}
+      retry_status: refused_before_move_path_limit
+      independent_localization_pose: {x: 0.015, y: 0.001, yaw_deg: -1.031}
+      wheel_to_independent_position_disagreement_m: 0.664
+      continuation_allowed: false
+      required_before_retry: resolve_global_localization_ambiguity
+    - route_attempt: [right_a.work_pose, right_a.predock_pose, sofa.predock_pose, sofa.work_pose]
+      execution_status: ABORTED_recurrent_localization_false_closure
+      recovered_start_pose: {x: 0.212, y: -0.582, yaw_deg: 1.377}
+      table_exit_position_reached: true
+      table_exit_yaw_error_deg: 0.798
+      main_leg_planned_path_length_m: 1.0108
+      main_leg_failure: execution_exceeded_80s_cap
+      main_leg_last_wheel_pose: {x: -0.0278, y: -1.2446, yaw_deg: -10.02}
+      main_leg_remaining_distance_m: 0.248
+      main_leg_stop_readback_gate: PASS
+      retry_localization_pose: {x: 0.013, y: 0.002, yaw_deg: -1.031}
+      retry_status: refused_before_move_path_limit
+      continuation_allowed: false
+      required_before_retry: prevent_recurrent_false_global_closure
