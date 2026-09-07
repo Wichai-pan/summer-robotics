@@ -84,9 +84,11 @@ against mean 1.048 and max 3.994, and `gripper.pos` has median 0.799 against mea
 1.315 and max 6.488. Means are the right comparison because ACT reported means,
 but one or two frames dominate them, and no confidence interval is available
 because ACT's per-frame errors were not retained. More epochs against a holdout
-that is not leakage-free may also account for part of the improvement. `wrist_roll` has no ACT counterpart at this protocol; the
-0.004 deg/s figure in earlier notes came from the 11-frame ACT v1 deployment
-gate and is **not** comparable.
+that is not leakage-free may also account for part of the improvement.
+
+`wrist_roll` has no ACT counterpart at this protocol; the 0.004 deg/s figure in
+earlier notes came from the 11-frame ACT v1 deployment gate and is **not**
+comparable.
 
 Peak allocated GPU memory was 0.9269 GiB. Chunk inference took 0.756 s on the
 first call and a 0.210 s median afterwards; each call produces a 50-action chunk,
