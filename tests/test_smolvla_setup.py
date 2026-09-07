@@ -3,12 +3,27 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from tools.smolvla_dependencies import requirements
 from tools.smolvla_train import build_command
+from tools.smolvla_checkpoint_check import main as check_checkpoint
 
 
 class SmolSetupTests(unittest.TestCase):
+    def test_checkpoint_holdout_guard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "meta").mkdir()
+            (root / "meta/info.json").write_text('{"total_episodes": 3}')
+            (root / "train_config.json").write_text('{"dataset": {"episodes": [0,1]}}')
+            for episode in ("0", "-1", "3"):
+                with patch("sys.argv", ["check", "--checkpoint", tmp,
+                        "--dataset-root", tmp, "--repo-id", "team/data",
+                        "--episode", episode, "--output", str(root / "report.json")]):
+                    with self.assertRaises(ValueError):
+                        check_checkpoint()
+
     def test_dependencies_exclude_codec(self):
         project = {"dependencies": ["torch>=2.7"], "optional-dependencies": {
             "training": ["lerobot[dataset]"], "dataset": ["torchcodec>=0.11", "av==15.1"],

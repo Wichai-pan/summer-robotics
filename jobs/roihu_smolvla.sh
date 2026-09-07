@@ -35,5 +35,6 @@ shift || true
 case "$mode" in
   smoke) python tools/smolvla_smoke.py --checkpoint "$checkpoint" --output "$run_dir/smoke.json" "$@" ;;
   train) python tools/smolvla_train.py --checkpoint "$checkpoint" --output-dir "$run_dir/train" "$@" ;;
-  *) echo 'Usage: sbatch jobs/roihu_smolvla.sh smoke|train [arguments]'; exit 2 ;;
+  check) python tools/smolvla_checkpoint_check.py --output "$run_dir/checkpoint-check.json" "$@" ;;
+  *) echo 'Usage: sbatch jobs/roihu_smolvla.sh smoke|train|check [arguments]'; exit 2 ;;
 esac
