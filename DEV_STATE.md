@@ -9,7 +9,13 @@ six-dimensional actions from held-out episode 24. Two of eighteen decoded
 components exceeded the recorded corpus range, including a physically meaningless
 negative gripper position, so executors must clamp to trusted bounds. The
 training pipeline is therefore available end to end, but no Jetson inference or
-physical VLA execution was tested. See `docs/experiments/smolvla-validation-20260907.md`. User reports basket
+physical VLA execution was tested. A subsequent real-step-count run (`1097975`,
+20,000 steps, batch 32, one hour, exit 0) converged from loss 0.421 to 0.019 with
+monotonically decreasing gradient norm, and held-out evaluation `1099226` gave
+per-joint MAE roughly three to four times lower than ACT v2 on the same twelve
+frames. That is single-step action error under a matched protocol, not task
+success, and the source data is expected to be replaced by a new task recording.
+See `docs/experiments/smolvla-longrun-20260907.md`. See `docs/experiments/smolvla-validation-20260907.md`. User reports basket
 transport was infeasible: arm-held transport is now intended, not yet validated.
 Teammates published map and navigation commits `046834c` and `8fefd78`; these were
 merged without overwriting their work. The paragraph below records September 6

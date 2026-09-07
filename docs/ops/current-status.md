@@ -19,7 +19,23 @@
   peak 0.93 GiB). All three engineering checks are now closed. Two of eighteen
   decoded action components exceeded the recorded corpus range, including a
   negative gripper position, so any executor must clamp per-joint bounds. This is
-  engineering validation, not a new-task success claim or Jetson inference test. See
+  engineering validation, not a new-task success claim or Jetson inference test.
+
+- September 7 long run: a real-step-count training completed on the old ACT data
+  (`1097975`, 20,000 steps, batch 32, 01:05:19, exit 0, five 4,000-step
+  checkpoints). Loss fell from 0.421 at step 100 to 0.019 with the gradient norm
+  decreasing monotonically, and throughput and memory stayed flat for the hour.
+  Held-out evaluation `1099226` scored checkpoint `020000` on the same twelve
+  frames the ACT v2 holdout used and reported per-joint MAE of 0.329 deg pan,
+  0.291 deg lift, 1.048 deg elbow, 0.310 deg wrist flex and 1.315 gripper units,
+  roughly three to four times lower than ACT's 1.39 / 1.87 / 3.73 / 1.06 / 4.59.
+  This is single-step action error under matched protocol, **not** task success:
+  ACT produced inconsistent physical grasps at its own error level. Normalization
+  statistics may span the full dataset, so this is not a leakage-free benchmark.
+  The dataset carries one task string, so nothing here shows instruction
+  following. Jetson latency, action clamping and checkpoint resume remain
+  unverified. Code is on branch `smolvla-longrun`; `main` is untouched. See
+  `docs/experiments/smolvla-longrun-20260907.md`. See
   `docs/experiments/smolvla-validation-20260907.md` for paths and action semantics.
   User reports basket transport is infeasible; the intended task now uses arm-held
   transport, which still needs recording and integration validation. Teammates'
