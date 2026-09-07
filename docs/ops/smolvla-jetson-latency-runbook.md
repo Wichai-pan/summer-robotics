@@ -21,7 +21,14 @@ Background and the specs-only assessment: `docs/experiments/smolvla-longrun-2026
   `src/lerobot/policies/smolvla/`, so the policy is importable.
 - Image `forestbridge-xlerobot:jp62` is present. Disk has 48 GiB free.
 
-**Not yet done: the checkpoint transfer.** It needs a valid Roihu certificate.
+- Checkpoint transferred to
+  `/home/jetsonl7/robot-data/models/smolvla_fixed_pick_place_1097975_020000`
+  (`/data/models/...` in the container), 869 MiB, `model.safetensors` verified by
+  SHA256 `cfafd84c19e723b0e70c055a44273a8e09088a12e185b15d59ab84cad50cad18`
+  against the Roihu source. Disk has 47 GiB free.
+
+**Everything is staged. Only Steps 3–5 remain, and they need a free robot.**
+Steps 1 and 2 below are kept for reproducing the transfer on another machine.
 
 ## Step 1 — refresh the Roihu certificate (interactive, about 30 s)
 
