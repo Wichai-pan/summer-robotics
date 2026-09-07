@@ -128,3 +128,67 @@ age or the same sequence persists for the full freshness window.
 Every accepted invocation finalizes the dataset and immediately reopens it.
 Do not collect the main corpus until 3 pilot episodes have been visually and
 numerically inspected.
+
+## Experimental Pick-And-Hold Session
+
+This is an explicit opt-in mode. Omitting `--grasp-hold-session` preserves the
+existing pick-place-recording behavior above. Do not point this mode at the
+`fixed_pick_place_v1` dataset root.
+
+The future supervised entry uses the same wrapper, cameras, calibration,
+joint order, slew limits, wrist velocity controller, and one hardware writer
+as the existing recorder, with these additional arguments:
+
+```bash
+  --grasp-hold-session \
+  --grasp-hold-max-s 15 \
+  --grasp-hold-max-temperature-c 60 \
+  --record-root /data/act/fixed_pick_hold_v1 \
+  --record-repo-id forestbridge/fixed-pick-hold-v1
+```
+
+This is documentation for a future approved pilot, not permission to run it.
+
+State and operator events:
+
+| State | Control | Recording | Valid event |
+|---|---|---|---|
+| `RECORDING` | bounded leader following | appends frames | `h`: freeze recording and enter hold |
+| `HOLDING` | frozen full-arm position target plus wrap-safe wrist velocity loop | frozen | `p`: rebase and enter manual placement |
+| `PLACING` | bounded leader following from the new reference | frozen | `d`: confirm placement complete |
+| `READY_TO_EXIT` | frozen full-arm target | frozen | `x`: close control normally |
+| `FAULT` | cleanup is required; no automatic recovery | invalid | none |
+| `CLOSED` | torque is disabled and buses are disconnected | finalize/clear may run | none |
+
+`q`, Escape, and Ctrl-C mean stop and reject; they are deliberately different
+from `h`. Leader movement, including opening its gripper, is ignored while in
+`HOLDING`. On `p`, both position-joint and wrist references are rebased to the
+current leader/follower pair, while the original session travel envelope is
+retained. This prevents a resume jump without resetting accumulated limits.
+
+The boundary snapshot records the last actual sent position commands, wrist
+target, follower feedback, phase, event, and human result state. Frame appends
+stop immediately. Boundary logging, `save_episode`, video encoding,
+`finalize`, and reopen validation occur only after torque-off and bus
+disconnect. Placement frames are never appended to the frozen episode.
+
+Maximum continuous hold is 15 seconds and the gripper temperature threshold
+cannot exceed 60 C. Stale/non-finite feedback, communication failure, nonzero
+status, tracking error, timeout, or runtime expiry enters `FAULT` and rejects
+the unfinished data. A cleanup error does not prevent attempts to zero the
+wrist, disable torque, restore wrist mode, disconnect both buses, and abort
+the recorder.
+
+Important physical limitation: disabling torque or cutting 12 V can release
+the object. This state machine cannot preserve a grasp through power loss.
+Software tests do not establish real-arm hold reliability.
+
+No-hardware check:
+
+```bash
+python3 tools/grasp_hold_session_dry_run.py
+```
+
+Expected output reports `status: PASS`, `final_state: closed`, exactly one
+recording boundary, continued fake control cycles after the boundary, no
+forbidden hardware imports, and `hardware_access: false`.

@@ -129,6 +129,20 @@ finalization requirements. Sources:
 
 See `docs/act/recording-runbook.md` for the exact Jetson commands.
 
+## Opt-In Pick-And-Hold Session
+
+The original `fixed_pick_place/v1` contract and its normal exit behavior are
+unchanged. An experimental `fixed_pick_hold/v1` contract is available behind
+`--grasp-hold-session`. It separates the end of recorded frames from the end
+of the torque-enabled control session so an operator can place the object
+before shutdown. See `recording-runbook.md` for its state/event sequence and
+`grasp-hold-handoff.md` for the current implementation and validation status.
+
+This path has passed fake-source and pure lifecycle tests only. It has not
+been run against either arm, either camera, Jetson, or a real LeRobotDataset
+in this worktree. Its output must remain quarantined until supervised hardware
+and dataset QA are complete.
+
 ## Confirmation Gates
 
 The following operations require explicit user confirmation in a later round:

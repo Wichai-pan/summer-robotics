@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 
 
@@ -148,9 +147,11 @@ class OpenCVRGBSource(LatestRGBSource):
     def __init__(self, device: str, width: int, height: int, fps: int) -> None:
         super().__init__("white_wrist_rgb", width, height, fps)
         self.device = device
-        self.capture: cv2.VideoCapture | None = None
+        self.capture: Any = None
 
     def _open(self) -> None:
+        import cv2
+
         cv2.setNumThreads(1)
         capture = cv2.VideoCapture(self.device, cv2.CAP_V4L2)
         capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
@@ -181,6 +182,8 @@ class OpenCVRGBSource(LatestRGBSource):
         }
 
     def _capture_loop(self) -> None:
+        import cv2
+
         assert self.capture is not None
         sequence = 0
         while not self._stop.is_set():
@@ -260,6 +263,8 @@ class GeminiRGBSource(LatestRGBSource):
             self.identity = {"name": self.name, "width": self.width, "height": self.height, "fps": self.fps}
 
     def _decode(self, frame: Any) -> np.ndarray:
+        import cv2
+
         ob = self.ob
         data = np.frombuffer(frame.get_data(), dtype=np.uint8)
         height, width = frame.get_height(), frame.get_width()
@@ -382,12 +387,14 @@ class ACTEpisodeRecorder:
         height: int,
         camera_fps: int,
         white_wrist_device: str,
+        task_contract: str = "fixed_pick_place/v1",
         max_camera_age_s: float = 0.25,
         max_duplicate_control_frames: int | None = None,
     ) -> None:
         self.root = root
         self.repo_id = repo_id
         self.task = task
+        self.task_contract = task_contract
         self.scene_version = scene_version
         self.fps = fps
         self.width = width
@@ -405,6 +412,9 @@ class ACTEpisodeRecorder:
         self._last_sequences: tuple[int, int] | None = None
         self._duplicate_counts = [0, 0]
         self._closed = False
+        self._recording_frozen = False
+        self._recording_boundary: dict[str, Any] | None = None
+        self._recording_boundary_written = False
 
     def start(self) -> None:
         try:
@@ -462,7 +472,12 @@ class ACTEpisodeRecorder:
         except Exception:
             commit = None
         payload = {
-            "schema": "forestbridge_fixed_pick_place_act/v1",
+            "schema": (
+                "forestbridge_fixed_pick_hold_act/v1"
+                if self.task_contract == "fixed_pick_hold/v1"
+                else "forestbridge_fixed_pick_place_act/v1"
+            ),
+            "task_contract": self.task_contract,
             "repo_id": self.repo_id,
             "scene_version": self.scene_version,
             "task": self.task,
@@ -491,6 +506,8 @@ class ACTEpisodeRecorder:
         tracking_error: dict[str, float],
         control_elapsed_s: float,
     ) -> None:
+        if self._recording_frozen:
+            raise RuntimeError("recording is frozen; refusing to append a post-boundary frame")
         if self.dataset is None:
             raise RuntimeError("recorder is not started")
         gemini = self.gemini.latest(self.max_camera_age_s)
@@ -525,11 +542,85 @@ class ACTEpisodeRecorder:
         self.dataset.add_frame(frame)
         self.frame_count += 1
 
-    def finish(self, success: bool, failure_reason: str | None = None) -> dict[str, Any]:
+    def freeze_recording(
+        self,
+        *,
+        phase: str,
+        operator_event: str,
+        human_result: str,
+        verification_basis: str,
+        end_snapshot: dict[str, Any],
+        monotonic_s: float,
+    ) -> dict[str, Any]:
+        """Freeze the episode buffer without encoding or closing its cameras."""
         if self._closed:
             raise RuntimeError("recorder is already closed")
         if self.dataset is None:
             raise RuntimeError("recorder is not started")
+        if self._recording_frozen:
+            raise RuntimeError("recording is already frozen")
+        if not phase or not operator_event or not human_result or not verification_basis:
+            raise ValueError("recording boundary fields must be nonempty")
+        if not math.isfinite(monotonic_s):
+            raise ValueError("recording boundary monotonic time must be finite")
+        boundary = {
+            "schema": "forestbridge_act_recording_boundary/v1",
+            "scene_version": self.scene_version,
+            "task": self.task,
+            "task_contract": self.task_contract,
+            "phase": phase,
+            "operator_event": operator_event,
+            "human_result": human_result,
+            "verification_basis": verification_basis,
+            "captured_frames": self.frame_count,
+            "control_monotonic_s": monotonic_s,
+            "end_snapshot": end_snapshot,
+            "unix_s": time.time(),
+        }
+        # Keep the control-loop transition memory-only. Disk I/O, video
+        # encoding, and dataset finalization are deferred until control has
+        # stopped and the hardware-owning caller has disconnected its buses.
+        json.dumps(boundary, ensure_ascii=False, allow_nan=False)
+        self._recording_boundary = boundary
+        self._recording_frozen = True
+        return dict(boundary)
+
+    def _write_recording_boundary(self) -> None:
+        if self._recording_boundary is None or getattr(
+            self, "_recording_boundary_written", False
+        ):
+            return
+        path = self.root / "forestbridge" / "recording_boundaries.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    self._recording_boundary, ensure_ascii=False, allow_nan=False
+                )
+                + "\n"
+            )
+        self._recording_boundary_written = True
+
+    def finish(
+        self,
+        success: bool,
+        failure_reason: str | None = None,
+        *,
+        human_result: str | None = None,
+        verification_basis: str | None = None,
+        control_session_result: str | None = None,
+    ) -> dict[str, Any]:
+        if self._closed:
+            raise RuntimeError("recorder is already closed")
+        if self.dataset is None:
+            raise RuntimeError("recorder is not started")
+        if (
+            success
+            and self.task_contract == "fixed_pick_hold/v1"
+            and not self._recording_frozen
+        ):
+            raise RuntimeError("pick-and-hold episode has no frozen recording boundary")
+        self._write_recording_boundary()
         before = int(self.dataset.num_episodes)
         if success:
             if self.frame_count < max(2, self.fps):
@@ -546,12 +637,17 @@ class ACTEpisodeRecorder:
         result = {
             "scene_version": self.scene_version,
             "task": self.task,
+            "task_contract": self.task_contract,
             "success": bool(success),
             "failure_reason": failure_reason,
             "captured_frames": self.frame_count,
             "saved_episode_index": before if success else None,
             "dataset_root": str(self.root),
             "unix_s": time.time(),
+            "human_result": human_result,
+            "verification_basis": verification_basis,
+            "control_session_result": control_session_result,
+            "recording_boundary": self._recording_boundary,
         }
         if success:
             try:
@@ -575,25 +671,49 @@ class ACTEpisodeRecorder:
     def abort(self, reason: str) -> None:
         if self._closed:
             return
+        errors: list[str] = []
         try:
-            if self.dataset is not None:
+            self._write_recording_boundary()
+        except Exception as exc:
+            errors.append(f"write recording boundary: {exc}")
+        if self.dataset is not None:
+            try:
                 self.dataset.clear_episode_buffer()
+            except Exception as exc:
+                errors.append(f"clear episode buffer: {exc}")
+            try:
                 self.dataset.finalize()
-        finally:
-            self.gemini.close()
-            self.wrist.close()
-            self._closed = True
-        self._append_ledger(
-            {
-                "scene_version": self.scene_version,
-                "task": self.task,
-                "success": False,
-                "failure_reason": reason,
-                "captured_frames": self.frame_count,
-                "dataset_root": str(self.root),
-                "unix_s": time.time(),
-            }
-        )
+            except Exception as exc:
+                errors.append(f"finalize dataset: {exc}")
+        cameras = (("close Gemini", self.gemini), ("close wrist camera", self.wrist))
+        for label, camera in cameras:
+            try:
+                camera.close()
+            except Exception as exc:
+                errors.append(f"{label}: {exc}")
+        self._closed = True
+        try:
+            self._append_ledger(
+                {
+                    "scene_version": self.scene_version,
+                    "task": self.task,
+                    "task_contract": self.task_contract,
+                    "success": False,
+                    "failure_reason": reason,
+                    "captured_frames": self.frame_count,
+                    "dataset_root": str(self.root),
+                    "unix_s": time.time(),
+                    "human_result": "not_accepted",
+                    "verification_basis": "abnormal_abort",
+                    "control_session_result": "aborted",
+                    "recording_boundary": self._recording_boundary,
+                    "cleanup_errors": errors,
+                }
+            )
+        except Exception as exc:
+            errors.append(f"append failure ledger: {exc}")
+        if errors:
+            raise RuntimeError("recorder abort cleanup failures: " + "; ".join(errors))
 
     def _verify_reopen(self, expected_episodes: int) -> None:
         from lerobot.datasets.lerobot_dataset import LeRobotDataset

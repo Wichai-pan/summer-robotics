@@ -13,9 +13,7 @@ import argparse
 import math
 import select
 import sys
-import termios
 import time
-import tty
 
 from portutil import BOARDS, PortResolutionError, resolve_port
 
@@ -76,6 +74,9 @@ def raw_wrist(bus: object) -> int:
 
 
 def main() -> int:
+    import termios
+    import tty
+
     args = parse_args()
     positive = (
         args.duration_s,

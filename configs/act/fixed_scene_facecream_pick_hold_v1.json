@@ -1,0 +1,24 @@
+{
+  "schema": "forestbridge_act_task_contract/v1",
+  "task_contract": "fixed_pick_hold/v1",
+  "task": "Pick up the blue face-cream jar from the fixed point and finish the recorded episode while safely holding the jar for an operator-directed placement.",
+  "legacy_task_contract_preserved": "fixed_pick_place/v1",
+  "joint_order": [
+    "shoulder_pan",
+    "shoulder_lift",
+    "elbow_flex",
+    "wrist_flex",
+    "wrist_roll",
+    "gripper"
+  ],
+  "action_semantics": {
+    "position_joints": "actual normalized Goal_Position sent after slew and bounds",
+    "wrist_roll": "actual wrap-safe Goal_Velocity in degrees per second"
+  },
+  "recording_end_state": "holding",
+  "placement_confirmation": "manual",
+  "maximum_hold_s": 15.0,
+  "maximum_gripper_temperature_c": 60.0,
+  "dataset_status": "quarantine_until_hardware_qa",
+  "dataset_root_example": "/data/act/fixed_pick_hold_v1"
+}
