@@ -32,4 +32,12 @@ COPY external/lerobot /opt/lerobot
 RUN python3 -m pip install --no-deps -e /opt/lerobot \
     && python3 -c "import av, cv2, datasets, lerobot, numpy, pyorbbecsdk, torch, torchvision; tensor = torch.from_numpy(numpy.zeros(3, dtype=numpy.float32)); print('lerobot', lerobot.__version__); print('datasets', datasets.__version__); print('pyav', av.__version__); print('numpy', numpy.__version__); print('opencv', cv2.__version__); print('orbbec', pyorbbecsdk.__file__); print('torch', torch.__version__); print('torchvision', torchvision.__version__); print('torch_from_numpy', tensor.tolist())"
 
+COPY external/telegrip /opt/telegrip
+
+RUN python3 -m pip install /opt/telegrip
+
+COPY external/telegrip/web-ui /usr/local/lib/python3.12/dist-packages/web-ui
+
+COPY external/telegrip/URDF /usr/local/lib/python3.12/dist-packages/URDF
+
 CMD ["bash"]

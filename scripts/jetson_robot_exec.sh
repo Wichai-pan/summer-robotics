@@ -10,6 +10,7 @@ Device flags (only requested devices are exposed to the container):
   --white           white-arm/base controller (USB serial 5B3D040988)
   --black           black-arm/head controller (USB serial 5B3D043224)
   --ports-readonly  both controller nodes with read-only device permission
+  --host-network    share the Jetson network namespace (for inbound services)
   --wrist-a         wrist camera at physical USB path 2.4.1, index0
   --wrist-b         wrist camera at physical USB path 2.4.3, index0
   --interactive     attach the current SSH terminal to Docker (for keyboard/input tools)
@@ -19,8 +20,10 @@ Examples:
   ./scripts/jetson_robot_exec.sh --ports-readonly -- python3 tools/portutil.py
   ./scripts/jetson_robot_exec.sh --gemini -- python3 tools/orbbec_rgbd_snapshot.py --samples 5 --output /data/tmp/rgb.jpg
 
-All invocations share one non-blocking host lock. No command starts if another
-ForestBridge hardware container is still running.
+Each physical device has its own non-blocking host lock. Commands using
+different devices may run together; commands sharing a camera or controller
+remain mutually exclusive. White-arm joints and base wheels intentionally
+share the white-board lock because they use the same serial port.
 EOF
 }
 
@@ -28,12 +31,23 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image_name="${FORESTBRIDGE_IMAGE:-forestbridge-xlerobot:jp62}"
 data_root="${FORESTBRIDGE_DATA_ROOT:-/home/jetsonl7/robot-data}"
 calibration_root="${FORESTBRIDGE_CALIBRATION_ROOT:-/home/jetsonl7/.cache/huggingface/lerobot/calibration}"
-lock_path="${FORESTBRIDGE_HARDWARE_LOCK:-/tmp/forestbridge-xlerobot.lock}"
+lock_dir="${FORESTBRIDGE_HARDWARE_LOCK_DIR:-/tmp/forestbridge-xlerobot-locks}"
 
 device_args=()
+requested_resources=()
 interactive_args=()
 x11_args=()
+network_args=()
 relay_env_args=()
+
+request_resource() {
+  local resource="$1"
+  local existing
+  for existing in "${requested_resources[@]:-}"; do
+    [[ "$existing" == "$resource" ]] && return 0
+  done
+  requested_resources+=("$resource")
+}
 
 for relay_variable in \
   FORESTBRIDGE_RELAY_URL \
@@ -48,11 +62,13 @@ done
 resolve_board() {
   local serial="$1"
   local mode="${2:-rw}"
+  local resource="$3"
   local link="/dev/serial/by-id/usb-1a86_USB_Single_Serial_${serial}-if00"
   local target
   [[ -e "$link" ]] || { echo "Missing controller $serial ($link)" >&2; exit 2; }
   target="$(readlink -f "$link")"
   device_args+=(--device "$target:$target:$mode")
+  request_resource "$resource"
 }
 
 resolve_wrist() {
@@ -63,6 +79,7 @@ resolve_wrist() {
   local target
   target="$(readlink -f "$link")"
   device_args+=(--device "$target:/dev/wrist-${usb_port//./-}:rw")
+  request_resource "wrist-${usb_port//./-}"
 }
 
 resolve_gemini() {
@@ -77,6 +94,7 @@ resolve_gemini() {
   usb_node="/dev/bus/usb/$bus/$dev"
   [[ -e "$usb_node" ]] || { echo "Missing Gemini USB node $usb_node" >&2; exit 2; }
   device_args+=(--device "$usb_node:$usb_node:rw")
+  request_resource gemini
 
   for node in /dev/video*; do
     [[ -e "$node" ]] || continue
@@ -90,16 +108,17 @@ resolve_gemini() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --gemini) resolve_gemini; shift ;;
-    --white) resolve_board 5B3D040988; shift ;;
-    --black) resolve_board 5B3D043224; shift ;;
+    --white) resolve_board 5B3D040988 rw white; shift ;;
+    --black) resolve_board 5B3D043224 rw black; shift ;;
     --ports-readonly)
-      resolve_board 5B3D040988 r
-      resolve_board 5B3D043224 r
+      resolve_board 5B3D040988 r white
+      resolve_board 5B3D043224 r black
       shift
       ;;
     --wrist-a) resolve_wrist 2.4.1; shift ;;
     --wrist-b) resolve_wrist 2.4.3; shift ;;
     --interactive) interactive_args=(-i -t); shift ;;
+    --host-network) network_args=(--network host); shift ;;
     --x11)
       [[ -n "${DISPLAY:-}" ]] || {
         echo "--x11 requires an SSH session with X11 forwarding (reconnect with: ssh -Y ...)." >&2
@@ -112,8 +131,8 @@ while [[ $# -gt 0 ]]; do
       }
       # SSH's X11 proxy listens on the Jetson loopback interface. Host networking
       # lets the container reach it, while Xauthority keeps the proxy protected.
+      network_args=(--network host)
       x11_args=(
-        --network host
         --env "DISPLAY=$DISPLAY"
         --env XAUTHORITY=/root/.Xauthority
         --env QT_X11_NO_MITSHM=1
@@ -131,6 +150,28 @@ done
 [[ $# -gt 0 ]] || { echo "Missing command after --" >&2; usage >&2; exit 2; }
 [[ -d "$data_root" ]] || { echo "Missing data root: $data_root" >&2; exit 2; }
 [[ -d "$calibration_root" ]] || { echo "Missing calibration root: $calibration_root" >&2; exit 2; }
+
+mkdir -p "$lock_dir"
+lock_fds=()
+# Every process acquires resources in the same order, so multi-device tasks
+# cannot deadlock each other while taking their lock set.
+for resource in gemini white black wrist-2-4-1 wrist-2-4-3; do
+  requested=false
+  for requested_resource in "${requested_resources[@]:-}"; do
+    if [[ "$requested_resource" == "$resource" ]]; then
+      requested=true
+      break
+    fi
+  done
+  [[ "$requested" == true ]] || continue
+  lock_path="$lock_dir/$resource.lock"
+  exec {lock_fd}>"$lock_path"
+  if ! flock --nonblock "$lock_fd"; then
+    echo "Robot device is already in use: $resource (lock: $lock_path)." >&2
+    exit 3
+  fi
+  lock_fds+=("$lock_fd")
+done
 
 container_cidfile="$(mktemp /tmp/forestbridge-container.XXXXXX.cid)"
 rm -f "$container_cidfile"
@@ -175,6 +216,7 @@ docker_cmd=(docker run --rm \
   --name "$container_name" \
   --cidfile "$container_cidfile" \
   "${interactive_args[@]}" \
+  "${network_args[@]}" \
   "${x11_args[@]}" \
   --runtime nvidia \
   --ipc host \
@@ -222,13 +264,8 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Use flock's parent-process mode. It holds the lock while the Docker child is
-# running, independent of which file descriptors the Go Docker client closes.
 set +e
-flock --nonblock --conflict-exit-code 3 "$lock_path" "${docker_cmd[@]}"
+"${docker_cmd[@]}"
 status=$?
 set -e
-if [[ $status -eq 3 ]]; then
-  echo "Robot hardware is already in use (lock: $lock_path). Stop the other session first." >&2
-fi
 exit "$status"
