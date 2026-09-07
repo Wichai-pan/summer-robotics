@@ -116,6 +116,53 @@ i.e. 2.5 s of 20 Hz control per inference on a GH200.
   `gripper.pos`, so an executor must reject non-physical values before actuation.
 - Checkpoint resume was not exercised; only interval saving was verified.
 
+## Jetson feasibility assessment — specs only, not measured
+
+Requested on 2026-09-07 while teammates held the robot. Read-only inspection
+over Tailscale; no benchmark was run and no device was opened.
+
+**Memory passes with margin.** The Jetson has 7.4 GiB unified CPU/GPU memory with
+5.2 GiB available at rest and 3.7 GiB of unused swap. Weights are 906,712,552
+bytes, i.e. 865 MiB at two bytes per parameter, and the measured GH200 peak of
+0.9269 GiB already includes them, so activations cost only about 85 MiB at batch
+one. Nav2 and RTAB-Map are the real memory consumers, but the existing pipeline
+docks first and runs the policy afterwards, so those peaks do not coincide.
+
+**Latency is the open question and cannot be settled from specs.** The budget is
+`n_action_steps / fps` = 50 / 20 = **2.5 s**: one chunk must be produced before
+the previous chunk finishes executing.
+
+ACT's measured 20 Hz rollouts are *not* a usable anchor for per-inference
+latency, because ACT's `chunk_size` is 100, giving it a 5.0 s budget and only six
+inferences across a 600-step rollout. The workload ratio is informative instead:
+
+| | ACT | SmolVLA |
+|---|---|---|
+| Weights | 206 MB fp32, about 51.7M parameters | 906 MB bf16, 450M parameters |
+| Vision | `resnet18` | SmolVLM2-500M, inputs padded to 512×512, two cameras |
+| Forwards per inference | 1 | 1 VLM prefill plus **10 serial action-expert steps** (`num_steps: 10`) |
+| Chunk / budget | 100 steps / 5.0 s | 50 steps / **2.5 s** |
+
+Parameters differ by 8.7 times, but the serial ten-step expert loop makes the
+compute gap larger. Scaling the 0.210 s GH200 median by the Orin Nano Super's
+roughly 30–60× lower compute and 102 GB/s versus multi-TB/s bandwidth, while
+allowing for GH200 being badly underutilised at batch one, gives an estimate of
+**1.7–5 s per chunk against a 2.5 s budget**. The range straddles the
+requirement, so the outcome is genuinely undetermined until measured.
+
+The `nvpmodel` power mode could not be read without root. Confirm it before
+trusting any measurement, since the 7W/15W/25W clocks differ substantially; the
+GPU was idling at 306 MHz during inspection.
+
+If measurement lands over budget, in cost order: reduce `num_steps` from 10 to
+4–5 as an inference-time knob needing no retraining; overlap inference with chunk
+execution asynchronously, which effectively widens the budget; reduce the 512×512
+input padding; and only then consider TensorRT or int8.
+
+`tools/smolvla_jetson_latency.py` performs this measurement. It opens no USB
+device and issues no motor command, so it does not take the hardware lock, but it
+does contend for the shared GPU and must run in an agreed window.
+
 ## Reproduction
 
 ```bash

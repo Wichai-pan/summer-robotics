@@ -9,6 +9,7 @@ from tools.smolvla_dependencies import requirements
 from tools.smolvla_train import build_command
 from tools.smolvla_checkpoint_check import main as check_checkpoint
 from tools.smolvla_holdout_eval import parse_frames
+from tools.smolvla_jetson_latency import read_platform_state
 
 
 class SmolSetupTests(unittest.TestCase):
@@ -36,6 +37,13 @@ class SmolSetupTests(unittest.TestCase):
         for bad in ("", " ", "0,19309", "-1", "19309"):
             with self.assertRaises(ValueError):
                 parse_frames(bad, 19309)
+
+    def test_platform_probe_never_raises(self):
+        # Jetson sysfs paths are absent off-device; the probe must degrade to None.
+        state = read_platform_state()
+        self.assertIn("nvpmodel_status", state)
+        self.assertIn("gpu_hz", state)
+        self.assertTrue(all(v is None or isinstance(v, str) for v in state.values()))
 
     def test_launch_guards(self):
         with tempfile.TemporaryDirectory() as tmp:
