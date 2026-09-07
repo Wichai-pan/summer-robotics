@@ -8,6 +8,7 @@ from unittest.mock import patch
 from tools.smolvla_dependencies import requirements
 from tools.smolvla_train import build_command
 from tools.smolvla_checkpoint_check import main as check_checkpoint
+from tools.smolvla_holdout_eval import parse_frames
 
 
 class SmolSetupTests(unittest.TestCase):
@@ -29,6 +30,12 @@ class SmolSetupTests(unittest.TestCase):
             "training": ["lerobot[dataset]"], "dataset": ["torchcodec>=0.11", "av==15.1"],
             "smolvla": ["transformers<5.6"]}}
         self.assertEqual(requirements(project), ["av==15.1", "torch>=2.7", "transformers<5.6"])
+
+    def test_holdout_frame_parsing(self):
+        self.assertEqual(parse_frames("17222,17449,17222", 19309), [17222, 17449])
+        for bad in ("", " ", "0,19309", "-1", "19309"):
+            with self.assertRaises(ValueError):
+                parse_frames(bad, 19309)
 
     def test_launch_guards(self):
         with tempfile.TemporaryDirectory() as tmp:

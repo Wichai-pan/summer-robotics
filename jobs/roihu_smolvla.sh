@@ -36,5 +36,6 @@ case "$mode" in
   smoke) python tools/smolvla_smoke.py --checkpoint "$checkpoint" --output "$run_dir/smoke.json" "$@" ;;
   train) python tools/smolvla_train.py --checkpoint "$checkpoint" --output-dir "$run_dir/train" "$@" ;;
   check) python tools/smolvla_checkpoint_check.py --output "$run_dir/checkpoint-check.json" "$@" ;;
-  *) echo 'Usage: sbatch jobs/roihu_smolvla.sh smoke|train|check [arguments]'; exit 2 ;;
+  eval) python tools/smolvla_holdout_eval.py --output "$run_dir/holdout-eval.json" "$@" ;;
+  *) echo 'Usage: sbatch jobs/roihu_smolvla.sh smoke|train|check|eval [arguments]'; exit 2 ;;
 esac
