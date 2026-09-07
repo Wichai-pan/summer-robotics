@@ -64,7 +64,27 @@ the first action of the chunk is scored. Report:
 | `wrist_roll.vel_deg_s` | 0.0056 | not reported | deg/s |
 
 SmolVLA is roughly three to four times lower error on every dimension the ACT
-holdout reported. `wrist_roll` has no ACT counterpart at this protocol; the
+holdout reported. The scoring protocol was checked against
+`tools/act_checkpoint_dry_run.py` and is identical: reset, `select_action`, then
+per-name MAE over the same frames. `elbow_flex` is the worst dimension for both
+models, which suggests the metric tracks the same difficulty rather than noise.
+
+**This is not a controlled architecture comparison.** ACT v2 trained at batch 8
+for 6,000 steps, i.e. 48,000 samples or about 2.8 epochs in 6m18s, while this run
+used batch 32 for 20,000 steps, i.e. 640,000 samples or about 37 epochs in
+65 minutes — **13 times the training samples**. SmolVLA also starts from the
+pretrained `smolvla_base` policy and a pretrained SmolVLM2 backbone, whereas the
+ACT transformer trains from scratch. The result therefore compares a pretrained
+VLA at a large budget against a from-scratch policy at a small one; how much of
+the gap is architecture cannot be separated from compute and pretraining without
+a budget-matched ACT rerun.
+
+The error distribution is also skewed at n=12: `elbow_flex` has median 0.601
+against mean 1.048 and max 3.994, and `gripper.pos` has median 0.799 against mean
+1.315 and max 6.488. Means are the right comparison because ACT reported means,
+but one or two frames dominate them, and no confidence interval is available
+because ACT's per-frame errors were not retained. More epochs against a holdout
+that is not leakage-free may also account for part of the improvement. `wrist_roll` has no ACT counterpart at this protocol; the
 0.004 deg/s figure in earlier notes came from the 11-frame ACT v1 deployment
 gate and is **not** comparable.
 
