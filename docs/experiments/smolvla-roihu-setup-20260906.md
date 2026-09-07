@@ -1,5 +1,10 @@
 # SmolVLA training preparation — 2026-09-06
 
+September 7 update: synthetic GPU validation and 100-step old-ACT-data training
+have passed (jobs `1094450`, `1094687`). See
+[validation report](smolvla-validation-20260907.md) for checkpoint reload status,
+exact commands and limits; the preparation status below is the September 6 record.
+
 ## Scope and status
 
 Prepare an isolated Roihu training environment while preserving the working ACT

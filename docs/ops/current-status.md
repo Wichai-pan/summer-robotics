@@ -13,7 +13,19 @@
 
 ## Current Focus
 
-- September 6 update: remote-only support now prioritizes isolated SmolVLA
+- September 7: synthetic SmolVLA GPU forward/backward/inference passed (`1094450`)
+  and old ACT data completed 100 training steps with a saved checkpoint (`1094687`).
+  Checkpoint reload with held-out episode-24 inference also passed (`1094988`,
+  peak 0.93 GiB). All three engineering checks are now closed. Two of eighteen
+  decoded action components exceeded the recorded corpus range, including a
+  negative gripper position, so any executor must clamp per-joint bounds. This is
+  engineering validation, not a new-task success claim or Jetson inference test. See
+  `docs/experiments/smolvla-validation-20260907.md` for paths and action semantics.
+  User reports basket transport is infeasible; the intended task now uses arm-held
+  transport, which still needs recording and integration validation. Teammates'
+  map/navigation commits `046834c` and `8fefd78` are now published and preserved.
+
+- Historical September 6 update: remote-only support prioritized isolated SmolVLA
   training preparation on Roihu while teammates own physical testing. The proposed
   medicine/water delivery task, VR dual-arm recording and carrying method are not
   yet settled or validated; there is no new task dataset. Keep ACT as the baseline.
@@ -22,7 +34,7 @@
 - Jetson teammate route changes observed on September 6 were unpublished and
   remain untouched. A six-report sofa-to-table PASS was inspected; real VLA
   execution and current public-web motion integration are not verified here.
-- Roihu setup installed successfully in the independent `summer-robotics-smolvla`
+- At September 6 closeout, Roihu setup installed successfully in the independent `summer-robotics-smolvla`
   root; SmolVLA/training imports passed and both pretrained policy and VLM
   snapshots were cached. GPU smoke is prepared but not submitted, and no new-task
   training has run. See the runbook for exact model revisions. Scratch was near
