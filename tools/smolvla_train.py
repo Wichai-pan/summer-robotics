@@ -32,6 +32,9 @@ def build_command(args):
         raise ValueError("Dataset has no camera features")
     if args.steps <= 0 or args.batch_size <= 0:
         raise ValueError("steps and batch-size must be positive")
+    save_freq = args.steps if args.save_freq is None else args.save_freq
+    if save_freq <= 0 or save_freq > args.steps:
+        raise ValueError("save-freq must be positive and not exceed steps")
     if args.output_dir.exists():
         raise ValueError("Output exists; choose a new run (no implicit overwrite/resume)")
     return [
@@ -41,7 +44,7 @@ def build_command(args):
         f"--rename_map={json.dumps(rename)}", "--policy.device=cuda",
         "--policy.push_to_hub=false", "--wandb.enable=false", "--env_eval_freq=0",
         f"--steps={args.steps}", f"--batch_size={args.batch_size}", "--num_workers=4",
-        "--seed=42", "--log_freq=10", f"--save_freq={args.steps}",
+        "--seed=42", "--log_freq=10", f"--save_freq={save_freq}",
         f"--output_dir={args.output_dir}", "--job_name=forestbridge_smolvla",
     ]
 
@@ -55,6 +58,8 @@ def main():
     parser.add_argument("--checkpoint", default="lerobot/smolvla_base")
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--save-freq", type=int, default=None,
+                        help="Checkpoint interval; defaults to steps, i.e. a single end-of-run save")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--execute", action="store_true", help="Otherwise only validate and print argv")
     args = parser.parse_args()

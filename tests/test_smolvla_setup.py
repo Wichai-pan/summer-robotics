@@ -40,11 +40,19 @@ class SmolSetupTests(unittest.TestCase):
                 "task_index": {"shape": [1], "dtype": "int64"},
                 "observation.images.front": {"shape": [480, 640, 3], "dtype": "video"}}}))
             args = argparse.Namespace(dataset_root=root, episodes="[0,1]", rename_map="{}",
-                steps=100, batch_size=4, output_dir=root / "new-run", checkpoint="lerobot/smolvla_base",
-                repo_id="team/task")
+                steps=100, batch_size=4, save_freq=None, output_dir=root / "new-run",
+                checkpoint="lerobot/smolvla_base", repo_id="team/task")
             command = build_command(args)
             self.assertIn("--dataset.video_backend=pyav", command)
             self.assertIn("--policy.push_to_hub=false", command)
+            self.assertIn("--save_freq=100", command)
+            args.save_freq = 25
+            self.assertIn("--save_freq=25", build_command(args))
+            for bad in (0, -1, 101):
+                args.save_freq = bad
+                with self.assertRaises(ValueError):
+                    build_command(args)
+            args.save_freq = None
             for bad in ("[]", "[1,1]", "[3]", "[-1]", "[true]"):
                 args.episodes = bad
                 with self.assertRaises(ValueError):
