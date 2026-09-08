@@ -12,8 +12,12 @@ Background and the specs-only assessment: `docs/experiments/smolvla-longrun-2026
 - Benchmark script is on the Jetson at
   `/home/jetsonl7/robot-data/tmp/smolvla-latency-20260907/smolvla_jetson_latency.py`,
   visible inside the container as `/data/tmp/smolvla-latency-20260907/`.
-  It sits outside `summer-robotics-deploy` on purpose: that clone is at `665eb4c`
-  with local teammate modifications, and must not be switched or dirtied.
+  It sits outside `summer-robotics-deploy` on purpose. That clone is an active
+  working tree, not a synced deployment checkout: as of 2026-09-08 it is on
+  branch `codex/pick-hold-place-segment-recorder`, two commits ahead of and eight
+  behind `origin/main`, with 13 modified tracked files and 47 untracked entries
+  including 23 new scripts and tools that exist nowhere else. Never run
+  `checkout`, `reset` or `pull` there.
 - Dataset `fixed_pick_place_v1` on the Jetson was verified identical to the Roihu
   copy: LeRobot v3.0, 28 episodes, 19,309 frames, 20 fps, same camera keys and
   action names. Episode 24 is held out from training.

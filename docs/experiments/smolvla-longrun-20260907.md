@@ -172,9 +172,11 @@ at the versions that produced this checkpoint on Roihu, and reached through
 `PYTHONPATH`. `--no-deps` matters: a plain install would have pulled newer
 `numpy` and `safetensors` that shadow the ones the NVIDIA torch build expects.
 This is a measurement workaround, removable with one `rm -rf`. If SmolVLA becomes
-the deployment path, `deploy/jetson/Dockerfile` needs these dependencies properly
-— that file currently carries uncommitted teammate modifications and must not be
-overwritten.
+the deployment path, `deploy/jetson/Dockerfile` needs these dependencies properly.
+Make that change in this repository and rebuild, never by editing the on-device
+clone: `/home/jetsonl7/summer-robotics-deploy` is an active working tree on a
+feature branch carrying 13 modified and 47 untracked files, 23 of them new
+scripts and tools that exist on no remote.
 
 ## Jetson feasibility assessment — specs only, superseded by the measurement above
 
