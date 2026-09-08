@@ -47,7 +47,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--rename-map",
         default="{}",
-        help="Map recorded camera keys to the checkpoint's input keys. SmolVLA was "
+        help="Map recorded camera keys to the checkpoint's input keys, as "
+             "old=new pairs separated by commas, or as a JSON object. SmolVLA was "
              "trained with camera1/camera2, ACT with the recorded names",
     )
     parser.add_argument("--device", default="cuda")
@@ -488,13 +489,28 @@ def summarize_policy_chunks(
     return summaries
 
 
+def parse_rename_map(text: str) -> dict[str, str]:
+    """Accept old=new pairs or JSON. Pairs avoid shell brace expansion on {a,b}."""
+    text = text.strip()
+    if text.startswith("{"):
+        rename_map = json.loads(text)
+        if not isinstance(rename_map, dict) or any(
+            not isinstance(v, str) for v in rename_map.values()
+        ):
+            raise ValueError("rename-map JSON must map key names to strings")
+        return rename_map
+    rename_map = {}
+    for pair in filter(None, (part.strip() for part in text.split(","))):
+        old, sep, new = pair.partition("=")
+        if not sep or not old.strip() or not new.strip():
+            raise ValueError(f"rename-map expects old=new pairs, got {pair!r}")
+        rename_map[old.strip()] = new.strip()
+    return rename_map
+
+
 def main() -> int:
     args = parse_args()
-    rename_map = json.loads(args.rename_map)
-    if not isinstance(rename_map, dict) or any(
-        not isinstance(v, str) for v in rename_map.values()
-    ):
-        raise ValueError("rename-map must be a JSON object mapping key names to strings")
+    rename_map = parse_rename_map(args.rename_map)
     if set(rename_map) - set(OBSERVATION_KEYS):
         raise ValueError(f"rename-map keys must come from {OBSERVATION_KEYS}")
     positive = (
