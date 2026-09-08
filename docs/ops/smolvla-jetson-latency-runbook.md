@@ -27,8 +27,14 @@ Background and the specs-only assessment: `docs/experiments/smolvla-longrun-2026
   SHA256 `cfafd84c19e723b0e70c055a44273a8e09088a12e185b15d59ab84cad50cad18`
   against the Roihu source. Disk has 47 GiB free.
 
-**Everything is staged. Only Steps 3–5 remain, and they need a free robot.**
-Steps 1 and 2 below are kept for reproducing the transfer on another machine.
+- Python dependencies for SmolVLA are installed under
+  `/data/tmp/smolvla-latency-20260907/pydeps` and reached through `PYTHONPATH`.
+  The `jp62` image was built for ACT and ships none of them. See
+  "Container dependencies" below.
+
+**The measurement was completed on 2026-09-08 and passed with about 2x headroom.**
+Results and limits: `docs/experiments/smolvla-longrun-20260907.md`. The steps
+below reproduce it.
 
 ## Step 1 — refresh the Roihu certificate (interactive, about 30 s)
 
@@ -80,19 +86,45 @@ ssh jetsonl7 'sudo nvpmodel -q'
 
 If sudo is unavailable, note that the mode is unknown when reporting the result.
 
-## Step 5 — run the benchmark
+## Container dependencies
+
+Already installed, listed for rebuilds. `--no-deps` is required: a plain install
+pulls newer `numpy` and `safetensors` that shadow the versions the NVIDIA torch
+build expects.
 
 ```bash
 ssh jetsonl7 'cd /home/jetsonl7/summer-robotics-deploy && ./scripts/jetson_robot_exec.sh -- \
+  pip install --target /data/tmp/smolvla-latency-20260907/pydeps --no-deps \
+    transformers==5.5.4 tokenizers==0.22.2 num2words==0.5.14 docopt \
+    accelerate==1.14.0 regex==2026.5.9'
+```
+
+`regex` is the non-obvious one: `transformers` 5.5.4 enforces `regex>=2025.10.22`
+at import, and the image ships 2024.11.6. To enumerate every constraint
+`transformers` checks at import without triggering the failing check, read the
+files as text rather than importing them:
+
+```bash
+sed -n '/pkgs_to_check_at_runtime/,/]/p' <pydeps>/transformers/dependency_versions_check.py
+grep -E '^\s*"(regex|tokenizers|huggingface-hub|safetensors|numpy|accelerate)"' \
+  <pydeps>/transformers/dependency_versions_table.py
+```
+
+## Step 5 — run the benchmark
+
+```bash
+ssh jetsonl7 'cd /home/jetsonl7/summer-robotics-deploy && ./scripts/jetson_robot_exec.sh -- bash -lc "
+  PYTHONPATH=/data/tmp/smolvla-latency-20260907/pydeps:\$PYTHONPATH \
   python3 /data/tmp/smolvla-latency-20260907/smolvla_jetson_latency.py \
     --checkpoint /data/models/smolvla_fixed_pick_place_1097975_020000 \
     --dataset-root /data/act/fixed_pick_place_v1 \
     --repo-id forestbridge/fixed-pick-place-v1 \
     --episode 24 --iterations 10 \
-    --output /data/tmp/smolvla-latency-20260907/latency.json'
+    --output /data/tmp/smolvla-latency-20260907/latency.json"'
 ```
 
-No device flag is passed, so no USB device is mapped into the container.
+No device flag is passed, so no USB device is mapped into the container. The
+report path must not already exist; pick a new filename to rerun.
 
 ## How to read the result
 
@@ -106,7 +138,12 @@ produced before the previous chunk finishes executing.
 | `budget_s` | 2.5 |
 | `headroom_ratio` | `budget_s / steady_median_s`; above 1 means it keeps up |
 | `sustains_budget` | True only when **every** steady call is under budget |
-| `peak_allocated_gib` | Expect roughly 0.93 based on the GH200 measurement |
+| `preprocess_median_s` | Per-chunk preprocessing; measured at 6.6 ms |
+| `end_to_end_median_s` | Preprocessing plus inference, the figure to judge by |
+| `peak_allocated_gib` | Measured 0.904 on device |
+
+`gpu_hz` in `platform_state_*` is unreliable — it returns the same floor value
+under load and at rest. Use `nvpmodel -q` for the power mode; it reported 25W.
 
 Interpretation:
 

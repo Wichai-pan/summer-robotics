@@ -79,27 +79,43 @@ def main():
     dataset = LeRobotDataset(
         args.repo_id, root=args.dataset_root, episodes=[args.episode], video_backend="pyav"
     )
-    batch = default_collate([dataset[0]])
-    batch.pop("action", None)
-    batch = pre(batch)
-    cameras = sorted(k for k in policy.config.image_features if k in batch)
+    # Cache the decoded sample once. Video decode stands in for camera capture in
+    # real operation, so it is deliberately outside the timed region; preprocessing
+    # is inside it, because every real chunk pays that cost.
+    sample = dataset[0]
+    sample.pop("action", None)
+    probe = pre(default_collate([sample]))
+    cameras = sorted(k for k in policy.config.image_features if k in probe)
     if len(cameras) != 2:
         raise ValueError(f"Expected both recorded RGB cameras, got {cameras}")
+    del probe
 
     latencies = []
-    for _ in range(args.iterations):
+    preprocess_s = []
+    loaded_state = None
+    for iteration in range(args.iterations):
         # Reset so every call performs a full chunk inference, not a queue pop.
         policy.reset()
         torch.cuda.synchronize()
         start = time.monotonic()
+        batch = pre(default_collate([sample]))
+        torch.cuda.synchronize()
+        prepared = time.monotonic()
         with torch.inference_mode():
             action = post(policy.select_action(batch))
         torch.cuda.synchronize()
-        latencies.append(time.monotonic() - start)
+        end = time.monotonic()
+        preprocess_s.append(prepared - start)
+        latencies.append(end - prepared)
+        if iteration == args.iterations // 2:
+            # Sample clocks under load; reading after the loop only sees idle.
+            loaded_state = read_platform_state()
         if not torch.isfinite(action).all():
             raise ValueError("Non-finite action during benchmark")
 
     steady = latencies[1:]
+    steady_pre = preprocess_s[1:]
+    steady_total = [p + l for p, l in zip(steady_pre, steady)]
     chunk = policy.config.n_action_steps
     budget_s = chunk / fps
     median_s = statistics.median(steady)
@@ -120,15 +136,23 @@ def main():
         "steady_median_s": median_s,
         "steady_max_s": max(steady),
         "steady_min_s": min(steady),
-        "headroom_ratio": budget_s / median_s,
-        "sustains_budget": max(steady) < budget_s,
+        "preprocess_median_s": statistics.median(steady_pre),
+        "end_to_end_median_s": statistics.median(steady_total),
+        "end_to_end_max_s": max(steady_total),
+        "timing_note": "steady_* covers policy inference only; end_to_end_* adds per-chunk preprocessing. Camera capture is excluded because a decoded dataset frame stands in for it",
+        "headroom_ratio": budget_s / statistics.median(steady_total),
+        "headroom_ratio_policy_only": budget_s / median_s,
+        "sustains_budget": max(steady_total) < budget_s,
         "peak_allocated_gib": torch.cuda.max_memory_allocated() / 2**30,
-        "platform_state": read_platform_state(),
+        "platform_state_under_load": loaded_state,
+        "platform_state_after_run": read_platform_state(),
         "platform_note": "Confirm the nvpmodel power mode before trusting these numbers; 7W/15W/25W clocks differ substantially",
+        "gpu_hz_note": "gpu_hz is unreliable: it read the same floor value under load and at rest, so the probed devfreq node is not the graphics clock. Use `nvpmodel -q` for the power mode instead",
         "latencies_s": latencies,
+        "preprocess_s": preprocess_s,
     }
     args.output.write_text(json.dumps(report, indent=2) + "\n")
-    print(json.dumps({k: v for k, v in report.items() if k != "latencies_s"}, indent=2))
+    print(json.dumps({k: v for k, v in report.items() if k not in ("latencies_s", "preprocess_s")}, indent=2))
 
 
 if __name__ == "__main__":

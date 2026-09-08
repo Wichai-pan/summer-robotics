@@ -33,7 +33,12 @@
   ACT produced inconsistent physical grasps at its own error level. Normalization
   statistics may span the full dataset, so this is not a leakage-free benchmark.
   The dataset carries one task string, so nothing here shows instruction
-  following. Jetson latency, action clamping and checkpoint resume remain
+  following. Jetson latency was measured on 2026-09-08 and passes: end-to-end
+  median 1.226 s against the 2.5 s chunk budget, about 2.04x headroom, 0.904 GiB
+  peak, in the 25W power mode with nothing else running. The `jp62` image needed
+  transformers/tokenizers/num2words/accelerate plus a newer regex, installed with
+  `--no-deps` under `/data/tmp` rather than into the image. Action clamping,
+  camera-capture cost, concurrent ROS load and checkpoint resume remain
   unverified. Code is on branch `smolvla-longrun`; `main` is untouched. See
   `docs/experiments/smolvla-longrun-20260907.md`. See
   `docs/experiments/smolvla-validation-20260907.md` for paths and action semantics.

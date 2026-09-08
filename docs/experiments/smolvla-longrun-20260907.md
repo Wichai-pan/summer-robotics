@@ -109,14 +109,74 @@ i.e. 2.5 s of 20 Hz control per inference on a GH200.
   pose." Language conditioning therefore has no discriminative signal here, and
   this run says nothing about instruction following. A multi-instruction
   recording is required before any language claim.
-- Jetson latency and memory are **unmeasured**. GH200 figures do not transfer to
-  an Orin Nano 8GB, and 450M total parameters is a materially heavier deployment
-  target than ACT.
+- Jetson latency and memory were **measured on 2026-09-08 and pass**; see the
+  section below. The remaining deployment gaps are the clamping layer, camera
+  capture cost and concurrent ROS load, not raw feasibility.
 - No clamping layer exists yet. The earlier reload check decoded a negative
   `gripper.pos`, so an executor must reject non-physical values before actuation.
 - Checkpoint resume was not exercised; only interval saving was verified.
 
-## Jetson feasibility assessment — specs only, not measured
+## Jetson measurement — 2026-09-08
+
+Ran on the device in the `forestbridge-xlerobot:jp62` container with no device
+flag, so no USB device was mapped and no motor command was issued. Power mode
+confirmed as **25W**, the highest available, via `nvpmodel -q`. CPU sat at its
+1344 MHz scaling ceiling under load at about 49 °C.
+
+| | Run 1 | Run 2 (preprocessing included) |
+|---|---|---|
+| Policy inference median | 1.123 s | 1.220 s |
+| Preprocessing median | not timed | **0.0066 s** |
+| End-to-end median | — | **1.226 s** |
+| Headroom against the 2.5 s budget | 2.23x | **2.04x** |
+| Peak allocated memory | 0.9026 GiB | 0.9042 GiB |
+| `sustains_budget` | true | true |
+
+**Verdict: the hardware runs this checkpoint with roughly two times headroom.**
+Take the more conservative 2.04x. The two runs differ by 8.6 percent, which is
+run-to-run variation rather than a trend, and every steady call in both runs was
+under budget.
+
+Per-chunk preprocessing costs 6.6 ms, about 0.5 percent of the budget, so the
+first run's omission of it did not distort the conclusion. Memory came in at
+0.904 GiB against the 0.9269 GiB predicted from the GH200 measurement, so that
+part of the specs-only estimate was accurate. **The latency estimate was too
+pessimistic**: the predicted range was 1.7–5 s and the measurement is 1.23 s,
+because scaling GH200 throughput by compute and bandwidth ratios understated how
+Orin handles this small-batch serial workload.
+
+Still excluded, and each eats into the 1.27 s of slack:
+
+- **Camera capture.** A decoded dataset frame stands in for live capture.
+- **Concurrent load.** Nothing else was running. The demo pipeline docks before
+  running the policy, so the Nav2 and RTAB-Map peaks should not coincide, but
+  that was not tested together.
+- **Sustained thermals.** 49 °C in a cool room over ten iterations is not a
+  warm-room endurance test.
+
+The `gpu_hz` field in the reports is unreliable: it returned the same floor value
+under load and at rest, so the probed devfreq node is not the graphics clock. The
+power mode from `nvpmodel -q` is the trustworthy figure.
+
+### Container dependency gap
+
+The `jp62` image was built for ACT and lacks everything SmolVLA needs:
+`transformers`, `tokenizers`, `num2words`, `docopt` and `accelerate` were all
+absent, and the image's `regex==2024.11.6` is below the `regex>=2025.10.22` that
+`transformers` 5.5.4 enforces at import. Present and sufficient were
+`huggingface_hub==1.27.0`, `safetensors==0.5.3`, `numpy==1.26.4`, `filelock`,
+`packaging`, `psutil`, `PyYAML`, `requests` and `tqdm`.
+
+These were installed with `--no-deps` into `/data/tmp/smolvla-latency-20260907/pydeps`
+at the versions that produced this checkpoint on Roihu, and reached through
+`PYTHONPATH`. `--no-deps` matters: a plain install would have pulled newer
+`numpy` and `safetensors` that shadow the ones the NVIDIA torch build expects.
+This is a measurement workaround, removable with one `rm -rf`. If SmolVLA becomes
+the deployment path, `deploy/jetson/Dockerfile` needs these dependencies properly
+— that file currently carries uncommitted teammate modifications and must not be
+overwritten.
+
+## Jetson feasibility assessment — specs only, superseded by the measurement above
 
 Requested on 2026-09-07 while teammates held the robot. Read-only inspection
 over Tailscale; no benchmark was run and no device was opened.
