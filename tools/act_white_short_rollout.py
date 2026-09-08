@@ -44,6 +44,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--repo-id", default="forestbridge/fixed-pick-place-v1")
+    parser.add_argument(
+        "--rename-map",
+        default="{}",
+        help="Map recorded camera keys to the checkpoint's input keys. SmolVLA was "
+             "trained with camera1/camera2, ACT with the recorded names",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--steps", type=int, default=20)
     parser.add_argument("--fps", type=float, default=20.0)
@@ -484,6 +490,13 @@ def summarize_policy_chunks(
 
 def main() -> int:
     args = parse_args()
+    rename_map = json.loads(args.rename_map)
+    if not isinstance(rename_map, dict) or any(
+        not isinstance(v, str) for v in rename_map.values()
+    ):
+        raise ValueError("rename-map must be a JSON object mapping key names to strings")
+    if set(rename_map) - set(OBSERVATION_KEYS):
+        raise ValueError(f"rename-map keys must come from {OBSERVATION_KEYS}")
     positive = (
         args.fps,
         args.folded_tolerance_deg,
@@ -709,7 +722,7 @@ def main() -> int:
             wrist_frame = wrist_camera.latest(args.max_camera_age_s)
             task_preview.offer("gemini", gemini_frame.rgb)
             task_preview.offer("wrist_white", wrist_frame.rgb)
-            return {
+            observation = {
                 "observation.state": torch.tensor(
                     model_values, dtype=torch.float32
                 ).unsqueeze(0),
@@ -720,6 +733,9 @@ def main() -> int:
                     wrist_frame.rgb
                 ).unsqueeze(0),
             }
+            # The recorded names reach the policy unless the checkpoint was trained
+            # on renamed inputs, as SmolVLA was.
+            return {rename_map.get(key, key): value for key, value in observation.items()}
 
         policy.reset()
         initial_observation = observation_from_live(start_state)
