@@ -405,6 +405,7 @@ class ACTEpisodeRecorder:
         self._last_sequences: tuple[int, int] | None = None
         self._duplicate_counts = [0, 0]
         self._closed = False
+        self._capture_closed = False
 
     def start(self) -> None:
         try:
@@ -450,8 +451,7 @@ class ACTEpisodeRecorder:
                 )
             self._write_manifest()
         except Exception:
-            self.gemini.close()
-            self.wrist.close()
+            self.stop_capture()
             raise
 
     def _write_manifest(self) -> None:
@@ -540,8 +540,7 @@ class ACTEpisodeRecorder:
         else:
             self.dataset.clear_episode_buffer()
         self.dataset.finalize()
-        self.gemini.close()
-        self.wrist.close()
+        self.stop_capture()
         self._closed = True
         result = {
             "scene_version": self.scene_version,
@@ -566,6 +565,18 @@ class ACTEpisodeRecorder:
         self._append_ledger(result)
         return result
 
+    def stop_capture(self) -> None:
+        """Stop both cameras without deciding whether the buffered episode is valid."""
+        if self._capture_closed:
+            return
+        try:
+            try:
+                self.gemini.close()
+            finally:
+                self.wrist.close()
+        finally:
+            self._capture_closed = True
+
     def _append_ledger(self, result: dict[str, Any]) -> None:
         ledger = self.root.parent / "session_ledger.jsonl"
         ledger.parent.mkdir(parents=True, exist_ok=True)
@@ -580,8 +591,7 @@ class ACTEpisodeRecorder:
                 self.dataset.clear_episode_buffer()
                 self.dataset.finalize()
         finally:
-            self.gemini.close()
-            self.wrist.close()
+            self.stop_capture()
             self._closed = True
         self._append_ledger(
             {
