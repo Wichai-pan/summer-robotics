@@ -117,7 +117,8 @@ async function refresh() {
     const state = await api("/api/state");
     $("auth-gate").hidden = true;
     renderMonitor(state.monitor);
-    const robot = state.robots["jetson-dry-run"];
+    const robot = Object.values(state.robots || {})
+      .sort((left, right) => new Date(right.last_seen) - new Date(left.last_seen))[0];
     const online = robot && Date.now() - new Date(robot.last_seen).getTime() < 6000;
     connection.classList.toggle("online", Boolean(online));
     connection.querySelector("b").textContent = online ? `JETSON ${robot.status.toUpperCase()}` : "JETSON OFFLINE";

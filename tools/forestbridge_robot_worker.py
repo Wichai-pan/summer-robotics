@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Outbound-only dry-run robot worker for the ForestBridge relay."""
+"""Outbound-only robot worker for the ForestBridge relay.
+
+Dry-run remains the default.  Hardware mode is opt-in, accepts only a
+Jetson-local allow-listed preset, and requires a one-shot onsite arming lease.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ from forestbridge_task_executive import (  # noqa: E402
     TaskExecutive,
     TaskSpec,
 )
+from forestbridge_hardware_task_executor import HardwarePipelineExecutor  # noqa: E402
 
 
 class RelayClient:
@@ -44,17 +49,34 @@ class RelayClient:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--relay", default="http://127.0.0.1:8787")
-    parser.add_argument("--robot-id", default="jetson-dry-run")
+    parser.add_argument("--robot-id", default="jetson-primary")
     parser.add_argument("--output-root", type=Path, default=Path("/tmp/forestbridge-worker"))
     parser.add_argument("--poll-s", type=float, default=1.0)
     parser.add_argument("--state-delay-s", type=float, default=0.7)
     parser.add_argument("--token", default="")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--mode", choices=("dry-run", "hardware"), default="dry-run")
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="permit hardware mode; still requires a fresh one-shot onsite arming lease",
+    )
+    parser.add_argument("--repo-root", type=Path, default=REPO_ROOT)
+    parser.add_argument(
+        "--arm-file",
+        type=Path,
+        default=Path("/tmp/forestbridge-relay-worker.arm.json"),
+    )
+    parser.add_argument("--hardware-timeout-s", type=float, default=240.0)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.mode == "hardware" and not args.execute:
+        raise SystemExit("hardware mode requires --execute and a fresh onsite arming lease")
+    if args.poll_s <= 0 or args.state_delay_s < 0 or args.hardware_timeout_s <= 0:
+        raise SystemExit("poll, state delay and hardware timeout values must be positive")
     client = RelayClient(args.relay, args.token)
     completed = 0
     while True:
@@ -111,12 +133,21 @@ def main() -> int:
                 status_path=output_dir / "status.json",
                 observer=publish,
             )
-            executive = TaskExecutive(
-                runner=DryRunSkillRunner(delay_s=args.state_delay_s),
-                writer=writer,
-                stop_requested=stop_requested,
-            )
-            executive.run(spec)
+            if args.mode == "hardware":
+                executor = HardwarePipelineExecutor(
+                    repo_root=args.repo_root,
+                    arm_file=args.arm_file,
+                    output_dir=output_dir,
+                    timeout_s=args.hardware_timeout_s,
+                )
+                executor.run(task, writer, stop_requested)
+            else:
+                executive = TaskExecutive(
+                    runner=DryRunSkillRunner(delay_s=args.state_delay_s),
+                    writer=writer,
+                    stop_requested=stop_requested,
+                )
+                executive.run(spec)
             client.request(
                 "POST",
                 f"/api/robots/{args.robot_id}/heartbeat",
