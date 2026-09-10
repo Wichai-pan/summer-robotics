@@ -13,6 +13,32 @@
 
 ## Current Focus
 
+- September 10 Git closeout: the web-to-Jetson task adapter, persistent Gemini
+  broker, guarded/offline SmolVLA Jetson rollout and their handoff documents are
+  now separated into reviewable commits on `origin/smolvla-longrun`. The local
+  branch is the source of truth for this work; it has not been pulled into the
+  teammate's dirty Jetson deployment clone. The old web task pose remains
+  motion-locked because it does not match the team's September home map. Start
+  teammate handoff at `docs/ops/team-handoff-20260910.md`.
+
+- September 8 onsite handoff: the guarded SmolVLA executor completed a 20-step
+  (1.0 s) physical motion and released torque normally. No gripper contact was
+  latched, so this validates the short execution/safety path only, not grasp
+  success. The Jetson checkpoint remains verified at
+  `/home/jetsonl7/robot-data/models/smolvla_fixed_pick_place_1097975_020000`.
+  A persistent Hugging Face cache under `/home/jetsonl7/robot-data/cache/`
+  removes the former per-container 2.03 GB SmolVLM2 download; rollout is offline
+  by default after one preparation command. The cache was populated and an
+  offline load reached the arm preflight without any Hub request. Its initial
+  calibration failure was diagnosed as an integration bug: setting `HF_HOME`
+  redirected LeRobot's calibration lookup as well as the model cache. Rollout
+  now sets only the Hub cache variables, preserving the existing read-only
+  `/root/.cache/huggingface/lerobot/calibration` mount. The corrected offline
+  dry run passed model loading and calibration, then safely stopped because the
+  previous 20-step run left `elbow_flex` about 13.6 degrees away from the saved
+  folded start. An onsite supervised folded return is the next action. See
+  `docs/experiments/smolvla-onsite-handoff-20260908.md`.
+
 - September 7: synthetic SmolVLA GPU forward/backward/inference passed (`1094450`)
   and old ACT data completed 100 training steps with a saved checkpoint (`1094687`).
   Checkpoint reload with held-out episode-24 inference also passed (`1094988`,
@@ -255,6 +281,16 @@
 - Camera GUI tools still need headless/web alternatives for remote use; the primary arm keyboard controller no longer depends on `pynput` when run with `--terminal`.
 - The hardware lock only protects commands that use `scripts/jetson_robot_exec.sh`; direct `docker run` or host processes bypass it and are forbidden for team operation.
 - Foreground ACT/Nav2/pipeline entrypoints and the common `scripts/jetson_slam_exec.sh` wrapper announce a local task guard before their first hardware command. The idle camera monitor observes this marker and now actively terminates only its in-flight snapshot subprocess instead of waiting for the 20-second snapshot timeout; a real Jetson lock-held smoke released the foreground task in 1.347 seconds. The task retains a 25-second fail-closed upper bound. A live nested pipeline owns one guard; confirmed stale PID/start-time markers are removed automatically. `scripts/jetson_robot_exec.sh` intentionally remains unguarded because the idle monitor itself uses that lowest-level device wrapper.
+- On 2026-09-08 the Gemini idle-monitor warm-up was raised from 5 to 45
+  frames. The relay JPEG mean luma improved from about 24.8/255 to 104.8/255.
+  The live service copy is under `/home/jetsonl7/robot-data/services/forestbridge-monitor`;
+  its previous file is retained as `forestbridge_camera_monitor.py.before-warmup45-20260908`.
+  Restarting only the monitor parent during deployment briefly left an in-flight
+  snapshot holding `gemini.lock`, causing one 25-second foreground-guard timeout.
+  After that snapshot exited, a no-motor guard probe preempted the 45-frame
+  monitor and acquired the camera in 4 seconds; no stale task marker remained.
+  This snapshot approach is now superseded by the persistent Gemini broker
+  below; the measurements remain as diagnosis history.
 - Nav2 wheel-mode telemetry now retries each wheel read at most three times with 30 ms spacing. This handles one isolated white-board `communication=-6/-7` without discarding a completed localization, but still brakes and aborts if any wheel fails all three attempts. The 2026-08-28 table test that motivated this change planned a 0.470 m path successfully but produced zero execution samples because motor 7 returned `-7` on the initial measured-velocity read.
 - LeRobot calibration cache, LLM `.env`, and YOLO weights remain machine state outside Git, although they are present on this Jetson.
 - Cross-internet access exists through Tailscale, but remote physical control still lacks a disconnect watchdog and remains prohibited without an on-site operator.
@@ -272,32 +308,44 @@
   checkpoint has no explicit contact or success signal and may restart the
   grasp after an unsuccessful partial return.
 
+## 2026-09-08 persistent Gemini RGB-D broker
+
+- Implemented one persistent Orbbec/ROS 2 owner instead of repeated web snapshots.
+- The broker fans RGB-D topics out to SLAM/Nav2 and writes a validated atomic RGB frame for the web monitor and ACT/SmolVLA.
+- Broker-aware wrappers use host ROS networking and `--external-camera`; if the broker is stale or absent, they fall back to direct camera ownership.
+- A healthy broker no longer blocks the foreground task guard. Controller and wrist-camera locks are unchanged.
+- Added a motor-free SmolVLA dry-run wrapper. Physical execution still requires `--execute` and on-site emergency-stop supervision.
+- Runbook: `docs/ops/gemini-rgbd-broker.md`.
+- Deployed the broker without overwriting the teammate's dirty Jetson worktree:
+  new repository entrypoints have `broker` in their names, while patched copies
+  of the two SLAM container scripts live under
+  `/home/jetsonl7/robot-data/services/forestbridge-gemini-broker`.
+- Live acceptance: shared RGB stayed fresh at 640×480, the host-network ROS
+  consumer read `/camera/depth/image_raw`, and relay frame timestamps advanced
+  while SmolVLA was running. No legacy `orbbec_rgb_snapshot.py` process remained.
+- SmolVLA broker dry-run exited 0 after loading the checkpoint, consuming shared
+  Gemini plus white-wrist RGB, injecting the dataset's exact task string, and
+  producing a guarded first action. It explicitly reported that torque/actions
+  were not enabled. Log:
+  `/home/jetsonl7/robot-data/logs/smolvla-broker-dry-run-task-20260908T1521Z`.
+- The broker and web monitor both have `@reboot` launchers. Existing teammate
+  home-route files were not edited; use `scripts/jetson_home_route_broker.sh`
+  for the broker-compatible table/sofa route until the team merges the change.
+- A real Jetson reboot during final audit exercised recovery: Docker initially
+  returned one startup-time error, the broker loop retried, and within about two
+  minutes both the 640×480 shared stream and live relay frame updates recovered.
+
 ## Next Step
 
-0. Follow `docs/19-machine-handoff-20260830.md`: update the formal Jetson clone
-   from `origin/main`, run the read-only bus/gimbal/localization gates, then
-   reproduce one short docking and one marked-position ACT trial. The public
-   task worker remains dry-run-only; do not enable remote motor execution.
-
-1. Commit `379f2bb` applies the 5 cm rotate-only drift guard to wheel control
-   and passed 20 targeted non-hardware Nav2 tests in the Jetson container.
-   Validate this fail-closed condition on the physical base.
-2. Use `tools/base_turn_diagnostic.py` to validate a marked 30-degree turn
-   before repeating it at 90 degrees, then test a short straight segment
-   against physical observation; retain active braking and three-wheel torque-off
-   verification on every exit.
-3. Only after that gate passes, re-test a fixed table docking pose, then make a
-   gated navigation-to-ACT-grasp state machine.
-4. Measure white-gripper position, velocity, load and current for open, empty
-   close, correct jar grasp and slip/jam cases without changing torque limits.
-5. Define and validate a deterministic contact threshold on repeated samples.
-6. Add a grasp supervisor around ACT: verify contact, lift 3–5 cm, confirm with
-   white-wrist RGB, hold on success and permit at most 1–2 retries on failure.
-7. Stop one trial after one completed attempt/return transition instead of
-   extending rollout time into repeated grasp cycles.
-8. After the supervisor is stable, collect additional clean demonstrations and
-   decide whether load/current should become learned observation features.
-9. In a separate worktree, begin human-interaction phases H0/H1: define the
-   pose/gesture event contracts and implement recorded-video pose inference,
-   fake/replay sources, GUI overlay and fail-closed automated QA. Do not access
-   Jetson, cameras, ROS or motors in this first milestone.
+1. Start at `docs/ops/team-handoff-20260910.md`; preserve the current teammate
+   Jetson work by committing it to its own branch before attempting integration.
+2. In a clean clone/worktree, review and merge `origin/smolvla-longrun`. Resolve
+   the known overlaps in the hardware wrapper, task guard and SLAM/Nav2 scripts
+   rather than overwriting either side.
+3. Define `bring_medicine_demo_01` from the September map and current table/sofa
+   workspaces. Keep the old web preset motion-locked.
+4. Validate the merged tree in this order: no-device/unit tests, SmolVLA dry
+   run, Nav2 planner-only, supervised short motion, then an onsite web-triggered
+   test with the 12 V cutoff continuously attended.
+5. Add calibrated `OBJECT_HELD` and `DELIVERED` checks before presenting the
+   workflow as autonomous medicine delivery.

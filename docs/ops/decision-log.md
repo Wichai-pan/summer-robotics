@@ -1,5 +1,36 @@
 # ForestBridge Robot Operations Decision Log
 
+## 2026-09-10 — Web-triggered motion requires two allow-lists and onsite arming
+
+- Frankfurt accepts only named task presets; it never forwards shell commands,
+  arbitrary coordinates, wheel speeds or arm actions.
+- Jetson independently verifies the complete preset and maps it to a fixed
+  argv vector. Hardware mode additionally requires an explicit worker flag and
+  a short-lived, one-shot arming lease created by an onsite operator.
+- Relay Stop and event-delivery failure terminate the complete child process
+  group. A web Stop remains secondary to the onsite 12 V cutoff.
+- A successful program exit is not proof of grasp or delivery. Until an
+  independent result check exists, the hardware adapter reports
+  `needs_assistance` rather than `Delivered`.
+- Keep the August web preset motion-locked until the September map and named
+  source/destination workspaces are revalidated onsite.
+
+## 2026-09-08 — Persist and freeze the Jetson SmolVLA base-model cache
+
+- Store the Hugging Face SmolVLM2 base snapshot under the persistent
+  `/home/jetsonl7/robot-data/cache/huggingface` tree rather than the disposable
+  root filesystem of each `docker run --rm` container.
+- Populate it with one explicit network-only preparation command. Normal robot
+  rollout sets Hugging Face and Transformers offline modes and fails clearly if
+  the cache is missing; a live experiment must never initiate a multi-gigabyte
+  model download.
+- Set only `HF_HUB_CACHE` / `HUGGINGFACE_HUB_CACHE`, never `HF_HOME`: LeRobot
+  uses the latter to locate its motor calibration cache, so overriding it makes
+  every motor appear uncalibrated even when the registers are correct.
+- Keep the trained ForestBridge checkpoint separately under `/data/models`; the
+  base-model cache and trained checkpoint are different artifacts and both are
+  required for the current LeRobot loader.
+
 ## 2026-09-06 — Isolate SmolVLA preparation from ACT and robot deployment
 
 - Keep the existing ACT environment/checkpoint and unpublished teammate Jetson
