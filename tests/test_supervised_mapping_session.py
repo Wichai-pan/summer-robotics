@@ -20,7 +20,9 @@ SLAM_DOCKERFILE = ROOT / "deploy" / "slam" / "Dockerfile"
 def test_supervised_mapping_has_one_locked_host_entrypoint() -> None:
     host = HOST_SCRIPT.read_text(encoding="utf-8")
     assert "jetson_slam_exec.sh" in host
-    assert "--gemini --black --white --interactive" in host
+    assert "forestbridge_gemini_broker_env.sh" in host
+    assert '"${FORESTBRIDGE_GEMINI_DEVICE_ARGS[@]}" --black --white --interactive' in host
+    assert '"${FORESTBRIDGE_GEMINI_CONTAINER_ARGS[@]}"' in host
     assert "slam_supervised_mapping_container.sh" in host
 
 
@@ -28,7 +30,9 @@ def test_manual_push_mapping_cannot_access_or_command_the_base() -> None:
     host = MANUAL_PUSH_HOST_SCRIPT.read_text(encoding="utf-8")
     container = MANUAL_PUSH_CONTAINER_SCRIPT.read_text(encoding="utf-8")
     assert "jetson_slam_exec.sh" in host
-    assert "--gemini --black --interactive" in host
+    assert "forestbridge_gemini_broker_env.sh" in host
+    assert '"${FORESTBRIDGE_GEMINI_DEVICE_ARGS[@]}" --black --interactive' in host
+    assert '"${FORESTBRIDGE_GEMINI_CONTAINER_ARGS[@]}"' in host
     assert "--white" not in host
     assert "slam_manual_push_mapping_container.sh" in host
     assert "Type MANUAL_MAP" in container
@@ -180,6 +184,20 @@ def test_mapping_finalizes_database_and_has_no_hardware_software_smoke() -> None
     assert "must be all zero (device default) or all positive" in container
     assert 'capture_graph_contract_with_retry "-post"' in container
     assert "for attempt in 1 2 3" in container
+
+
+def test_slam_camera_owner_can_be_external_broker_or_direct_fallback() -> None:
+    selector = (ROOT / "scripts" / "forestbridge_gemini_broker_env.sh").read_text(
+        encoding="utf-8"
+    )
+    container = (ROOT / "scripts" / "slam_static_odom_container.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "FORESTBRIDGE_GEMINI_DEVICE_ARGS=(--gemini)" in selector
+    assert "FORESTBRIDGE_GEMINI_DEVICE_ARGS=(--host-network)" in selector
+    assert "FORESTBRIDGE_GEMINI_CONTAINER_ARGS=(--external-camera)" in selector
+    assert 'if [[ "$external_camera" == true ]]' in container
+    assert "setsid \"${camera_command[@]}\"" in container
 
 
 def test_slam_image_contains_needed_base_transport_dependency() -> None:

@@ -18,6 +18,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from forestbridge_shared_rgb import SharedRGBError, SharedRGBReader
+
 
 class RelayClient:
     def __init__(self, base_url: str, token: str):
@@ -85,6 +87,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--interval-s", type=float, default=2.0)
     parser.add_argument("--poll-s", type=float, default=1.0)
+    parser.add_argument(
+        "--gemini-shared-frame-dir",
+        type=Path,
+        default=Path("/dev/shm/forestbridge-gemini"),
+    )
+    parser.add_argument("--gemini-shared-max-age-s", type=float, default=1.0)
     parser.add_argument(
         "--task-active-dir",
         type=Path,
@@ -161,30 +169,20 @@ def main() -> int:
         raise SystemExit("missing --token or FORESTBRIDGE_ROBOT_TOKEN")
     if args.interval_s < 1.0 or args.poll_s < 0.25:
         raise SystemExit("monitor interval must be >=1.0s and poll interval >=0.25s")
+    if args.gemini_shared_max_age_s <= 0:
+        raise SystemExit("shared Gemini frame age must be positive")
     args.frame.parent.mkdir(parents=True, exist_ok=True)
     client = RelayClient(args.relay, args.token)
+    gemini_reader = SharedRGBReader(args.gemini_shared_frame_dir)
     last_report = ""
     while True:
         try:
-            if foreground_task_active(args.task_active_dir):
-                if last_report != "foreground":
-                    client.status("paused", "前台机器人任务已启动，待机监看已让出硬件")
-                    last_report = "foreground"
-                if args.once:
-                    return 0
-                time.sleep(args.poll_s)
-                continue
+            foreground = foreground_task_active(args.task_active_dir)
             monitor = client.monitor()
             if not monitor.get("enabled"):
                 last_report = ""
                 if args.once:
                     return 0
-                time.sleep(args.poll_s)
-                continue
-            if monitor.get("task_active"):
-                if last_report != "paused":
-                    client.status("paused", "机器人任务正在提供自己的摄像头画面")
-                    last_report = "paused"
                 time.sleep(args.poll_s)
                 continue
             if monitor.get("task_frame_active"):
@@ -199,14 +197,22 @@ def main() -> int:
             if source == "auto":
                 source = "gemini"
             if source == "gemini":
-                label = "Gemini"
-                device_args = ["--gemini"]
-                snapshot_args = [
-                    "python3", "/data/services/forestbridge-monitor/orbbec_rgb_snapshot.py",
-                    "--warmup-frames", "5", "--jpeg-quality", "70",
-                    "--output", "/data/runtime/forestbridge-monitor.jpg",
-                ]
+                frame = gemini_reader.latest_jpeg(args.gemini_shared_max_age_s)
+                client.upload(frame.jpeg, source)
+                last_report = "live"
+                if args.once:
+                    return 0
+                time.sleep(args.interval_s)
+                continue
             elif source in {"wrist_white", "wrist_black"}:
+                if foreground or monitor.get("task_active"):
+                    if last_report != "paused":
+                        client.status("paused", "机器人任务正在使用所选手部摄像头")
+                        last_report = "paused"
+                    if args.once:
+                        return 0
+                    time.sleep(args.poll_s)
+                    continue
                 white = source == "wrist_white"
                 label = "白臂手部" if white else "黑臂手部"
                 device_args = ["--wrist-a" if white else "--wrist-b"]
@@ -247,6 +253,7 @@ def main() -> int:
         except (
             OSError,
             RuntimeError,
+            SharedRGBError,
             json.JSONDecodeError,
             subprocess.TimeoutExpired,
             urllib.error.URLError,

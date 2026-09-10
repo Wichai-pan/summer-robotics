@@ -10,6 +10,7 @@ Device flags (only requested devices are exposed to the container):
   --white           white-arm/base controller (USB serial 5B3D040988)
   --black           black-arm/head controller (USB serial 5B3D043224)
   --ports-readonly  both controller nodes with read-only device permission
+  --host-network    share the Jetson network namespace (for ROS/DDS services)
   --wrist-a         wrist camera at physical USB path 2.4.1, index0
   --wrist-b         wrist camera at physical USB path 2.4.3, index0
   --interactive     attach the current SSH terminal to Docker (for keyboard/input tools)
@@ -33,6 +34,7 @@ lock_path="${FORESTBRIDGE_HARDWARE_LOCK:-/tmp/forestbridge-xlerobot.lock}"
 device_args=()
 interactive_args=()
 x11_args=()
+network_args=()
 relay_env_args=()
 
 for relay_variable in \
@@ -100,6 +102,7 @@ while [[ $# -gt 0 ]]; do
     --wrist-a) resolve_wrist 2.4.1; shift ;;
     --wrist-b) resolve_wrist 2.4.3; shift ;;
     --interactive) interactive_args=(-i -t); shift ;;
+    --host-network) network_args=(--network host); shift ;;
     --x11)
       [[ -n "${DISPLAY:-}" ]] || {
         echo "--x11 requires an SSH session with X11 forwarding (reconnect with: ssh -Y ...)." >&2
@@ -113,13 +116,13 @@ while [[ $# -gt 0 ]]; do
       # SSH's X11 proxy listens on the Jetson loopback interface. Host networking
       # lets the container reach it, while Xauthority keeps the proxy protected.
       x11_args=(
-        --network host
         --env "DISPLAY=$DISPLAY"
         --env XAUTHORITY=/root/.Xauthority
         --env QT_X11_NO_MITSHM=1
         --env LIBGL_ALWAYS_SOFTWARE=1
         --mount "type=bind,src=$xauthority_path,dst=/root/.Xauthority,readonly"
       )
+      network_args=(--network host)
       shift
       ;;
     --) shift; break ;;
@@ -175,6 +178,7 @@ docker_cmd=(docker run --rm \
   --name "$container_name" \
   --cidfile "$container_cidfile" \
   "${interactive_args[@]}" \
+  "${network_args[@]}" \
   "${x11_args[@]}" \
   --runtime nvidia \
   --ipc host \

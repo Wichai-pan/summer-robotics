@@ -30,6 +30,7 @@ initial_map_pose_y=""
 initial_map_pose_yaw_deg=""
 expected_start_max_position_error_m="0.25"
 expected_start_max_yaw_error_deg="25"
+external_camera=false
 
 usage() {
   cat <<'EOF'
@@ -47,6 +48,7 @@ Usage: slam_nav2_supervised_execute_container.sh --database PATH (--goal-x M --g
        [--expected-start-x M --expected-start-y M --expected-start-yaw-deg DEG]
        [--initial-map-pose-x M --initial-map-pose-y M --initial-map-pose-yaw-deg DEG]
        [--expected-start-max-position-error-m M --expected-start-max-yaw-error-deg DEG]
+       [--external-camera]
 
 First-motion navigation test only: localizes Gemini against a read-only RTAB-Map
 database, asks Nav2 for a path, then requires a second MOVE confirmation before
@@ -88,6 +90,7 @@ while [[ $# -gt 0 ]]; do
     --initial-map-pose-yaw-deg) initial_map_pose_yaw_deg="${2:?missing initial map yaw}"; shift 2 ;;
     --expected-start-max-position-error-m) expected_start_max_position_error_m="${2:?missing expected position gate}"; shift 2 ;;
     --expected-start-max-yaw-error-deg) expected_start_max_yaw_error_deg="${2:?missing expected yaw gate}"; shift 2 ;;
+    --external-camera) external_camera=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -163,6 +166,10 @@ if [[ -n "$initial_map_pose_x" || -n "$initial_map_pose_y" || -n "$initial_map_p
   }
   initial_map_pose_args+=(--initial-map-pose-x "$initial_map_pose_x" --initial-map-pose-y "$initial_map_pose_y" --initial-map-pose-yaw-deg "$initial_map_pose_yaw_deg")
 fi
+camera_source_args=()
+if [[ "$external_camera" == true ]]; then
+  camera_source_args+=(--external-camera)
+fi
 bash scripts/slam_static_odom_container.sh \
   --mode localization --localization-db "$database" --transform-config "$config" \
   --duration "$duration" --output-root /data/slam/nav2-supervised-execute \
@@ -184,6 +191,7 @@ bash scripts/slam_static_odom_container.sh \
   --nav2-execute-yaw-tolerance-deg "$yaw_tolerance_deg" \
   "${expected_start_args[@]}" \
   "${initial_map_pose_args[@]}" \
-  "${exact_goal_args[@]}"
+  "${exact_goal_args[@]}" \
+  "${camera_source_args[@]}"
 
 echo "PASS supervised Nav2 first-motion session. Inspect the printed /data/slam/nav2-supervised-execute timestamp directory."

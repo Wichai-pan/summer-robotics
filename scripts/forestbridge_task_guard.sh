@@ -8,6 +8,7 @@ forestbridge_task_guard_begin() {
   local guard_dir="${FORESTBRIDGE_TASK_ACTIVE_DIR:-$data_root/runtime/forestbridge-task-active}"
   local lock_path="${FORESTBRIDGE_HARDWARE_LOCK:-/tmp/forestbridge-xlerobot.lock}"
   local wait_s="${FORESTBRIDGE_TASK_GUARD_WAIT_S:-25}"
+  local shared_dir="${FORESTBRIDGE_GEMINI_SHARED_DIR:-/dev/shm/forestbridge-gemini}"
   local owner_pid owner_start existing_pid existing_start
 
   # A pipeline owns one guard across its nested Nav2 and ACT wrappers.
@@ -35,6 +36,20 @@ forestbridge_task_guard_begin() {
   printf '%s\n%s\n' "$owner_pid" "$owner_start" >"$guard_dir/owner"
   export FORESTBRIDGE_TASK_GUARD_OWNER="$owner_pid:$owner_start"
   FORESTBRIDGE_TASK_GUARD_OWNED=true
+
+  # A healthy persistent broker is the only Gemini owner. Foreground tasks
+  # subscribe to its ROS/shared-frame output and must not wait for its lock.
+  if [[ -s "$data_root/runtime/forestbridge-gemini-broker.ready" &&
+        -s "$shared_dir/latest.json" ]]; then
+    local now_s frame_mtime
+    now_s="$(date +%s)"
+    frame_mtime="$(stat -c %Y "$shared_dir/latest.json" 2>/dev/null || \
+      stat -f %m "$shared_dir/latest.json" 2>/dev/null || printf '0')"
+    if ((now_s - frame_mtime >= 0 && now_s - frame_mtime <= 3)); then
+      echo "Foreground task announced; healthy Gemini broker remains shared with the task."
+      return 0
+    fi
+  fi
 
   echo "Foreground task announced; waiting for any in-flight camera snapshot to release hardware."
   if ! flock --wait "$wait_s" "$lock_path" true; then

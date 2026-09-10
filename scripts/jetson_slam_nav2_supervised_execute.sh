@@ -7,10 +7,14 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$repo_root/scripts/forestbridge_task_preview_env.sh"
 source "$repo_root/scripts/forestbridge_task_guard.sh"
+source "$repo_root/scripts/forestbridge_gemini_broker_env.sh"
 export FORESTBRIDGE_IMAGE="${FORESTBRIDGE_SLAM_IMAGE:-forestbridge-xlerobot:slam-humble}"
+
+forestbridge_gemini_broker_configure
 
 trap forestbridge_task_guard_end EXIT
 forestbridge_task_guard_begin
 "$repo_root/scripts/jetson_slam_exec.sh" \
-  --gemini --black --white --interactive -- \
-  bash scripts/slam_nav2_supervised_execute_container.sh "$@"
+  "${FORESTBRIDGE_GEMINI_DEVICE_ARGS[@]}" --black --white --interactive -- \
+  bash scripts/slam_nav2_supervised_execute_container.sh \
+    "${FORESTBRIDGE_GEMINI_CONTAINER_ARGS[@]}" "$@"

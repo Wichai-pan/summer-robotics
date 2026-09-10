@@ -11,12 +11,14 @@ gimbal_reference="/data/config/gemini_gimbal_mapping_down_20deg_v1.json"
 camera_width=640
 camera_height=480
 camera_fps=30
+external_camera=false
 
 usage() {
   cat <<'EOF'
 Usage: slam_localization_container.sh --database /data/slam/mapping/.../rtabmap.db
        [--duration S] [--config PATH] [--gimbal-reference PATH]
        [--camera-width PX] [--camera-height PX] [--camera-fps HZ]
+       [--external-camera]
 
 Loads a finalized RTAB-Map database in read-only localization mode and verifies
 that RTAB-Map publishes map -> base_link. It opens only Gemini and performs a
@@ -33,6 +35,7 @@ while [[ $# -gt 0 ]]; do
     --camera-width) camera_width="${2:?missing width}"; shift 2 ;;
     --camera-height) camera_height="${2:?missing height}"; shift 2 ;;
     --camera-fps) camera_fps="${2:?missing fps}"; shift 2 ;;
+    --external-camera) external_camera=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -58,12 +61,17 @@ EOF
 read -r -p "Type LOCALIZE to open Gemini and start the read-only session: " answer
 [[ "$answer" == "LOCALIZE" ]] || { echo "Cancelled before Gemini was opened."; exit 2; }
 
+camera_source_args=()
+if [[ "$external_camera" == true ]]; then
+  camera_source_args+=(--external-camera)
+fi
 bash scripts/slam_static_odom_container.sh \
   --mode localization \
   --transform-config "$config" \
   --localization-db "$database" \
   --duration "$duration" \
   --camera-width "$camera_width" --camera-height "$camera_height" --camera-fps "$camera_fps" \
-  --output-root /data/slam/localization
+  --output-root /data/slam/localization \
+  "${camera_source_args[@]}"
 
 echo "PASS localization-only session. Inspect the printed /data/slam/localization timestamp directory."

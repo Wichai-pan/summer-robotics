@@ -11,6 +11,7 @@ from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
 
+from forestbridge_shared_rgb import SharedRGBWriter
 from forestbridge_task_frame_publisher import TaskFramePublisher
 
 
@@ -34,10 +35,13 @@ def image_to_rgb(message: Image) -> np.ndarray:
 
 
 class ImagePreviewNode(Node):
-    def __init__(self, topic: str) -> None:
+    def __init__(self, topic: str, shared_frame_dir: str, shared_max_hz: float) -> None:
         super().__init__("forestbridge_task_image_preview")
         self.publisher = TaskFramePublisher(preferred_sources=("gemini",))
         self.publisher.start()
+        self.shared_writer = SharedRGBWriter(
+            shared_frame_dir, max_hz=shared_max_hz, jpeg_quality=90
+        )
         qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -47,7 +51,9 @@ class ImagePreviewNode(Node):
 
     def _image(self, message: Image) -> None:
         try:
-            self.publisher.offer("gemini", image_to_rgb(message))
+            rgb = image_to_rgb(message)
+            self.shared_writer.offer(rgb)
+            self.publisher.offer("gemini", rgb)
         except ValueError as exc:
             self.get_logger().warning(str(exc))
 
@@ -59,9 +65,17 @@ class ImagePreviewNode(Node):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--topic", default="/camera/color/image_raw")
+    parser.add_argument(
+        "--shared-frame-dir",
+        default="/dev/shm/forestbridge-gemini",
+        help="host-shared latest-frame directory for non-ROS consumers",
+    )
+    parser.add_argument("--shared-max-hz", type=float, default=10.0)
     args = parser.parse_args()
+    if args.shared_max_hz <= 0:
+        raise SystemExit("--shared-max-hz must be positive")
     rclpy.init()
-    node = ImagePreviewNode(args.topic)
+    node = ImagePreviewNode(args.topic, args.shared_frame_dir, args.shared_max_hz)
     try:
         rclpy.spin(node)
     finally:

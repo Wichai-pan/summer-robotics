@@ -42,6 +42,7 @@ ready_file=""
 camera_width=0
 camera_height=0
 camera_fps=0
+external_camera=false
 
 usage() {
   cat <<'EOF'
@@ -65,6 +66,7 @@ Usage: slam_static_odom_container.sh [--duration SECONDS] [--output-root PATH] [
                                      [--nav2-append-exact-goal]
                                      [--ready-file PATH] [--camera-width PX]
                                      [--camera-height PX] [--camera-fps HZ]
+                                     [--external-camera]
 
 Runs Gemini-only RTAB-Map RGB-D odometry and writes compact JSONL plus a
 quality report. In localization mode it loads an existing RTAB-Map database
@@ -112,6 +114,7 @@ while [[ $# -gt 0 ]]; do
   --camera-width) camera_width="${2:?missing value for --camera-width}"; shift 2 ;;
   --camera-height) camera_height="${2:?missing value for --camera-height}"; shift 2 ;;
   --camera-fps) camera_fps="${2:?missing value for --camera-fps}"; shift 2 ;;
+  --external-camera) external_camera=true; shift ;;
     --dry-run) dry_run=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -413,7 +416,7 @@ wait_for_topics() {
       grep -Fxq "$topic" "$output_dir/topics.txt" || missing+=("$topic")
     done
     (( ${#missing[@]} == 0 )) && return 0
-    kill -0 "$owner_pid" 2>/dev/null || {
+    [[ "$owner_pid" == 0 ]] || kill -0 "$owner_pid" 2>/dev/null || {
       echo "Process exited before required topics appeared" >&2
       tail -n 100 "$log_file" >&2
       return 1
@@ -494,9 +497,14 @@ if [[ "$mode" == "motion" || "$mode" == "mapping" || "$mode" == "localization" ]
   process_pids+=("$transform_pid")
 fi
 
-setsid "${camera_command[@]}" >"$camera_log" 2>&1 &
-camera_pid=$!
-process_pids+=("$camera_pid")
+camera_pid=0
+if [[ "$external_camera" == true ]]; then
+  camera_log="/data/runtime/forestbridge-gemini-broker-camera.log"
+else
+  setsid "${camera_command[@]}" >"$camera_log" 2>&1 &
+  camera_pid=$!
+  process_pids+=("$camera_pid")
+fi
 
 wait_for_topics "$camera_pid" "$camera_log" \
   /camera/color/image_raw \
@@ -507,7 +515,8 @@ wait_for_topics "$camera_pid" "$camera_log" \
 # Reuse the ROS image stream already owned by this SLAM session.  This node is
 # a subscriber only: it never opens Gemini and is disabled unless the private
 # relay environment explicitly enables task preview.
-if [[ "${FORESTBRIDGE_TASK_PREVIEW:-0}" == "1" && \
+if [[ "$external_camera" != true && \
+      "${FORESTBRIDGE_TASK_PREVIEW:-0}" == "1" && \
       -n "${FORESTBRIDGE_RELAY_URL:-}" && \
       -n "${FORESTBRIDGE_ROBOT_TOKEN:-}" ]]; then
   task_preview_log="$output_dir/task-camera-preview.log"
@@ -599,7 +608,7 @@ capture_status=$?
 set -e
 
 capture_graph_contract_with_retry "-post"
-kill -0 "$camera_pid"
+[[ "$external_camera" == true ]] || kill -0 "$camera_pid"
 kill -0 "$odom_pid"
 minimum_duration=$(((duration * 8 + 9) / 10))
 upstream_failure=()
