@@ -39,6 +39,7 @@ class LocalPreset:
     max_path_m: float = 1.20
     max_runtime_s: float = 80.0
     max_tracked_travel_m: float = 1.35
+    execution_kind: str = "nav_then_act"
     hardware_enabled: bool = False
     disabled_reason: str = ""
 
@@ -57,7 +58,21 @@ LOCAL_PRESETS = {
             "Relay still carries the August table pose, while the deployed robot now uses "
             "the September home-workspace map; revalidate and replace this preset onsite"
         ),
-    )
+    ),
+    "local_face_cream_rollout_01": LocalPreset(
+        name="local_face_cream_rollout_01",
+        task_type="local_pick_place",
+        # The base is intentionally not commanded in this preset.  These
+        # zeroes are structured Relay fields, not navigation coordinates.
+        map_database="",
+        goal_x_m=0.0,
+        goal_y_m=0.0,
+        goal_yaw_deg=0.0,
+        act_steps=20,
+        execution_kind="fixed_face_cream_rollout",
+        hardware_enabled=True,
+        disabled_reason="",
+    ),
 }
 
 
@@ -151,6 +166,13 @@ class HardwarePipelineExecutor:
         self.timeout_s = timeout_s
 
     def command_for(self, task_id: str, preset: LocalPreset) -> list[str]:
+        if preset.execution_kind == "fixed_face_cream_rollout":
+            rollout = self.repo_root / "scripts" / "jetson_smolvla_white_rollout.sh"
+            if not rollout.is_file():
+                raise HardwareTaskError(f"verified local rollout is missing: {rollout}")
+            return ["bash", str(rollout), "--execute", "--steps", str(preset.act_steps)]
+        if preset.execution_kind != "nav_then_act":
+            raise HardwareTaskError(f"unsupported local execution kind: {preset.execution_kind}")
         pipeline = self.repo_root / "scripts" / "jetson_nav_then_act_pick_place.sh"
         if not pipeline.is_file():
             raise HardwareTaskError(f"verified pipeline is missing: {pipeline}")
@@ -228,6 +250,17 @@ class HardwarePipelineExecutor:
             outcome=Outcome.SUCCESS.value,
             reason="relay spec and one-shot onsite arming lease validated",
         )
+        if preset.execution_kind == "fixed_face_cream_rollout":
+            writer.emit(
+                TaskState.SET_GRASP_CAMERA,
+                "state_started",
+                source="fixed-workspace local rollout",
+            )
+            writer.emit(
+                TaskState.GRASPING,
+                "state_started",
+                source="fixed-workspace local rollout",
+            )
 
         master_fd, slave_fd = pty.openpty()
         environment = os.environ.copy()
@@ -354,7 +387,7 @@ class HardwarePipelineExecutor:
             "task_needs_assistance",
             failed_state=TaskState.VERIFYING_RESULT.value,
             reason=(
-                "navigation/ACT program completed, but autonomous object-delivery "
+                "local policy program completed, but autonomous object-grasp/delivery "
                 "verification is not implemented"
             ),
             program_completed=True,

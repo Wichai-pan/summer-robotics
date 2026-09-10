@@ -29,7 +29,7 @@ MONITOR_SOURCES = {"auto", "gemini", "wrist_white", "wrist_black"}
 FRAME_SOURCES = {"gemini", "wrist_white", "wrist_black"}
 FRAME_OWNERS = {"monitor", "task"}
 TASK_FRAME_LEASE_S = 5
-ALLOWED_TASK_TYPES = {"navigate_then_pick_place"}
+ALLOWED_TASK_TYPES = {"navigate_then_pick_place", "local_pick_place"}
 TASK_PRESETS = {
     "table_pick_place_01": {
         "task_type": "navigate_then_pick_place",
@@ -37,7 +37,14 @@ TASK_PRESETS = {
         "goal_y_m": -0.357,
         "goal_yaw_deg": -90.0,
         "act_steps": 600,
-    }
+    },
+    "local_face_cream_rollout_01": {
+        "task_type": "local_pick_place",
+        "goal_x_m": 0.0,
+        "goal_y_m": 0.0,
+        "goal_yaw_deg": 0.0,
+        "act_steps": 20,
+    },
 }
 
 

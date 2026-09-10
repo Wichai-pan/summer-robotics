@@ -54,6 +54,22 @@ WORKFLOW = (
     TaskState.VERIFYING_RESULT,
 )
 
+# A fixed-workspace manipulation check intentionally skips all base and map
+# phases.  It exists to validate the web -> Relay -> Jetson execution chain
+# when the robot has already been placed at the known object pose.
+LOCAL_MANIPULATION_WORKFLOW = (
+    TaskState.PRECHECK,
+    TaskState.SET_GRASP_CAMERA,
+    TaskState.GRASPING,
+    TaskState.VERIFYING_RESULT,
+)
+
+
+def workflow_for(task_type: str) -> tuple[TaskState, ...]:
+    if task_type == "local_pick_place":
+        return LOCAL_MANIPULATION_WORKFLOW
+    return WORKFLOW
+
 # Retries are intentionally finite.  A future hardware adapter may add a
 # recovery action, but it must not turn an unknown failure into an endless loop.
 MAX_ATTEMPTS = {
@@ -173,7 +189,7 @@ class TaskExecutive:
 
     def run(self, spec: TaskSpec) -> TaskState:
         self.writer.emit(TaskState.PRECHECK, "task_started", spec=asdict(spec), mode="dry-run")
-        for state in WORKFLOW:
+        for state in workflow_for(spec.task_type):
             local_stop = self.stop_file is not None and self.stop_file.exists()
             remote_stop = self.stop_requested is not None and self.stop_requested()
             if local_stop or remote_stop:

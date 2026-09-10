@@ -16,6 +16,20 @@ const monitorToggle = $("monitor-toggle");
 let monitorEnabled = false;
 let lastFrameTimestamp = "";
 let frameObjectUrl = "";
+const taskPresets = {
+  local_face_cream_rollout_01: {
+    taskType: "local_pick_place",
+    title: "原地面霜抓取验证",
+    description: "机器人已摆在固定抓取位：不调用底盘或地图。真机执行仍要求现场人员创建单次授权并持有 12 V cutoff。",
+    text: "原地使用旧模型尝试抓取固定位置的蓝色面霜罐。",
+  },
+  table_pick_place_01: {
+    taskType: "navigate_then_pick_place",
+    title: "导航至桌边并执行抓取",
+    description: "旧桌边导航 preset 尚未按当前地图重新验收，因此 Jetson 会在硬件 precheck 阶段拒绝运动。",
+    text: "移动到桌边，拿起面霜并完成局部放置。",
+  },
+};
 
 function timeLabel(value) {
   if (!value) return "尚未连接";
@@ -141,12 +155,13 @@ async function refresh() {
 startButton.addEventListener("click", async () => {
   startButton.disabled = true;
   try {
+    const preset = taskPresets[$("task-preset").value];
     const task = await api("/api/tasks", {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify({
-        task_type: "navigate_then_pick_place",
-        preset: "table_pick_place_01",
+        task_type: preset.taskType,
+        preset: $("task-preset").value,
         request_text: $("request-text").value,
       }),
     });
@@ -156,6 +171,13 @@ startButton.addEventListener("click", async () => {
     startButton.disabled = false;
     notice.textContent = `创建失败：${error.message}`;
   }
+});
+
+$("task-preset").addEventListener("change", () => {
+  const preset = taskPresets[$("task-preset").value];
+  $("mission-title").textContent = preset.title;
+  $("mission-description").textContent = preset.description;
+  $("request-text").value = preset.text;
 });
 
 stopButton.addEventListener("click", async () => {

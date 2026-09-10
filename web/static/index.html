@@ -62,10 +62,15 @@
 
         <article class="mission-card">
           <p class="section-label">固定演示任务</p>
-          <h2>导航至桌边并执行抓取</h2>
-          <p class="muted">当前为安全 dry-run：页面与 Jetson worker 会完整通信，但不会打开任何机器人硬件。</p>
+          <h2 id="mission-title">原地面霜抓取验证</h2>
+          <p class="muted" id="mission-description">机器人已摆在固定抓取位：不调用底盘或地图。真机执行仍要求现场人员创建单次授权并持有 12 V cutoff。</p>
+          <label for="task-preset">任务模式</label>
+          <select id="task-preset">
+            <option value="local_face_cream_rollout_01">原地面霜抓取验证（旧模型，20 步）</option>
+            <option value="table_pick_place_01">旧版导航至桌边并抓取（当前锁定）</option>
+          </select>
           <label for="request-text">任务说明</label>
-          <textarea id="request-text" rows="3">移动到桌边，拿起面霜并完成局部放置。</textarea>
+          <textarea id="request-text" rows="3">原地使用旧模型尝试抓取固定位置的蓝色面霜罐。</textarea>
           <div class="button-row">
             <button class="primary" id="start">开始任务</button>
             <button class="danger" id="stop" disabled>请求停止</button>

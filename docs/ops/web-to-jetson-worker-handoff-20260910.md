@@ -105,6 +105,18 @@
 - 使用 `jetson-primary` heartbeat，并把日志写到
   `/home/jetsonl7/robot-data/relay-worker/<task-id>/`。
 
+### 原地旧模型链路验证（2026-09-10）
+
+`local_face_cream_rollout_01` 是专门用于演示网页到 Jetson 真机链路的
+固定工作位任务：机器人由现场人员预先放在蓝色面霜罐的已知抓取位置，
+只运行 20 步既有
+`smolvla_fixed_pick_place_1097975_020000` 策略。它不调用 Nav2、底盘、
+地图定位或云台运动；Gemini 仅从已运行的共享 RGB-D broker 读取图像。
+
+它仍然需要 `--hardware-execute` worker 和现场单次 arming lease；程序退出
+不会被标成 `Delivered`，而会进入 `needs_assistance`，等待人确认实际抓取结果。
+此任务用于验证链路，不证明稳定抓取或物体送达。
+
 ### 网页状态
 
 `web/static/app.js` 不再只检查固定的 `jetson-dry-run`，而是显示 Relay 中最近上报的

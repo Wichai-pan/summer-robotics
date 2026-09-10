@@ -32,6 +32,19 @@ def relay_task(**overrides):
     return {"task_id": "a" * 32, "spec": spec}
 
 
+def local_rollout_task(**overrides):
+    spec = {
+        "preset": "local_face_cream_rollout_01",
+        "task_type": "local_pick_place",
+        "goal_x_m": 0.0,
+        "goal_y_m": 0.0,
+        "goal_yaw_deg": 0.0,
+        "act_steps": 20,
+    }
+    spec.update(overrides)
+    return {"task_id": "b" * 32, "spec": spec}
+
+
 def write_arm_file(path: Path, expires_epoch_s: float = 200.0) -> None:
     path.write_text(
         json.dumps(
@@ -72,6 +85,24 @@ def test_local_allowlist_rejects_modified_coordinates() -> None:
         assert "goal_x_m" in str(exc)
     else:
         raise AssertionError("modified relay coordinates were accepted")
+
+
+def test_fixed_workspace_rollout_is_allowlisted_without_base_motion(tmp_path: Path) -> None:
+    preset = MODULE.validate_task(local_rollout_task())
+    assert preset.execution_kind == "fixed_face_cream_rollout"
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "jetson_smolvla_white_rollout.sh").write_text(
+        "#!/usr/bin/env bash\nexit 0\n", encoding="utf-8"
+    )
+    executor = MODULE.HardwarePipelineExecutor(
+        repo_root=tmp_path,
+        arm_file=tmp_path / "arm.json",
+        output_dir=tmp_path / "output",
+    )
+    command = executor.command_for("b" * 32, preset)
+    assert command[-3:] == ["--execute", "--steps", "20"]
+    assert "nav" not in " ".join(command)
 
 
 def test_unrevalidated_production_preset_is_motion_locked(tmp_path: Path) -> None:
