@@ -30,10 +30,13 @@ done
   echo "--duration-s must be between 60 and 3600" >&2
   exit 2
 }
-[[ "$preset" == "table_pick_place_01" ]] || {
-  echo "preset is not allow-listed on this Jetson: $preset" >&2
-  exit 2
-}
+case "$preset" in
+  table_pick_place_01|local_face_cream_rollout_01) ;;
+  *)
+    echo "preset is not allow-listed on this Jetson: $preset" >&2
+    exit 2
+    ;;
+esac
 
 echo "This authorizes ONE web-triggered $preset hardware task for $duration_s seconds."
 echo "Keep the 12 V cutoff attended; clear the base route, arm workspace and cables."

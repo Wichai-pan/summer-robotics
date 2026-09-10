@@ -117,6 +117,23 @@
 不会被标成 `Delivered`，而会进入 `needs_assistance`，等待人确认实际抓取结果。
 此任务用于验证链路，不证明稳定抓取或物体送达。
 
+现场人员准备就绪后，先停止默认 dry-run worker，再在一个终端运行：
+
+```bash
+cd /home/jetsonl7/robot-data/services/forestbridge-relay-worker
+bash scripts/jetson_forestbridge_robot_worker.sh --hardware-execute
+```
+
+在另一个现场终端创建 10 分钟的一次性授权：
+
+```bash
+cd /home/jetsonl7/robot-data/services/forestbridge-relay-worker
+bash scripts/jetson_arm_relay_worker.sh \
+  --preset local_face_cream_rollout_01 --duration-s 600
+```
+
+输入 `ARM_WEB_DEMO` 后，才从网页选择“原地面霜抓取验证”并点击开始。
+
 ### 网页状态
 
 `web/static/app.js` 不再只检查固定的 `jetson-dry-run`，而是显示 Relay 中最近上报的
