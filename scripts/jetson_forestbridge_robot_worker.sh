@@ -36,7 +36,6 @@ fi
 
 exec python3 "$repo_root/tools/forestbridge_robot_worker.py" \
   --relay "${FORESTBRIDGE_RELAY_URL:-https://robot.wichai.xyz}" \
-  --token "$FORESTBRIDGE_ROBOT_TOKEN" \
   --robot-id jetson-primary \
   --output-root "${FORESTBRIDGE_DATA_ROOT:-/home/jetsonl7/robot-data}/relay-worker" \
   --repo-root "$repo_root" \

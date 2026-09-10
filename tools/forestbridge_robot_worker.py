@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -53,7 +54,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", type=Path, default=Path("/tmp/forestbridge-worker"))
     parser.add_argument("--poll-s", type=float, default=1.0)
     parser.add_argument("--state-delay-s", type=float, default=0.7)
-    parser.add_argument("--token", default="")
+    parser.add_argument(
+        "--token",
+        default=os.environ.get("FORESTBRIDGE_ROBOT_TOKEN", ""),
+        help="robot API token; defaults to FORESTBRIDGE_ROBOT_TOKEN",
+    )
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--mode", choices=("dry-run", "hardware"), default="dry-run")
     parser.add_argument(
