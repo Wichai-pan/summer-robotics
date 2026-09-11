@@ -13,6 +13,19 @@
 
 ## Current Focus
 
+- September 11 small-cup segment training: the Jetson's finalized paired
+  datasets were copied to the isolated Roihu SmolVLA root after matching their
+  `meta/info.json` SHA256 values. `small_measuring_cup_pick_workspace10cm_v1`
+  contains 60 episodes / 19,710 frames; episodes 0–53 (17,916 frames) train
+  job `1270255` and 54–59 are held out. The initial log reached step 100 with
+  stable ~7.9 GiB GPU memory and no dataset/model error. The independent
+  `small_measuring_cup_place_workspace10cm_v1` contains 53 episodes / 20,383
+  frames; episodes 0–47 train job `1270256` after job 1270255 ends, while
+  48–52 are held out. Both use pretrained SmolVLA, 20,000 steps, batch 32,
+  seed 42 and 4,000-step checkpoint saves. These are separate fixed-workspace
+  policies, not an end-to-end holding/navigation model; quarantined Jetson
+  data was excluded. Monitor `/scratch/project_2016517/panh/summer-robotics-smolvla/logs/fb-smolvla-cup-{pick,place}_<jobid>.out`.
+
 - September 10 Git closeout: the web-to-Jetson task adapter, persistent Gemini
   broker, guarded/offline SmolVLA Jetson rollout and their handoff documents are
   now separated into reviewable commits on `origin/smolvla-longrun`. The local
