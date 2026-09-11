@@ -20,7 +20,7 @@ const taskPresets = {
   local_face_cream_rollout_01: {
     taskType: "local_pick_place",
     title: "原地面霜抓取验证",
-    description: "机器人已摆在固定抓取位：不调用底盘或地图。真机执行仍要求现场人员创建单次授权并持有 12 V cutoff。",
+    description: "机器人已摆在固定抓取位：不调用底盘或地图。任务会先低速回到保存起始位，再执行完整 600 步旧模型 rollout；真机执行仍要求现场一次性授权并持有 12 V cutoff。",
     text: "原地使用旧模型尝试抓取固定位置的蓝色面霜罐。",
   },
   table_pick_place_01: {

@@ -68,7 +68,9 @@ LOCAL_PRESETS = {
         goal_x_m=0.0,
         goal_y_m=0.0,
         goal_yaw_deg=0.0,
-        act_steps=20,
+        # A 20-step run is only one second at the policy control rate and is
+        # useful for wiring checks, not for the recorded pick/place skill.
+        act_steps=600,
         execution_kind="fixed_face_cream_rollout",
         hardware_enabled=True,
         disabled_reason="",
@@ -77,6 +79,8 @@ LOCAL_PRESETS = {
 
 
 STAGE_MARKERS = (
+    ("=== 1/2 RETURN WHITE ARM TO FOLDED START POSE ===", TaskState.PRECHECK),
+    ("=== 2/2 RUN FIXED-WORKSPACE SMOLVLA PICK/PLACE ===", TaskState.GRASPING),
     ("=== 1/5 RETURN WHITE ARM", TaskState.PRECHECK),
     ("=== 2/5 RETURN GEMINI", TaskState.SET_MAPPING_CAMERA),
     ("=== 3/5 NAVIGATE", TaskState.LOCALIZING),
@@ -167,7 +171,7 @@ class HardwarePipelineExecutor:
 
     def command_for(self, task_id: str, preset: LocalPreset) -> list[str]:
         if preset.execution_kind == "fixed_face_cream_rollout":
-            rollout = self.repo_root / "scripts" / "jetson_smolvla_white_rollout.sh"
+            rollout = self.repo_root / "scripts" / "jetson_web_face_cream_rollout.sh"
             if not rollout.is_file():
                 raise HardwareTaskError(f"verified local rollout is missing: {rollout}")
             return ["bash", str(rollout), "--execute", "--steps", str(preset.act_steps)]
@@ -250,18 +254,6 @@ class HardwarePipelineExecutor:
             outcome=Outcome.SUCCESS.value,
             reason="relay spec and one-shot onsite arming lease validated",
         )
-        if preset.execution_kind == "fixed_face_cream_rollout":
-            writer.emit(
-                TaskState.SET_GRASP_CAMERA,
-                "state_started",
-                source="fixed-workspace local rollout",
-            )
-            writer.emit(
-                TaskState.GRASPING,
-                "state_started",
-                source="fixed-workspace local rollout",
-            )
-
         master_fd, slave_fd = pty.openpty()
         environment = os.environ.copy()
         environment["FORESTBRIDGE_DEMO_ARMED"] = "1"

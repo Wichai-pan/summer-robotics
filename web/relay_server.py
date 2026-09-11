@@ -43,7 +43,7 @@ TASK_PRESETS = {
         "goal_x_m": 0.0,
         "goal_y_m": 0.0,
         "goal_yaw_deg": 0.0,
-        "act_steps": 20,
+        "act_steps": 600,
     },
 }
 
