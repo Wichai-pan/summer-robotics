@@ -24,6 +24,14 @@
   `docs/ops/web-small-cup-full-cycle-20260911.md`. Deploy only to the separate
   worker clone; do not disturb the teammates' dirty deployment worktree.
 
+  Deployment was completed after the reviewed `8250fde` commit: Frankfurt
+  Relay was rebuilt from a timestamped server-local backup and passed its
+  container health check plus public HTTPS GET; the clean Jetson relay-worker
+  clone now runs `codex/web-task-framework@8250fde` in hardware-capable
+  standby. It has no active child pipeline. The first no-motion web test is
+  `small_cup_system_prepare_01`; the one-shot onsite motion lease deliberately
+  remains required before `small_cup_full_cycle_01` can command hardware.
+
 - September 11 small-cup segment training: the Jetson's finalized paired
   datasets were copied to the isolated Roihu SmolVLA root after matching their
   `meta/info.json` SHA256 values. `small_measuring_cup_pick_workspace10cm_v1`
