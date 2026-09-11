@@ -45,6 +45,13 @@ TASK_PRESETS = {
         "goal_yaw_deg": 0.0,
         "act_steps": 600,
     },
+    "local_small_cup_pick_01": {
+        "task_type": "local_pick_place",
+        "goal_x_m": 0.0,
+        "goal_y_m": 0.0,
+        "goal_yaw_deg": 0.0,
+        "act_steps": 500,
+    },
 }
 
 

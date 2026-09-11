@@ -75,6 +75,20 @@ LOCAL_PRESETS = {
         hardware_enabled=True,
         disabled_reason="",
     ),
+    "local_small_cup_pick_01": LocalPreset(
+        name="local_small_cup_pick_01",
+        task_type="local_pick_place",
+        # Like the face-cream preset, this fixed-workspace skill never
+        # commands the base.  The zeroes are only Relay schema fields.
+        map_database="",
+        goal_x_m=0.0,
+        goal_y_m=0.0,
+        goal_yaw_deg=0.0,
+        act_steps=500,
+        execution_kind="fixed_small_cup_act_pick",
+        hardware_enabled=True,
+        disabled_reason="",
+    ),
 }
 
 
@@ -172,6 +186,11 @@ class HardwarePipelineExecutor:
     def command_for(self, task_id: str, preset: LocalPreset) -> list[str]:
         if preset.execution_kind == "fixed_face_cream_rollout":
             rollout = self.repo_root / "scripts" / "jetson_web_face_cream_rollout.sh"
+            if not rollout.is_file():
+                raise HardwareTaskError(f"verified local rollout is missing: {rollout}")
+            return ["bash", str(rollout), "--execute", "--steps", str(preset.act_steps)]
+        if preset.execution_kind == "fixed_small_cup_act_pick":
+            rollout = self.repo_root / "scripts" / "jetson_web_small_cup_pick.sh"
             if not rollout.is_file():
                 raise HardwareTaskError(f"verified local rollout is missing: {rollout}")
             return ["bash", str(rollout), "--execute", "--steps", str(preset.act_steps)]

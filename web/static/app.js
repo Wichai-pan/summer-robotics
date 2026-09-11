@@ -23,6 +23,12 @@ const taskPresets = {
     description: "机器人已摆在固定抓取位：不调用底盘或地图。任务会先低速回到保存起始位，再执行完整 600 步旧模型 rollout；真机执行仍要求现场一次性授权并持有 12 V cutoff。",
     text: "原地使用旧模型尝试抓取固定位置的蓝色面霜罐。",
   },
+  local_small_cup_pick_01: {
+    taskType: "local_pick_place",
+    title: "原地红色小烧杯抓取",
+    description: "使用队友在 60 条固定 10 cm 工作区示教上训练的 ACT Pick 策略。请只放置红色小烧杯于该训练工作位；任务会自动回到该数据集的 v2 起始姿态。",
+    text: "原地抓取固定工作位的红色小烧杯，轻微回撤并保持夹持。",
+  },
   table_pick_place_01: {
     taskType: "navigate_then_pick_place",
     title: "导航至桌边并执行抓取",

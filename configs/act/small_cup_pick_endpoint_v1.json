@@ -1,0 +1,15 @@
+{
+  "schema": "forestbridge/act_endpoint_pose/v1",
+  "purpose": "Stop the red small-cup Pick policy at its demonstrated retract-and-hold endpoint",
+  "source_dataset": "small_measuring_cup_pick_workspace10cm_v1",
+  "source_episodes": 60,
+  "minimum_step": 240,
+  "confirmation_s": 0.4,
+  "ranges": {
+    "shoulder_pan": [-13.0, 1.0],
+    "shoulder_lift": [-27.0, -13.0],
+    "elbow_flex": [8.0, 42.0],
+    "wrist_flex": [-102.0, -93.0],
+    "gripper": [5.0, 26.0]
+  }
+}
