@@ -33,6 +33,6 @@ echo "=== 1/2 RETURN WHITE ARM TO FOLDED START POSE ==="
     --execute
 
 echo "=== 2/2 RUN FIXED-WORKSPACE SMOLVLA PICK/PLACE ==="
-"$repo_root/scripts/jetson_smolvla_white_rollout.sh" \
+bash "$repo_root/scripts/jetson_smolvla_white_rollout.sh" \
   --execute \
   --steps "$steps"
