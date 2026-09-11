@@ -1,7 +1,7 @@
 const states = [
   "queued", "assigned", "precheck", "set_mapping_camera", "localizing",
   "planning", "navigating", "verifying_dock", "set_grasp_camera",
-  "grasping", "verifying_result", "complete"
+  "grasping", "holding", "placing", "verifying_result", "complete"
 ];
 const terminal = ForestBridgeTasks.terminal;
 let activeTaskId = localStorage.getItem((ForestBridgeTasks.simulation ? "forestbridge.simulationTaskId" : "forestbridge.activeTaskId"));
@@ -17,6 +17,18 @@ let monitorEnabled = false;
 let lastFrameTimestamp = "";
 let frameObjectUrl = "";
 const taskPresets = {
+  small_cup_system_prepare_01: {
+    taskType: "system_prepare",
+    title: "准备小烧杯系统",
+    description: "启动或复用白板与 Gemini RGB-D Broker，不移动机械臂或底盘。首次开机、或 Broker 未运行时先执行一次。",
+    text: "准备小烧杯搬运流程需要的固定系统服务。",
+  },
+  small_cup_full_cycle_01: {
+    taskType: "carry_delivery",
+    title: "小烧杯完整循环",
+    description: "固定闭环：抓取红色小烧杯 → 桌边到沙发 → 沙发回桌边 → 放下。只执行队友已封装的固定脚本；开始前现场须清场、急停可用并完成一次性授权。",
+    text: "执行已验证的小烧杯抓取、携带导航返回与放下完整循环。",
+  },
   local_face_cream_rollout_01: {
     taskType: "local_pick_place",
     title: "原地面霜抓取验证",

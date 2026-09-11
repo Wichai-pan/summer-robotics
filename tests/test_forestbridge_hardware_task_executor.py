@@ -45,13 +45,17 @@ def local_rollout_task(**overrides):
     return {"task_id": "b" * 32, "spec": spec}
 
 
-def write_arm_file(path: Path, expires_epoch_s: float = 200.0) -> None:
+def write_arm_file(
+    path: Path,
+    expires_epoch_s: float = 200.0,
+    preset: str = "table_pick_place_01",
+) -> None:
     path.write_text(
         json.dumps(
             {
                 "schema": MODULE.ARM_SCHEMA,
                 "token": MODULE.ARM_TOKEN,
-                "preset": "table_pick_place_01",
+                "preset": preset,
                 "expires_epoch_s": expires_epoch_s,
             }
         ),
@@ -73,6 +77,19 @@ def enable_test_preset():
         original, hardware_enabled=True, disabled_reason=""
     )
     return original
+
+
+def full_cycle_task(**overrides):
+    spec = {
+        "preset": "small_cup_full_cycle_01",
+        "task_type": "carry_delivery",
+        "goal_x_m": 0.0,
+        "goal_y_m": 0.0,
+        "goal_yaw_deg": 0.0,
+        "act_steps": 500,
+    }
+    spec.update(overrides)
+    return {"task_id": "c" * 32, "spec": spec}
 
 
 def test_local_allowlist_rejects_modified_coordinates() -> None:
@@ -103,6 +120,13 @@ def test_fixed_workspace_rollout_is_allowlisted_without_base_motion(tmp_path: Pa
     command = executor.command_for("b" * 32, preset)
     assert command[-3:] == ["--execute", "--steps", "20"]
     assert "nav" not in " ".join(command)
+
+
+def test_small_cup_full_cycle_is_fixed_deploy_script_and_requires_matching_lease(tmp_path: Path) -> None:
+    preset = MODULE.validate_task(full_cycle_task())
+    assert preset.execution_kind == "small_cup_full_cycle"
+    assert preset.requires_arm_lease is True
+    assert preset.execution_timeout_s == 900.0
 
 
 def test_unrevalidated_production_preset_is_motion_locked(tmp_path: Path) -> None:

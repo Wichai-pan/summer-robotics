@@ -31,7 +31,7 @@ done
   exit 2
 }
 case "$preset" in
-  table_pick_place_01|local_face_cream_rollout_01|local_small_cup_pick_01) ;;
+  table_pick_place_01|local_face_cream_rollout_01|local_small_cup_pick_01|small_cup_full_cycle_01) ;;
   *)
     echo "preset is not allow-listed on this Jetson: $preset" >&2
     exit 2

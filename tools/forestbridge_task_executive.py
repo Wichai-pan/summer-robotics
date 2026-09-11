@@ -35,6 +35,8 @@ class TaskState(str, Enum):
     VERIFYING_DOCK = "verifying_dock"
     SET_GRASP_CAMERA = "set_grasp_camera"
     GRASPING = "grasping"
+    HOLDING = "holding"
+    PLACING = "placing"
     VERIFYING_RESULT = "verifying_result"
     COMPLETE = "complete"
     FAILED = "failed"
@@ -68,6 +70,18 @@ LOCAL_MANIPULATION_WORKFLOW = (
 def workflow_for(task_type: str) -> tuple[TaskState, ...]:
     if task_type == "local_pick_place":
         return LOCAL_MANIPULATION_WORKFLOW
+    if task_type == "system_prepare":
+        return (TaskState.PRECHECK,)
+    if task_type == "carry_delivery":
+        return (
+            TaskState.PRECHECK,
+            TaskState.SET_GRASP_CAMERA,
+            TaskState.GRASPING,
+            TaskState.HOLDING,
+            TaskState.NAVIGATING,
+            TaskState.PLACING,
+            TaskState.VERIFYING_RESULT,
+        )
     return WORKFLOW
 
 # Retries are intentionally finite.  A future hardware adapter may add a

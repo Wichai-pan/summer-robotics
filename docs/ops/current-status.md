@@ -13,6 +13,17 @@
 
 ## Current Focus
 
+- September 11 web full-cycle integration (pending deployment): branch
+  `codex/web-task-framework` adds two fixed web presets:
+  `small_cup_system_prepare_01` starts/reuses the white-board and Gemini
+  brokers without motion; `small_cup_full_cycle_01` delegates exclusively to
+  the teammate's deployed Pick → table-to-sofa → sofa-to-table → Place script.
+  The worker has a second Jetson-local allowlist, fixed argv, a 900-second
+  local timeout and Relay Stop support. The final script exit means program
+  completion only, not independently verified holding/delivery. See
+  `docs/ops/web-small-cup-full-cycle-20260911.md`. Deploy only to the separate
+  worker clone; do not disturb the teammates' dirty deployment worktree.
+
 - September 11 small-cup segment training: the Jetson's finalized paired
   datasets were copied to the isolated Roihu SmolVLA root after matching their
   `meta/info.json` SHA256 values. `small_measuring_cup_pick_workspace10cm_v1`

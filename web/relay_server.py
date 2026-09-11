@@ -29,7 +29,7 @@ MONITOR_SOURCES = {"auto", "gemini", "wrist_white", "wrist_black"}
 FRAME_SOURCES = {"gemini", "wrist_white", "wrist_black"}
 FRAME_OWNERS = {"monitor", "task"}
 TASK_FRAME_LEASE_S = 5
-ALLOWED_TASK_TYPES = {"navigate_then_pick_place", "local_pick_place"}
+ALLOWED_TASK_TYPES = {"navigate_then_pick_place", "local_pick_place", "system_prepare", "carry_delivery"}
 TASK_PRESETS = {
     "table_pick_place_01": {
         "task_type": "navigate_then_pick_place",
@@ -47,6 +47,22 @@ TASK_PRESETS = {
     },
     "local_small_cup_pick_01": {
         "task_type": "local_pick_place",
+        "goal_x_m": 0.0,
+        "goal_y_m": 0.0,
+        "goal_yaw_deg": 0.0,
+        "act_steps": 500,
+    },
+    # These two presets are intentionally fixed.  The public relay carries no
+    # route, pose, motor, container, or shell parameters from the browser.
+    "small_cup_system_prepare_01": {
+        "task_type": "system_prepare",
+        "goal_x_m": 0.0,
+        "goal_y_m": 0.0,
+        "goal_yaw_deg": 0.0,
+        "act_steps": 0,
+    },
+    "small_cup_full_cycle_01": {
+        "task_type": "carry_delivery",
         "goal_x_m": 0.0,
         "goal_y_m": 0.0,
         "goal_yaw_deg": 0.0,

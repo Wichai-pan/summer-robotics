@@ -25,6 +25,7 @@ from forestbridge_task_executive import EventWriter, Outcome, TaskState
 
 ARM_SCHEMA = "forestbridge/web-motion-arm/v1"
 ARM_TOKEN = "FORESTBRIDGE_WEB_DEMO_ARMED"
+DEPLOYMENT_ROOT = Path("/home/jetsonl7/summer-robotics-deploy")
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,8 @@ class LocalPreset:
     max_tracked_travel_m: float = 1.35
     execution_kind: str = "nav_then_act"
     hardware_enabled: bool = False
+    requires_arm_lease: bool = True
+    execution_timeout_s: float = 240.0
     disabled_reason: str = ""
 
 
@@ -89,6 +92,31 @@ LOCAL_PRESETS = {
         hardware_enabled=True,
         disabled_reason="",
     ),
+    "small_cup_system_prepare_01": LocalPreset(
+        name="small_cup_system_prepare_01",
+        task_type="system_prepare",
+        map_database="",
+        goal_x_m=0.0,
+        goal_y_m=0.0,
+        goal_yaw_deg=0.0,
+        act_steps=0,
+        execution_kind="small_cup_system_prepare",
+        hardware_enabled=True,
+        requires_arm_lease=False,
+        execution_timeout_s=90.0,
+    ),
+    "small_cup_full_cycle_01": LocalPreset(
+        name="small_cup_full_cycle_01",
+        task_type="carry_delivery",
+        map_database="",
+        goal_x_m=0.0,
+        goal_y_m=0.0,
+        goal_yaw_deg=0.0,
+        act_steps=500,
+        execution_kind="small_cup_full_cycle",
+        hardware_enabled=True,
+        execution_timeout_s=900.0,
+    ),
 }
 
 
@@ -102,6 +130,14 @@ STAGE_MARKERS = (
     ("AUTO_PIPELINE armed; MOVE", TaskState.NAVIGATING),
     ("=== 4/5 RETURN GEMINI", TaskState.SET_GRASP_CAMERA),
     ("=== 5/5 RUN SUPERVISED ACT", TaskState.GRASPING),
+    ("[1/4] Prepare Gemini, Pick", TaskState.PRECHECK),
+    ("SMALL_CUP_PICK_READY", TaskState.HOLDING),
+    ("[2/4] Set Gemini navigation pose and move table -> sofa", TaskState.NAVIGATING),
+    ("SMALL_CUP_AT_SOFA", TaskState.HOLDING),
+    ("[3/4] Set Gemini navigation pose and move sofa -> table", TaskState.NAVIGATING),
+    ("SMALL_CUP_AT_TABLE", TaskState.HOLDING),
+    ("[4/4] Set Gemini place pose and run Place", TaskState.PLACING),
+    ("SMALL_CUP_PLACE_COMPLETE", TaskState.VERIFYING_RESULT),
 )
 
 
@@ -184,6 +220,17 @@ class HardwarePipelineExecutor:
         self.timeout_s = timeout_s
 
     def command_for(self, task_id: str, preset: LocalPreset) -> list[str]:
+        del task_id
+        if preset.execution_kind == "small_cup_system_prepare":
+            script = DEPLOYMENT_ROOT / "scripts" / "jetson_small_cup_system_prepare.sh"
+            if not script.is_file():
+                raise HardwareTaskError(f"deployed preparation script is missing: {script}")
+            return ["bash", str(script)]
+        if preset.execution_kind == "small_cup_full_cycle":
+            script = DEPLOYMENT_ROOT / "scripts" / "jetson_small_cup_full_cycle.sh"
+            if not script.is_file():
+                raise HardwareTaskError(f"deployed full-cycle script is missing: {script}")
+            return ["bash", str(script)]
         if preset.execution_kind == "fixed_face_cream_rollout":
             rollout = self.repo_root / "scripts" / "jetson_web_face_cream_rollout.sh"
             if not rollout.is_file():
@@ -199,7 +246,7 @@ class HardwarePipelineExecutor:
         pipeline = self.repo_root / "scripts" / "jetson_nav_then_act_pick_place.sh"
         if not pipeline.is_file():
             raise HardwareTaskError(f"verified pipeline is missing: {pipeline}")
-        safe_task_id = "".join(ch for ch in task_id if ch.isalnum())[:12] or "unknown"
+        safe_task_id = "unknown"
         return [
             "bash",
             str(pipeline),
@@ -223,6 +270,11 @@ class HardwarePipelineExecutor:
             "--label",
             f"relay_{safe_task_id}",
         ]
+
+    def working_directory_for(self, preset: LocalPreset) -> Path:
+        if preset.execution_kind in {"small_cup_system_prepare", "small_cup_full_cycle"}:
+            return DEPLOYMENT_ROOT
+        return self.repo_root
 
     def _interrupt(self, process: subprocess.Popen[bytes]) -> bool:
         if process.poll() is not None:
@@ -255,7 +307,8 @@ class HardwarePipelineExecutor:
                     + (preset.disabled_reason or "onsite validation is incomplete")
                 )
             command = self.command_for(task_id, preset)
-            consume_arm_lease(self.arm_file, preset.name)
+            if preset.requires_arm_lease:
+                consume_arm_lease(self.arm_file, preset.name)
         except HardwareTaskError as exc:
             writer.emit(
                 TaskState.FAILED,
@@ -271,7 +324,11 @@ class HardwarePipelineExecutor:
             TaskState.PRECHECK,
             "state_finished",
             outcome=Outcome.SUCCESS.value,
-            reason="relay spec and one-shot onsite arming lease validated",
+            reason=(
+                "relay spec and one-shot onsite arming lease validated"
+                if preset.requires_arm_lease
+                else "relay spec validated; this fixed preparation task does not command motion"
+            ),
         )
         master_fd, slave_fd = pty.openpty()
         environment = os.environ.copy()
@@ -279,7 +336,7 @@ class HardwarePipelineExecutor:
         try:
             process = subprocess.Popen(
                 command,
-                cwd=self.repo_root,
+                cwd=self.working_directory_for(preset),
                 env=environment,
                 stdin=slave_fd,
                 stdout=slave_fd,
@@ -326,13 +383,18 @@ class HardwarePipelineExecutor:
                             )
                             raise HardwareTaskError("hardware task did not stop cleanly")
                         break
-                    if time.monotonic() - started_s > self.timeout_s:
+                    # Each allow-listed preset owns its wall-clock limit.  The
+                    # relay never supplies it, so a full carry cycle can have
+                    # a realistic limit without changing a short rollout's
+                    # 240-second failure boundary.
+                    timeout_s = preset.execution_timeout_s
+                    if time.monotonic() - started_s > timeout_s:
                         timed_out = True
                         writer.emit(
                             TaskState.FAILED,
                             "task_timeout",
                             failed_state=(current_state or TaskState.PRECHECK).value,
-                            reason=f"integrated pipeline exceeded {self.timeout_s:.1f} s",
+                            reason=f"integrated pipeline exceeded {timeout_s:.1f} s",
                         )
                         if not self._interrupt(process):
                             writer.emit(
@@ -393,6 +455,26 @@ class HardwarePipelineExecutor:
             return TaskState.FAILED
 
         writer.emit(TaskState.VERIFYING_RESULT, "state_started")
+        if preset.execution_kind == "small_cup_system_prepare":
+            writer.emit(
+                TaskState.COMPLETE,
+                "task_completed",
+                reason="small-cup system brokers reported ready",
+                program_completed=True,
+            )
+            return TaskState.COMPLETE
+        if preset.execution_kind == "small_cup_full_cycle":
+            writer.emit(
+                TaskState.COMPLETE,
+                "task_completed",
+                reason=(
+                    "small-cup pick/carry/return/place script completed; "
+                    "confirm the final cup position from the onsite view"
+                ),
+                program_completed=True,
+                requires_operator_confirmation=True,
+            )
+            return TaskState.COMPLETE
         writer.emit(
             TaskState.NEEDS_ASSISTANCE,
             "task_needs_assistance",

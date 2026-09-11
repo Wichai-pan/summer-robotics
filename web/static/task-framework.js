@@ -6,6 +6,8 @@
   const presets = {
     local_small_cup_pick_01: {type: 'local_pick_place', title: '拿起红色小烧杯', live: true, stages: ['precheck', 'grasping', 'verifying_result', 'complete']},
     local_face_cream_rollout_01: {type: 'local_pick_place', title: '原地面霜演示', live: true, stages: ['precheck', 'grasping', 'verifying_result', 'complete']},
+    small_cup_system_prepare_01: {type: 'system_prepare', title: '准备小烧杯系统', live: true, stages: ['precheck', 'complete']},
+    small_cup_full_cycle_01: {type: 'carry_delivery', title: '小烧杯完整循环', live: true, stages: ['precheck', 'grasping', 'holding', 'navigating', 'placing', 'verifying_result', 'complete']},
     bring_medicine_demo_01: {type: 'deliver_object', title: 'Bring medicine to me', live: false, stages: delivery},
     table_pick_place_01: {type: 'navigate_then_pick_place', title: '旧地图导航（锁定）', live: false, stages: delivery}
   };
