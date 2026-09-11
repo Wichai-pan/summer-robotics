@@ -1,0 +1,12 @@
+{
+  "timezone": "Europe/Helsinki",
+  "reminders": [
+    {
+      "id": "helsinki-medication-20260908-1219",
+      "enabled": false,
+      "time": "12:19",
+      "title": "该吃药了",
+      "detail": "赫尔辛基时间 12:19 用药提醒"
+    }
+  ]
+}

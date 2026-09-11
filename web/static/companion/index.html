@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#000000" />
+    <title>ForestBridge Pixel Companion</title>
+    <meta name="description" content="ForestBridge landscape pixel companion face" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <section class="auth-gate" id="auth-gate" hidden>
+      <form class="auth-card" id="auth-form">
+        <p class="auth-label">FORESTBRIDGE</p>
+        <h1>连接机器人</h1>
+        <p>输入访问码后，轻触屏幕允许麦克风。</p>
+        <label for="ui-token">访问码</label>
+        <input id="ui-token" type="password" autocomplete="current-password" required />
+        <button type="submit">进入陪伴模式</button>
+        <small id="auth-notice">等待访问码</small>
+      </form>
+    </section>
+
+    <section
+      class="medication-reminder"
+      id="medication-reminder"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="medication-title"
+      hidden
+    >
+      <div class="medication-card">
+        <div class="pixel-pill" aria-hidden="true"><i></i><i></i></div>
+        <p class="medication-label">MEDICATION REMINDER</p>
+        <h1 id="medication-title">该吃药了</h1>
+        <p id="medication-detail">请按照护理计划服药</p>
+        <button id="bring-medicine" type="button">Bring it to me</button>
+        <small>点击后，机器人会把药送过来</small>
+      </div>
+    </section>
+
+    <main
+      class="companion-screen"
+      id="companion-screen"
+      data-expression="smile"
+      tabindex="0"
+      role="application"
+      aria-label="ForestBridge 机器人陪伴表情屏"
+    >
+      <div class="pixel-noise" aria-hidden="true"></div>
+      <div class="ambient-glow" aria-hidden="true"></div>
+      <div class="listening-ring listening-ring-one" aria-hidden="true"></div>
+      <div class="listening-ring listening-ring-two" aria-hidden="true"></div>
+
+      <div class="pixel-face" aria-hidden="true">
+        <div class="pixel-eyes">
+          <div class="pixel-eye pixel-eye-left"><span class="pixel-pupil"></span></div>
+          <div class="pixel-eye pixel-eye-right"><span class="pixel-pupil"></span></div>
+        </div>
+
+        <div class="pixel-mouth">
+          <i></i><i></i><i></i>
+        </div>
+
+        <div class="pixel-tear"></div>
+        <div class="pixel-sweat"></div>
+      </div>
+
+      <div class="expression-symbol" id="expression-symbol" aria-hidden="true"></div>
+      <div class="speech-waves" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <p class="companion-caption" id="companion-caption" aria-live="polite"></p>
+      <p class="activation-hint" id="activation-hint">轻触屏幕 · 开启语音陪伴</p>
+      <span class="connection-dot" id="connection-dot" aria-label="机器人连接状态"></span>
+    </main>
+
+    <aside class="rotate-device" aria-label="请横屏放置手机">
+      <div class="rotate-icon" aria-hidden="true"></div>
+      <strong>请横屏放置</strong>
+    </aside>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>
