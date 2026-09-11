@@ -8,7 +8,7 @@ const nativeRelayExpected = navigator.userAgent.includes("ForestBridgeAndroid");
 const pendingNativeRelayRequests = new Map();
 
 let uiToken = sessionStorage.getItem("forestbridge.uiToken") || "";
-let activeTaskId = localStorage.getItem("forestbridge.activeTaskId") || "";
+let activeTaskId = localStorage.getItem((ForestBridgeTasks.simulation ? "forestbridge.simulationTaskId" : "forestbridge.activeTaskId")) || "";
 let currentTask = null;
 let robotOnline = false;
 let robotReady = false;
@@ -27,7 +27,7 @@ let initialStateLoaded = false;
 let restartTimer = null;
 let reminderConfiguration = { timezone: "Asia/Shanghai", reminders: [] };
 let activeMedicationReminder = null;
-let medicationTaskId = localStorage.getItem("forestbridge.medicationTaskId") || "";
+let medicationTaskId = localStorage.getItem((ForestBridgeTasks.simulation ? "forestbridge.simulationMedicationTaskId" : "forestbridge.medicationTaskId")) || "";
 let medicationFlowActive = false;
 let medicationDemoStarted = false;
 let nativeCallActive = false;
@@ -119,6 +119,7 @@ function rotateIdleExpression() {
 }
 
 function speak(message, onComplete) {
+  if (ForestBridgeTasks.simulation) message = "模拟演练。" + message;
   if (!("speechSynthesis" in window)) {
     if (onComplete) onComplete();
     return;
@@ -206,6 +207,10 @@ function nativeRelayRequest(operation, payload = {}) {
 }
 
 async function api(path, options = {}) {
+  return ForestBridgeTasks.route(path, options, liveApi);
+}
+
+async function liveApi(path, options = {}) {
   const method = String(options.method || "GET").toUpperCase();
   const nativeRelay = getNativeRelay();
   if (nativeRelay) {
@@ -298,7 +303,7 @@ function showMedicationReminder(reminder) {
 }
 
 function checkMedicationReminders() {
-  if (medicationDemoMode || medicationFlowActive || !medicationReminder.hidden) return;
+  if (ForestBridgeTasks.simulation || medicationDemoMode || medicationFlowActive || !medicationReminder.hidden) return;
   const zone = reminderConfiguration.timezone || "Asia/Shanghai";
   const now = timePartsInZone(zone);
 
@@ -349,18 +354,15 @@ async function bringMedicine() {
   showTemporaryExpression("working", "正在给主人拿药", 60 * 60 * 1000);
   speak("好的，我去给主人拿药");
 
-  if (medicationDemoMode) {
-    window.setTimeout(finishMedicationDemo, 6500);
-    return;
-  }
+  // Offline demonstrations now use the same task lifecycle as real requests.
 
   try {
     const task = await api("/api/tasks", {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify({
-        task_type: "navigate_then_pick_place",
-        preset: "table_pick_place_01",
+        task_type: "deliver_object",
+        preset: "bring_medicine_demo_01",
         request_text: activeMedicationReminder.title || "定时用药配送任务"
       })
     });
@@ -369,8 +371,8 @@ async function bringMedicine() {
     initialStateLoaded = true;
     medicationTaskId = task.task_id;
     activeTaskId = task.task_id;
-    localStorage.setItem("forestbridge.medicationTaskId", medicationTaskId);
-    localStorage.setItem("forestbridge.activeTaskId", activeTaskId);
+    localStorage.setItem((ForestBridgeTasks.simulation ? "forestbridge.simulationMedicationTaskId" : "forestbridge.medicationTaskId"), medicationTaskId);
+    localStorage.setItem((ForestBridgeTasks.simulation ? "forestbridge.simulationTaskId" : "forestbridge.activeTaskId"), activeTaskId);
   } catch (_) {
     medicationFlowActive = false;
     temporaryExpression = null;
@@ -409,8 +411,8 @@ async function createDemoTask() {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify({
-        task_type: "navigate_then_pick_place",
-        preset: "table_pick_place_01",
+        task_type: "deliver_object",
+        preset: "bring_medicine_demo_01",
         request_text: "语音发起的演示任务"
       })
     });
@@ -418,7 +420,7 @@ async function createDemoTask() {
     lastTaskState = String(task.status || "") + ":" + taskState(task);
     initialStateLoaded = true;
     activeTaskId = task.task_id;
-    localStorage.setItem("forestbridge.activeTaskId", activeTaskId);
+    localStorage.setItem((ForestBridgeTasks.simulation ? "forestbridge.simulationTaskId" : "forestbridge.activeTaskId"), activeTaskId);
     setExpression("working", "这就去办");
     speak("好的，这就去办");
   } catch (_) {
@@ -439,8 +441,8 @@ async function createCupMockTask() {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify({
-        task_type: "navigate_then_pick_place",
-        preset: "table_pick_place_01",
+        task_type: "local_pick_place",
+        preset: "local_small_cup_pick_01",
         request_text: "点击屏幕：拿桌上的量杯"
       })
     });
@@ -449,7 +451,7 @@ async function createCupMockTask() {
     initialStateLoaded = true;
     cupMockTaskId = task.task_id;
     activeTaskId = task.task_id;
-    localStorage.setItem("forestbridge.activeTaskId", activeTaskId);
+    localStorage.setItem((ForestBridgeTasks.simulation ? "forestbridge.simulationTaskId" : "forestbridge.activeTaskId"), activeTaskId);
     setExpression("working", "拿量杯任务已下发");
   } catch (error) {
     temporaryExpression = null;
@@ -635,7 +637,7 @@ function handleTaskTransition(task) {
     if (task.task_id === medicationTaskId) {
       medicationFlowActive = false;
       medicationTaskId = "";
-      localStorage.removeItem("forestbridge.medicationTaskId");
+      localStorage.removeItem((ForestBridgeTasks.simulation ? "forestbridge.simulationMedicationTaskId" : "forestbridge.medicationTaskId"));
       showTemporaryExpression("done", "药已经送到啦", 7000);
       speak("主人，药已经送到啦");
     } else {
@@ -670,7 +672,7 @@ async function refreshState() {
 
     const robots = state.robots || {};
     const tasks = Array.isArray(state.tasks) ? state.tasks : [];
-    const robot = robots["jetson-dry-run"] || Object.values(robots)[0];
+    const robot = Object.values(robots).sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen))[0];
     robotOnline = Boolean(robot && Date.now() - new Date(robot.last_seen).getTime() < 6000);
     robotReady = Boolean(
       robotOnline &&
@@ -686,11 +688,11 @@ async function refreshState() {
     currentTask = task || null;
     if (currentTask) {
       activeTaskId = currentTask.task_id;
-      localStorage.setItem("forestbridge.activeTaskId", activeTaskId);
+      localStorage.setItem((ForestBridgeTasks.simulation ? "forestbridge.simulationTaskId" : "forestbridge.activeTaskId"), activeTaskId);
       handleTaskTransition(currentTask);
     } else if (activeTaskId) {
       activeTaskId = "";
-      localStorage.removeItem("forestbridge.activeTaskId");
+      localStorage.removeItem((ForestBridgeTasks.simulation ? "forestbridge.simulationTaskId" : "forestbridge.activeTaskId"));
     }
 
     updateExpressionFromTask();
@@ -735,13 +737,7 @@ window.addEventListener("forestbridge:native-call", (event) => {
 });
 
 bringMedicineButton.addEventListener("click", bringMedicine);
-screen.addEventListener("pointerup", createCupMockTask);
-screen.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    createCupMockTask();
-  }
-});
+// Starting hardware is reserved for the explicit task button, not face taps.
 
 document.getElementById("auth-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -773,7 +769,7 @@ window.addEventListener("beforeunload", () => {
 });
 
 setupRecognition();
-activationHint.textContent = "轻触屏幕 · 下发拿桌上量杯任务";
+activationHint.textContent = "展开右下角任务助手 · 选择任务";
 activationHint.classList.add("visible");
 loadReminderConfiguration().then(checkMedicationReminders);
 refreshState();

@@ -3,8 +3,8 @@ const states = [
   "planning", "navigating", "verifying_dock", "set_grasp_camera",
   "grasping", "verifying_result", "complete"
 ];
-const terminal = new Set(["complete", "failed", "needs_assistance", "stopped"]);
-let activeTaskId = localStorage.getItem("forestbridge.activeTaskId");
+const terminal = ForestBridgeTasks.terminal;
+let activeTaskId = localStorage.getItem((ForestBridgeTasks.simulation ? "forestbridge.simulationTaskId" : "forestbridge.activeTaskId"));
 let uiToken = sessionStorage.getItem("forestbridge.uiToken") || "";
 
 const $ = (id) => document.getElementById(id);
@@ -43,6 +43,10 @@ function timeLabel(value) {
 }
 
 async function api(path, options = {}) {
+  return ForestBridgeTasks.route(path, options, liveApi);
+}
+
+async function liveApi(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   if (uiToken) headers.Authorization = `Bearer ${uiToken}`;
   const response = await fetch(path, {
@@ -102,7 +106,7 @@ function renderMonitor(monitor = {}) {
 function renderTask(task) {
   if (!task) return;
   activeTaskId = task.task_id;
-  localStorage.setItem("forestbridge.activeTaskId", activeTaskId);
+  localStorage.setItem((ForestBridgeTasks.simulation ? "forestbridge.simulationTaskId" : "forestbridge.activeTaskId"), activeTaskId);
   const state = task.current_state || task.status;
   $("state-value").textContent = state.replaceAll("_", " ");
   $("task-id").textContent = `TASK ${task.task_id.slice(0, 12)} · ${task.status}`;
@@ -120,16 +124,16 @@ function renderTask(task) {
   const events = task.events || [];
   $("event-count").textContent = `${events.length} EVENTS`;
   const timeline = $("timeline");
+  timeline.replaceChildren();
   if (!events.length) {
     timeline.innerHTML = '<li class="empty">任务已排队，等待 Jetson worker 领取。</li>';
     return;
   }
-  timeline.innerHTML = events.slice().reverse().map((event) => `
-    <li>
-      <span class="time">${timeLabel(event.timestamp)}</span>
-      <span>${String(event.state).replaceAll("_", " ")} · ${String(event.event).replaceAll("_", " ")}</span>
-      <span class="result">${event.outcome || ""}</span>
-    </li>`).join("");
+  for (const event of events.slice().reverse()) {
+    const li = document.createElement('li');
+    li.textContent = `${timeLabel(event.timestamp)} · ${event.state} · ${event.reason || event.event} ${event.outcome || ''}`;
+    timeline.append(li);
+  }
 }
 
 async function refresh() {
@@ -141,7 +145,7 @@ async function refresh() {
       .sort((left, right) => new Date(right.last_seen) - new Date(left.last_seen))[0];
     const online = robot && Date.now() - new Date(robot.last_seen).getTime() < 6000;
     connection.classList.toggle("online", Boolean(online));
-    connection.querySelector("b").textContent = online ? `JETSON ${robot.status.toUpperCase()}` : "JETSON OFFLINE";
+    connection.querySelector("b").textContent = online ? `${ForestBridgeTasks.simulation ? '模拟机器人' : 'JETSON'} ${robot.status.toUpperCase()}` : "JETSON OFFLINE";
     const task = activeTaskId
       ? state.tasks.find((item) => item.task_id === activeTaskId)
       : state.tasks[0];

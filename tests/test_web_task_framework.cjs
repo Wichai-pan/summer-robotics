@@ -1,0 +1,28 @@
+const assert = require('node:assert/strict');
+global.crypto = require('node:crypto').webcrypto;
+global.location = {search: '?mode=simulation'};
+const f = require('../web/static/task-framework.js');
+(async () => {
+  assert.throws(() => f.request('bring_medicine_demo_01', '', false));
+  assert.throws(() => f.request('arbitrary_shell', '', true));
+  assert.equal(f.request('local_small_cup_pick_01', '', false).task_type, 'local_pick_place');
+  let networkCalls = 0;
+  const transport = () => { networkCalls++; throw Error('network called'); };
+  const t = await f.route('/api/tasks', {method:'POST',body:JSON.stringify(f.request('bring_medicine_demo_01','',true))}, transport);
+  assert.throws(() => f.sim.create({preset:'local_small_cup_pick_01'}));
+  for(let i=0;i<11;i++) f.sim.advance();
+  assert.equal(t.status, 'needs_assistance');
+  const count = t.events.length;
+  f.sim.advance(); assert.equal(t.events.length, count);
+  const other = f.sim.create({preset:'local_small_cup_pick_01'});
+  await f.route('/api/tasks/'+other.task_id+'/stop', {method:'POST'}, transport);
+  f.sim.advance(); assert.equal(other.status,'stopped');
+  assert.equal(networkCalls,0);
+  assert.equal(f.intent('Bring medicine to me').preset, 'bring_medicine_demo_01');
+  assert.equal(f.intent('停止').action,'stop');
+  const advisory = await f.advise(other, async () => ({message:'done',command:'execute'}));
+  assert.equal(advisory.source, 'rules-fallback');
+  assert.equal(other.status,'stopped');
+  assert.equal((await f.advise(other, async () => ({message:'请确认物体'}))).source,'llm');
+  console.log('PASS: simulation isolation, fixed presets, terminal states, stop, observer validation');
+})().catch(e => {console.error(e); process.exitCode=1;});
