@@ -128,6 +128,21 @@ def test_small_cup_full_cycle_is_fixed_deploy_script_and_requires_matching_lease
     assert preset.requires_arm_lease is True
     assert preset.execution_timeout_s == 900.0
 
+    original_deployment_root = MODULE.DEPLOYMENT_ROOT
+    try:
+        MODULE.DEPLOYMENT_ROOT = tmp_path
+        expected_script = tmp_path / "scripts" / "jetson_small_cup_full_cycle_dual_video.sh"
+        expected_script.parent.mkdir(parents=True)
+        expected_script.touch()
+        executor = MODULE.HardwarePipelineExecutor(
+            repo_root=tmp_path,
+            arm_file=tmp_path / "arm.json",
+            output_dir=tmp_path / "output",
+        )
+        assert executor.command_for("c" * 32, preset) == ["bash", str(expected_script)]
+    finally:
+        MODULE.DEPLOYMENT_ROOT = original_deployment_root
+
 
 def test_unrevalidated_production_preset_is_motion_locked(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"

@@ -234,7 +234,10 @@ class HardwarePipelineExecutor:
                 raise HardwareTaskError(f"deployed preparation script is missing: {script}")
             return ["bash", str(script)]
         if preset.execution_kind == "small_cup_full_cycle":
-            script = DEPLOYMENT_ROOT / "scripts" / "jetson_small_cup_full_cycle.sh"
+            # This is the teammate-validated recording path: it provisions the
+            # white-wrist shared stream and gives Pick/Place the same two-camera
+            # inputs used during the successful full-cycle trials.
+            script = DEPLOYMENT_ROOT / "scripts" / "jetson_small_cup_full_cycle_dual_video.sh"
             if not script.is_file():
                 raise HardwareTaskError(f"deployed full-cycle script is missing: {script}")
             return ["bash", str(script)]
