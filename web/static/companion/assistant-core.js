@@ -11,7 +11,7 @@
     if (/吗|么|能否|可不可以|怎么|如何|能不能|是否|[?？]|\b(can|could|would|how)\b/.test(t)) return {action:'clarify', message:'这是询问，我还没有启动任务。要执行时请明确说“拿小烧杯”；送药目前仅支持模拟。'};
     if (!/拿|取|送|带|bring|pick|fetch/.test(t)) return {action:'clarify', message:'请明确说出动作，例如“拿小烧杯”，或查询时间、安排和任务进度。'};
     if (/药|medicine|medication/.test(t)) return {action:'task', preset:'bring_medicine_demo_01'};
-    if (/烧杯|量杯|cup/.test(t)) return {action:'task', preset:'local_small_cup_pick_01'};
+    if (/烧杯|量杯|杯子|cup/.test(t)) return {action:'task', preset:'small_cup_full_cycle_01'};
     return {action:'clarify', message:'我可以查询时间和安排、拿小烧杯、查询进度或停止任务。送药目前可做模拟演练。'};
   }
   class Conversation {

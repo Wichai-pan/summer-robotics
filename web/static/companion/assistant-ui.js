@@ -3,7 +3,9 @@ let assistantSubmitting=false;
 const assistantBox=document.createElement('details');
 assistantBox.id='xiaole-controls';
 assistantBox.innerHTML=`<summary>小乐 · 语音与安排</summary>
-<p id="xiaole-mode"></p><button id="xiaole-voice">开启语音</button><button id="xiaole-cancel">结束对话</button>
+<p id="xiaole-mode"></p><button id="xiaole-demo">开启 15 分钟演示</button><p id="xiaole-permission" role="status"></p>
+<p>说“小乐小乐，帮我拿杯子”：抓取 → 前往沙发 → 返回桌子 → 放下。说“停止”可请求停止任务。</p>
+<button id="xiaole-voice">开启语音</button><button id="xiaole-cancel">结束对话</button>
 <p id="xiaole-state" role="status">待机</p>
 <form id="xiaole-form"><label>文字备用输入<input id="xiaole-text" placeholder="小乐小乐，现在几点" /></label><button>发送</button></form>
 <p id="xiaole-reply" aria-live="polite"></p><h3>每日提醒</h3><p>仅在页面打开时提醒；默认关闭。时间采用 Europe/Helsinki。提醒不会自动启动机器人。</p><div id="xiaole-routines"></div>`;
@@ -15,6 +17,22 @@ const assistantStyle=document.createElement('style');
 assistantStyle.textContent='#xiaole-controls{position:fixed;z-index:101;left:12px;bottom:12px;width:min(370px,90vw);max-height:75vh;overflow:auto;background:#14271f;color:#efffe9;border:1px solid #8cad86;border-radius:12px;padding:12px;font:15px system-ui}#xiaole-controls button,#xiaole-controls input{padding:8px;margin:4px;max-width:90%}#xiaole-controls label{display:block}#xiaole-controls p{line-height:1.5}';
 document.head.append(assistantStyle);
 const xe=id=>document.getElementById('xiaole-'+id);
+let demoUntil=0;
+assistantBox.open=true;
+async function refreshPermission() {
+  if(ForestBridgeTasks.simulation) {xe('demo').hidden=true;xe('permission').textContent='模拟模式，无真实运动';return;}
+  try {const p=await api('/api/demo-permission');demoUntil=p.enabled?p.expires_at_s*1000:0;}
+  catch(e){demoUntil=0;xe('permission').textContent='授权状态无法读取：'+e.message;}
+}
+xe('demo').onclick=async()=>{
+  const enabled=demoUntil<=Date.now();
+  if(enabled&&!confirm('开启 15 分钟真实小烧杯演示？请确认现场人员已接通供电、摆好杯子并看守急停。期间语音可以启动抓取、导航往返和放下。'))return;
+  try {const p=await api('/api/demo-permission',{method:'POST',body:JSON.stringify({enabled,confirmation:'ONSITE_SMALL_CUP_DEMO'})});demoUntil=p.enabled?p.expires_at_s*1000:0;reply(enabled?'演示模式已开启。可以说，小乐小乐，帮我拿杯子。':'演示授权已关闭。正在执行的任务不会因此中断，需要停止请说停止。');}
+  catch(e){reply('演示模式未更改：'+e.message);}
+};
+refreshPermission();
+setInterval(refreshPermission,10000);
+setInterval(()=>{if(ForestBridgeTasks.simulation)return;const seconds=Math.max(0,Math.ceil((demoUntil-Date.now())/1000));xe('demo').textContent=seconds?'关闭演示授权':'开启 15 分钟演示';xe('permission').textContent=seconds?'真实演示已授权 · 剩余 '+Math.floor(seconds/60)+'分'+seconds%60+'秒':'未开启演示授权';},1000);
 xe('mode').textContent=ForestBridgeTasks.simulation?'离线任务演练；语音识别服务可能需要联网。':'连接模式 · 唤醒词：小乐小乐';
 const routineKey=ForestBridgeTasks.simulation?'xiaole.sim.routines':'xiaole.routines';
 function readSaved(key,fallback) {try{return JSON.parse(localStorage.getItem(key))||fallback;}catch(_){return fallback;}}
@@ -39,6 +57,7 @@ async function dispatchAssistant(result) {
   if(result.action!=='task') {reply(result.message);return;}
   if(assistantSubmitting || (currentTask && ACTIVE_STATES.has(currentTask.status))) {reply('已有任务正在执行。可以查询进度或者说停止。');return;}
   if(!robotOnline || !robotReady) {reply('机器人尚未就绪，请稍后再试。');return;}
+  if(!ForestBridgeTasks.simulation && result.preset==='small_cup_full_cycle_01' && demoUntil<=Date.now()) {reply('请现场人员先点击开启十五分钟演示，然后再告诉我拿杯子。');return;}
   assistantSubmitting=true; xe('state').textContent='正在提交任务';
   try {
     const body=ForestBridgeTasks.request(result.preset,'语音／助手请求：'+ForestBridgeTasks.presets[result.preset].title,ForestBridgeTasks.simulation);

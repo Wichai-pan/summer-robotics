@@ -97,6 +97,9 @@ class RelayStore:
             },
         }
         self.frame_path = state_path.with_name("monitor.jpg")
+        # Deliberately not persisted: restarting Relay revokes demo permission.
+        self.demo_until = 0.0
+        self.demo_id = ""
         state_path.parent.mkdir(parents=True, exist_ok=True)
         if state_path.exists():
             loaded = json.loads(state_path.read_text(encoding="utf-8"))
@@ -106,6 +109,14 @@ class RelayStore:
                 monitor = loaded.get("monitor")
                 if isinstance(monitor, dict):
                     self.state["monitor"] = monitor
+
+    def demo_permission(self, enabled=None):
+        with self.lock:
+            now = datetime.now(timezone.utc).timestamp()
+            if enabled is not None:
+                self.demo_until = now + 900 if enabled else 0.0
+                self.demo_id = uuid.uuid4().hex if enabled else ""
+            return {"enabled": self.demo_until > now, "expires_at_s": self.demo_until}
 
     def _save(self) -> None:
         temporary = self.state_path.with_name(f".{self.state_path.name}.tmp")
@@ -189,6 +200,8 @@ class RelayStore:
             ]
             if active:
                 raise ActiveTaskConflict(str(active[0]["task_id"]))
+            if preset_name == "small_cup_full_cycle_01" and self.demo_until > now_dt.timestamp():
+                task["demo_session_id"] = self.demo_id
             self.state["tasks"][task_id] = task
             self._save()
         return task, True
@@ -211,6 +224,13 @@ class RelayStore:
             if not queued:
                 return None
             task = min(queued, key=lambda item: str(item["created_at"]))
+            if (task["spec"]["preset"] == "small_cup_full_cycle_01"
+                    and task.get("demo_session_id") == self.demo_id
+                    and self.demo_id
+                    and self.demo_until > datetime.now(timezone.utc).timestamp()):
+                task["demo_authorization"] = {"preset": "small_cup_full_cycle_01",
+                    "task_id": task["task_id"], "expires_at_s": self.demo_until,
+                    "source": "authenticated-web-demo"}
             task["status"] = "assigned"
             task["current_state"] = "assigned"
             task["assigned_robot_id"] = robot_id
@@ -471,6 +491,12 @@ class RelayHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+        if path == "/api/demo-permission":
+            if not self._authorized("ui"):
+                self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "UI authorization required"})
+                return
+            self._send_json(HTTPStatus.OK, self.app.store.demo_permission())
+            return
         if path == "/api/health":
             self._send_json(HTTPStatus.OK, {"status": "ok", "time": utc_now()})
             return
@@ -529,6 +555,17 @@ class RelayHandler(BaseHTTPRequestHandler):
                 )
                 return
             body = self._json_body()
+            if path == "/api/demo-permission":
+                if not self._authorized("ui"):
+                    self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "UI authorization required"})
+                    return
+                enabled = body.get("enabled")
+                if not isinstance(enabled, bool):
+                    raise ValueError("enabled must be a boolean")
+                if enabled and body.get("confirmation") != "ONSITE_SMALL_CUP_DEMO":
+                    raise ValueError("explicit demo confirmation required")
+                self._send_json(HTTPStatus.OK, self.app.store.demo_permission(enabled))
+                return
             if path == "/api/monitor/control":
                 if not self._authorized("ui"):
                     self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "UI authorization required"})

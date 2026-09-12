@@ -314,7 +314,14 @@ class HardwarePipelineExecutor:
                     + (preset.disabled_reason or "onsite validation is incomplete")
                 )
             command = self.command_for(task_id, preset)
-            if preset.requires_arm_lease:
+            grant = task.get("demo_authorization") or {}
+            until = grant.get("expires_at_s", 0) if isinstance(grant, dict) else 0
+            web_demo = (isinstance(grant, dict) and isinstance(until, (int, float))
+                and preset.name == "small_cup_full_cycle_01"
+                and grant.get("preset") == preset.name and grant.get("task_id") == task_id
+                and grant.get("source") == "authenticated-web-demo"
+                and time.time() < until <= time.time() + 905)
+            if preset.requires_arm_lease and not web_demo:
                 consume_arm_lease(self.arm_file, preset.name)
         except HardwareTaskError as exc:
             writer.emit(
@@ -332,6 +339,7 @@ class HardwarePipelineExecutor:
             "state_finished",
             outcome=Outcome.SUCCESS.value,
             reason=(
+                "authenticated 15-minute web demo permission validated" if web_demo else
                 "relay spec and one-shot onsite arming lease validated"
                 if preset.requires_arm_lease
                 else "relay spec validated; this fixed preparation task does not command motion"

@@ -90,6 +90,8 @@ function taskStateCaption(state) {
     verifying_dock: "正在确认到达位置",
     set_grasp_camera: "正在准备抓取相机",
     grasping: "正在抓取",
+    holding: "已经抓取，正在保持杯子",
+    placing: "正在放下杯子",
     verifying_result: "正在确认任务结果"
   };
   return captions[state] || "正在努力工作";

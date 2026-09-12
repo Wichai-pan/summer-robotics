@@ -3,7 +3,7 @@ const {Conversation,parse,due,defaults}=require('../web/static/companion/assista
 const c=new Conversation();
 assert.equal(c.feed('拿烧杯',0).action,'ignore');
 assert.equal(c.feed('小乐小乐',10).action,'wake');
-assert.equal(c.feed('拿烧杯',20).preset,'local_small_cup_pick_01');
+assert.equal(c.feed('拿烧杯',20).preset,'small_cup_full_cycle_01');
 assert.equal(c.feed('拿烧杯',21).action,'ignore');
 assert.equal(c.feed('小乐小乐',4000).action,'wake');
 assert.equal(c.tick(19001),true);
@@ -13,7 +13,8 @@ assert.equal(c.feed('小乐小乐，把药送给我',20000).preset,'bring_medici
 assert.equal(parse('不要拿药').action,'clarify');
 assert.equal(parse('可以拿烧杯吗').action,'clarify');
 assert.equal(parse('烧杯').action,'clarify');
-assert.equal(parse('拿小烧杯').preset,'local_small_cup_pick_01');
+assert.equal(parse('拿小烧杯').preset,'small_cup_full_cycle_01');
+assert.equal(parse('帮我拿杯子').preset,'small_cup_full_cycle_01');
 assert.equal(parse('取消').action,'cancel');
 assert.equal(parse('今天有什么安排').action,'schedule');
 const routines=defaults.map(r=>({...r,enabled:true}));
