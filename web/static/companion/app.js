@@ -747,6 +747,7 @@ document.getElementById("auth-form").addEventListener("submit", async (event) =>
   sessionStorage.setItem("forestbridge.uiToken", uiToken);
   document.getElementById("auth-notice").textContent = "正在连接";
   await refreshState();
+  window.dispatchEvent(new Event("forestbridge-authenticated"));
   if (document.getElementById("auth-gate").hidden) enableCompanionVoice();
 });
 

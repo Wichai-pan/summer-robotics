@@ -21,8 +21,10 @@ let demoUntil=0;
 assistantBox.open=true;
 async function refreshPermission() {
   if(ForestBridgeTasks.simulation) {xe('demo').hidden=true;xe('permission').textContent='模拟模式，无真实运动';return;}
+  if(!uiToken && !getNativeRelay()) {demoUntil=0;xe('demo').disabled=true;xe('permission').textContent='请先输入访问码登录';return;}
+  xe('demo').disabled=false;
   try {const p=await api('/api/demo-permission');demoUntil=p.enabled?p.expires_at_s*1000:0;}
-  catch(e){demoUntil=0;xe('permission').textContent='授权状态无法读取：'+e.message;}
+  catch(e){demoUntil=0;xe('permission').textContent='无法读取演示授权：'+e.message;}
 }
 xe('demo').onclick=async()=>{
   const enabled=demoUntil<=Date.now();
@@ -34,6 +36,7 @@ refreshPermission();
 setInterval(refreshPermission,10000);
 setInterval(()=>{if(ForestBridgeTasks.simulation)return;const seconds=Math.max(0,Math.ceil((demoUntil-Date.now())/1000));xe('demo').textContent=seconds?'关闭演示授权':'开启 15 分钟演示';xe('permission').textContent=seconds?'真实演示已授权 · 剩余 '+Math.floor(seconds/60)+'分'+seconds%60+'秒':'未开启演示授权';},1000);
 xe('mode').textContent=ForestBridgeTasks.simulation?'离线任务演练；语音识别服务可能需要联网。':'连接模式 · 唤醒词：小乐小乐';
+window.addEventListener('forestbridge-authenticated', refreshPermission);
 const routineKey=ForestBridgeTasks.simulation?'xiaole.sim.routines':'xiaole.routines';
 function readSaved(key,fallback) {try{return JSON.parse(localStorage.getItem(key))||fallback;}catch(_){return fallback;}}
 const savedRoutines=readSaved(routineKey,[]);
