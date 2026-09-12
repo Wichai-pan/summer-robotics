@@ -40,6 +40,10 @@ input {
   display: none;
 }
 
+.auth-gate:not([hidden]) {
+  display: grid;
+}
+
 .auth-card {
   width: min(100%, 390px);
   padding: 26px;
@@ -116,6 +120,43 @@ input {
   isolation: isolate;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.mission-status {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: max(8vh, 36px);
+  width: min(90vw, 680px);
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.mission-label {
+  margin: 0 0 12px;
+  color: #68e4d1;
+  font-size: clamp(11px, 1.5vw, 15px);
+  font-weight: 800;
+  letter-spacing: .16em;
+}
+
+.mission-phase {
+  margin: 0;
+  color: #b8f35b;
+  font-size: clamp(24px, 4.7vw, 52px);
+  font-weight: 900;
+  letter-spacing: .06em;
+  line-height: 1.05;
+  text-shadow: 0 0 22px rgba(184, 243, 91, .18);
+}
+
+.mission-detail {
+  margin: 12px 0 0;
+  color: #8ba397;
+  font-size: clamp(13px, 2vw, 18px);
+  font-weight: 700;
+  letter-spacing: .08em;
 }
 
 .pixel-noise {

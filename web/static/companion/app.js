@@ -38,6 +38,8 @@ const screen = document.getElementById("companion-screen");
 const caption = document.getElementById("companion-caption");
 const symbol = document.getElementById("expression-symbol");
 const activationHint = document.getElementById("activation-hint");
+const missionPhase = document.getElementById("mission-phase");
+const missionDetail = document.getElementById("mission-detail");
 const connectionDot = document.getElementById("connection-dot");
 const medicationReminder = document.getElementById("medication-reminder");
 const medicationTitle = document.getElementById("medication-title");
@@ -97,6 +99,30 @@ function taskStateCaption(state) {
   return captions[state] || "正在努力工作";
 }
 
+function updateMissionStatus(task) {
+  const state = taskState(task);
+  const labels = {
+    queued: ["TASK QUEUED", "WAITING FOR JETSON"],
+    assigned: ["JETSON ACCEPTED TASK", "PREPARING ROBOT SYSTEM"],
+    precheck: ["SYSTEM CHECK", "CHECKING ROBOT AND CAMERAS"],
+    set_grasp_camera: ["ADJUSTING CAMERA", "SETTING PICK VIEW"],
+    set_mapping_camera: ["ADJUSTING CAMERA", "SETTING NAVIGATION VIEW"],
+    grasping: ["PICKING UP CUP", "ACT GRASP POLICY RUNNING"],
+    holding: ["CUP SECURED", "MAINTAINING CARRY HOLD"],
+    navigating: ["NAVIGATING", "MOVING BETWEEN TABLE AND SOFA"],
+    placing: ["PLACING CUP", "ACT PLACE POLICY RUNNING"],
+    verifying_result: ["VERIFYING RESULT", "CHECKING COMPLETION"],
+    complete: ["MISSION COMPLETE", "CUP PICKED, CARRIED, AND PLACED"],
+    failed: ["MISSION STOPPED", "PLEASE CHECK THE OPERATOR CONSOLE"],
+    needs_assistance: ["OPERATOR CHECK REQUIRED", "RESULT NEEDS CONFIRMATION"],
+    stopped: ["TASK STOPPED", "WAITING FOR NEXT INSTRUCTION"],
+    expired: ["TASK EXPIRED", "PLEASE START A NEW TASK"]
+  };
+  const [phase, detail] = labels[state] || [robotOnline ? "READY FOR DEMO" : "JETSON OFFLINE", robotOnline ? "WAITING FOR A TASK" : "WAITING FOR JETSON CONNECTION"];
+  missionPhase.textContent = phase;
+  missionDetail.textContent = detail;
+}
+
 function updateExpressionFromTask() {
   if (nativeCallActive) {
     setExpression("listening", nativeCallLabel);
@@ -104,6 +130,7 @@ function updateExpressionFromTask() {
   }
   if (temporaryExpression && Date.now() < temporaryExpressionUntil) return;
   const state = taskState(currentTask);
+  updateMissionStatus(currentTask);
   if (ACTIVE_STATES.has(currentTask?.status) || (state && !FINAL_STATES.has(state))) {
     setExpression("working", taskStateCaption(state));
   } else if (state === "failed" || state === "needs_assistance") {

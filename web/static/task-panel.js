@@ -13,6 +13,7 @@ panel.innerHTML = `<summary>任务助手 · ${framework.simulation ? '离线演�
   <button id="framework-start">开始所选任务</button><button id="framework-stop">请求停止</button>
   <p id="framework-status" role="status"></p><ol id="framework-events"></ol>`;
 document.body.append(panel);
+if (!framework.simulation && !new URLSearchParams(location.search).get('debug')) panel.hidden = true;
 const style = document.createElement('style');
 style.textContent = '#task-framework-panel{position:fixed;z-index:100;right:12px;bottom:12px;background:#13251e;color:#ecffe9;border:1px solid #87b777;border-radius:12px;padding:14px;max-width:380px;max-height:80vh;overflow:auto;font:15px system-ui}#task-framework-panel label{display:block;margin:8px 0}#task-framework-panel input,#task-framework-panel select{max-width:100%;padding:8px}#task-framework-panel a{color:#b5f76c}#task-framework-panel button{padding:10px;margin:4px}';
 document.head.append(style);

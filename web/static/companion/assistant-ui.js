@@ -11,6 +11,7 @@ assistantBox.innerHTML=`<summary>小乐 · 语音与安排</summary>
 <form id="xiaole-form"><label>文字备用输入<input id="xiaole-text" placeholder="小乐小乐，现在几点" /></label><button>发送</button></form>
 <p id="xiaole-reply" aria-live="polite"></p><h3>每日提醒</h3><p>仅在页面打开时提醒；默认关闭。时间采用 Europe/Helsinki。提醒不会自动启动机器人。</p><div id="xiaole-routines"></div>`;
 document.body.append(assistantBox);
+if (!ForestBridgeTasks.simulation && !new URLSearchParams(location.search).get('debug')) assistantBox.hidden = true;
 // Keep the assistant primary; the shared panel remains a diagnostic fallback.
 document.getElementById('task-framework-panel').open=false;
 activationHint.textContent='展开左下角小乐 · 开启语音或输入请求';
