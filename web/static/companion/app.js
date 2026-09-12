@@ -710,16 +710,18 @@ async function refreshState() {
     );
     connectionDot.classList.toggle("robot-online", robotOnline);
 
-    const task = activeTaskId
-      ? tasks.find((item) => item.task_id === activeTaskId)
-      : tasks.find((item) => ACTIVE_STATES.has(item.status)) || tasks[0];
+    // The companion is a live view of Relay-managed work, not a history view.
+    // A completed task remains in Relay's task history indefinitely, so keeping
+    // its id in localStorage must not make the face look busy (or completed)
+    // when the robot is actually idle.
+    const task = tasks.find((item) => ACTIVE_STATES.has(item.status));
 
     currentTask = task || null;
     if (currentTask) {
       activeTaskId = currentTask.task_id;
       localStorage.setItem((ForestBridgeTasks.simulation ? "forestbridge.simulationTaskId" : "forestbridge.activeTaskId"), activeTaskId);
       handleTaskTransition(currentTask);
-    } else if (activeTaskId) {
+    } else {
       activeTaskId = "";
       localStorage.removeItem((ForestBridgeTasks.simulation ? "forestbridge.simulationTaskId" : "forestbridge.activeTaskId"));
     }
