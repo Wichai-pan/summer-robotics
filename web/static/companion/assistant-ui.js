@@ -3,7 +3,8 @@ let assistantSubmitting=false;
 const assistantBox=document.createElement('details');
 assistantBox.id='xiaole-controls';
 assistantBox.innerHTML=`<summary>小乐 · 语音与安排</summary>
-<p id="xiaole-mode"></p><button id="xiaole-demo">开启 15 分钟演示</button><p id="xiaole-permission" role="status"></p>
+<p id="xiaole-mode"></p><label id="xiaole-login-row">访问码<input id="xiaole-token" type="password" autocomplete="current-password" /></label><button id="xiaole-login">登录</button>
+<button id="xiaole-demo">开启 15 分钟演示</button><p id="xiaole-permission" role="status"></p>
 <p>说“小乐小乐，帮我拿杯子”：抓取 → 前往沙发 → 返回桌子 → 放下。说“停止”可请求停止任务。</p>
 <button id="xiaole-voice">开启语音</button><button id="xiaole-cancel">结束对话</button>
 <p id="xiaole-state" role="status">待机</p>
@@ -19,6 +20,16 @@ document.head.append(assistantStyle);
 const xe=id=>document.getElementById('xiaole-'+id);
 let demoUntil=0;
 assistantBox.open=true;
+async function loginWithToken() {
+  const token=xe('token').value.trim();
+  if(!token) {xe('permission').textContent='请输入访问码';return;}
+  uiToken=token;sessionStorage.setItem('forestbridge.uiToken',uiToken);
+  await refreshState();
+  if(document.getElementById('auth-gate').hidden) {xe('token').value='';xe('login-row').textContent='已登录';xe('login').hidden=true;}
+  await refreshPermission();
+}
+xe('login').onclick=loginWithToken;
+xe('token').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();loginWithToken();}});
 async function refreshPermission() {
   if(ForestBridgeTasks.simulation) {xe('demo').hidden=true;xe('permission').textContent='模拟模式，无真实运动';return;}
   if(!uiToken && !getNativeRelay()) {demoUntil=0;xe('demo').disabled=true;xe('permission').textContent='请先输入访问码登录';return;}
@@ -36,6 +47,7 @@ refreshPermission();
 setInterval(refreshPermission,10000);
 setInterval(()=>{if(ForestBridgeTasks.simulation)return;const seconds=Math.max(0,Math.ceil((demoUntil-Date.now())/1000));xe('demo').textContent=seconds?'关闭演示授权':'开启 15 分钟演示';xe('permission').textContent=seconds?'真实演示已授权 · 剩余 '+Math.floor(seconds/60)+'分'+seconds%60+'秒':'未开启演示授权';},1000);
 xe('mode').textContent=ForestBridgeTasks.simulation?'离线任务演练；语音识别服务可能需要联网。':'连接模式 · 唤醒词：小乐小乐';
+if(uiToken) {xe('token').value='';xe('login-row').textContent='已登录';xe('login').hidden=true;}
 window.addEventListener('forestbridge-authenticated', refreshPermission);
 const routineKey=ForestBridgeTasks.simulation?'xiaole.sim.routines':'xiaole.routines';
 function readSaved(key,fallback) {try{return JSON.parse(localStorage.getItem(key))||fallback;}catch(_){return fallback;}}
