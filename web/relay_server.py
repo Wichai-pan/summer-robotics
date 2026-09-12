@@ -276,11 +276,23 @@ class RelayStore:
 
     def heartbeat(self, robot_id: str, body: dict[str, object]) -> dict[str, object]:
         with self.lock:
+            operator_state = body.get("operator_state")
+            normalized_operator_state: dict[str, str] = {}
+            if isinstance(operator_state, dict):
+                phase = str(operator_state.get("phase", ""))
+                if phase:
+                    normalized_operator_state = {
+                        "phase": phase[:64],
+                        "detail": str(operator_state.get("detail", ""))[:240],
+                        "source": str(operator_state.get("source", ""))[:160],
+                        "updated_at": str(operator_state.get("updated_at", ""))[:64],
+                    }
             robot = {
                 "robot_id": robot_id,
                 "last_seen": utc_now(),
                 "status": str(body.get("status", "online")),
                 "current_task_id": body.get("current_task_id"),
+                "operator_state": normalized_operator_state,
             }
             self.state["robots"][robot_id] = robot
             self._save()

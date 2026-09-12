@@ -12,6 +12,7 @@ let activeTaskId = localStorage.getItem((ForestBridgeTasks.simulation ? "forestb
 let currentTask = null;
 let robotOnline = false;
 let robotReady = false;
+let operatorState = null;
 let stateRefreshInFlight = false;
 let voiceEnabled = false;
 let voiceListening = false;
@@ -118,7 +119,25 @@ function updateMissionStatus(task) {
     stopped: ["TASK STOPPED", "WAITING FOR NEXT INSTRUCTION"],
     expired: ["TASK EXPIRED", "PLEASE START A NEW TASK"]
   };
-  const [phase, detail] = labels[state] || [robotOnline ? "READY FOR DEMO" : "JETSON OFFLINE", robotOnline ? "WAITING FOR A TASK" : "WAITING FOR JETSON CONNECTION"];
+  const operatorLabels = {
+    preparing: "PREPARING SYSTEM",
+    set_mapping_camera: "ADJUSTING CAMERA",
+    set_grasp_camera: "ADJUSTING CAMERA",
+    localizing: "LOCALIZING",
+    planning: "PLANNING ROUTE",
+    navigating: "NAVIGATING",
+    grasping: "MANIPULATING OBJECT",
+    holding: "CARRYING OBJECT",
+    placing: "PLACING OBJECT",
+    verifying_result: "VERIFYING RESULT",
+    needs_assistance: "OPERATOR CHECK REQUIRED"
+  };
+  const operatorPhase = String(operatorState?.phase || "");
+  const operatorLabel = operatorLabels[operatorPhase];
+  const [phase, detail] = labels[state]
+    || (operatorLabel
+      ? [operatorLabel, String(operatorState.detail || operatorState.source || "JETSON WORKFLOW RUNNING")]
+      : [robotOnline ? "READY FOR DEMO" : "JETSON OFFLINE", robotOnline ? "WAITING FOR A TASK" : "WAITING FOR JETSON CONNECTION"]);
   missionPhase.textContent = phase;
   missionDetail.textContent = detail;
 }
@@ -131,7 +150,7 @@ function updateExpressionFromTask() {
   if (temporaryExpression && Date.now() < temporaryExpressionUntil) return;
   const state = taskState(currentTask);
   updateMissionStatus(currentTask);
-  if (ACTIVE_STATES.has(currentTask?.status) || (state && !FINAL_STATES.has(state))) {
+  if (ACTIVE_STATES.has(currentTask?.status) || (state && !FINAL_STATES.has(state)) || (operatorState?.phase && operatorState.phase !== "idle")) {
     setExpression("working", taskStateCaption(state));
   } else if (state === "failed" || state === "needs_assistance") {
     setExpression("sad");
@@ -708,6 +727,9 @@ async function refreshState() {
       robot.status === "idle" &&
       robot.current_task_id === null
     );
+    operatorState = robotOnline && robot && typeof robot.operator_state === "object"
+      ? robot.operator_state
+      : null;
     connectionDot.classList.toggle("robot-online", robotOnline);
 
     // The companion is a live view of Relay-managed work, not a history view.

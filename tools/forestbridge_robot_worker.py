@@ -8,6 +8,7 @@ Jetson-local allow-listed preset, and requires a one-shot onsite arming lease.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import os
 import sys
@@ -73,14 +74,66 @@ def parse_args() -> argparse.Namespace:
         default=Path("/tmp/forestbridge-relay-worker.arm.json"),
     )
     parser.add_argument("--hardware-timeout-s", type=float, default=240.0)
+    parser.add_argument(
+        "--operator-status-path",
+        type=Path,
+        default=Path("/home/jetsonl7/robot-data/runtime/forestbridge-operator-status.json"),
+        help="optional local status written by an operator-started workflow wrapper",
+    )
+    parser.add_argument(
+        "--operator-status-max-age-s",
+        type=float,
+        default=1800.0,
+        help="ignore an operator status file older than this many seconds",
+    )
     return parser.parse_args()
+
+
+def operator_status(path: Path, max_age_s: float) -> dict[str, object]:
+    """Return a bounded status payload for a direct, non-Relay workflow.
+
+    The file is only a display-side hint.  It is never used to authorize
+    hardware, claim a task, or issue a command.
+    """
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return {}
+        updated_at = str(payload.get("updated_at", ""))
+        timestamp = datetime.fromisoformat(updated_at.replace("Z", "+00:00")).timestamp()
+        if time.time() - timestamp > max_age_s:
+            return {}
+        phase = str(payload.get("phase", "idle"))
+        allowed = {
+            "idle", "preparing", "set_mapping_camera", "set_grasp_camera",
+            "localizing", "planning", "navigating", "grasping", "holding",
+            "placing", "verifying_result", "needs_assistance",
+        }
+        if phase not in allowed:
+            return {}
+        return {
+            "phase": phase,
+            "detail": str(payload.get("detail", ""))[:240],
+            "source": str(payload.get("source", ""))[:160],
+            "updated_at": updated_at,
+        }
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def heartbeat_payload(args: argparse.Namespace, *, status: str, current_task_id: str | None) -> dict[str, object]:
+    return {
+        "status": status,
+        "current_task_id": current_task_id,
+        "operator_state": operator_status(args.operator_status_path, args.operator_status_max_age_s),
+    }
 
 
 def main() -> int:
     args = parse_args()
     if args.mode == "hardware" and not args.execute:
         raise SystemExit("hardware mode requires --execute and a fresh onsite arming lease")
-    if args.poll_s <= 0 or args.state_delay_s < 0 or args.hardware_timeout_s <= 0:
+    if args.poll_s <= 0 or args.state_delay_s < 0 or args.hardware_timeout_s <= 0 or args.operator_status_max_age_s <= 0:
         raise SystemExit("poll, state delay and hardware timeout values must be positive")
     client = RelayClient(args.relay, args.token)
     completed = 0
@@ -89,7 +142,7 @@ def main() -> int:
             client.request(
                 "POST",
                 f"/api/robots/{args.robot_id}/heartbeat",
-                {"status": "idle", "current_task_id": None},
+                heartbeat_payload(args, status="idle", current_task_id=None),
             )
             response = client.request("POST", f"/api/robots/{args.robot_id}/claim", {})
             task = response.get("task")
@@ -117,7 +170,7 @@ def main() -> int:
                 client.request(
                     "POST",
                     f"/api/robots/{args.robot_id}/heartbeat",
-                    {"status": "busy", "current_task_id": task_id},
+                    heartbeat_payload(args, status="busy", current_task_id=task_id),
                 )
 
             def stop_requested() -> bool:
@@ -130,7 +183,7 @@ def main() -> int:
             client.request(
                 "POST",
                 f"/api/robots/{args.robot_id}/heartbeat",
-                {"status": "busy", "current_task_id": task_id},
+                heartbeat_payload(args, status="busy", current_task_id=task_id),
             )
             writer = EventWriter(
                 task_id=task_id,
@@ -156,7 +209,7 @@ def main() -> int:
             client.request(
                 "POST",
                 f"/api/robots/{args.robot_id}/heartbeat",
-                {"status": "idle", "current_task_id": None},
+                heartbeat_payload(args, status="idle", current_task_id=None),
             )
             completed += 1
             if args.once and completed >= 1:

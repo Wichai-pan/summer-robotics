@@ -74,6 +74,26 @@ def test_heartbeat_is_persisted_for_offline_detection(tmp_path: Path) -> None:
     assert summary["robots"]["jetson-dry-run"]["last_seen"]
 
 
+def test_heartbeat_preserves_bounded_operator_workflow_status(tmp_path: Path) -> None:
+    store = MODULE.RelayStore(tmp_path / "state.json")
+    heartbeat = store.heartbeat(
+        "jetson-primary",
+        {
+            "status": "idle",
+            "current_task_id": None,
+            "operator_state": {
+                "phase": "navigating",
+                "detail": "Table workspace to sofa workspace",
+                "source": "jetson_small_cup_to_sofa.sh",
+                "updated_at": "2026-09-12T16:00:00+00:00",
+            },
+        },
+    )
+
+    assert heartbeat["operator_state"]["phase"] == "navigating"
+    assert heartbeat["operator_state"]["source"] == "jetson_small_cup_to_sofa.sh"
+
+
 def test_stop_after_terminal_state_does_not_relabel_completed_task(tmp_path: Path) -> None:
     store = MODULE.RelayStore(tmp_path / "state.json")
     task, _ = store.create_task({"task_type": "navigate_then_pick_place"})
