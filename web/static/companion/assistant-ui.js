@@ -24,7 +24,7 @@ assistantBox.open=true;
 async function loginWithToken() {
   const token=xe('token').value.trim();
   if(!token) {xe('permission').textContent='请输入访问码';return;}
-  uiToken=token;sessionStorage.setItem('forestbridge.uiToken',uiToken);
+  uiToken=token;sessionStorage.setItem('forestbridge.uiToken',uiToken);localStorage.setItem('forestbridge.uiToken',uiToken);
   await refreshState();
   if(document.getElementById('auth-gate').hidden) {xe('token').value='';xe('login-row').textContent='已登录';xe('login').hidden=true;}
   await refreshPermission();

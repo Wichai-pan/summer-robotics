@@ -7,7 +7,11 @@ const medicationDemoMode = pageParameters.get("medicationDemo") === "1";
 const nativeRelayExpected = navigator.userAgent.includes("ForestBridgeAndroid");
 const pendingNativeRelayRequests = new Map();
 
-let uiToken = sessionStorage.getItem("forestbridge.uiToken") || "";
+// Keep the companion login on this device.  A WebView commonly clears its
+// session storage when the Android shell is restarted, while local storage
+// survives that normal lifecycle.  The Relay still verifies the bearer token
+// for every non-public request.
+let uiToken = localStorage.getItem("forestbridge.uiToken") || sessionStorage.getItem("forestbridge.uiToken") || "";
 let activeTaskId = localStorage.getItem((ForestBridgeTasks.simulation ? "forestbridge.simulationTaskId" : "forestbridge.activeTaskId")) || "";
 let currentTask = null;
 let robotOnline = false;
@@ -757,7 +761,10 @@ async function refreshState() {
     if (errorMessage.includes("token is not configured")) {
       setExpression("sad", "App 尚未配置访问令牌");
     } else if (errorMessage.toLowerCase().includes("authorization") || errorMessage.includes("401")) {
-      document.getElementById("auth-gate").hidden = Boolean(nativeRelayExpected || getNativeRelay());
+      // Older Android shells advertise ForestBridgeAndroid but do not inject
+      // a usable native authorization bridge.  Always provide the normal
+      // access-code form after a 401 so the companion can recover itself.
+      document.getElementById("auth-gate").hidden = false;
       if (!temporaryExpression) updateExpressionFromTask();
     } else if (!temporaryExpression) {
       setExpression("sad", "暂时联系不上服务");
@@ -796,6 +803,7 @@ document.getElementById("auth-form").addEventListener("submit", async (event) =>
   event.preventDefault();
   uiToken = document.getElementById("ui-token").value.trim();
   sessionStorage.setItem("forestbridge.uiToken", uiToken);
+  localStorage.setItem("forestbridge.uiToken", uiToken);
   document.getElementById("auth-notice").textContent = "正在连接";
   await refreshState();
   window.dispatchEvent(new Event("forestbridge-authenticated"));
