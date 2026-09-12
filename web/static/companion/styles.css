@@ -159,6 +159,10 @@ input {
   letter-spacing: .08em;
 }
 
+.activation-hint:not(.visible) {
+  display: none;
+}
+
 .pixel-noise {
   position: absolute;
   z-index: -1;

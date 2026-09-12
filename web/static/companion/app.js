@@ -82,19 +82,19 @@ function taskState(task) {
 
 function taskStateCaption(state) {
   const captions = {
-    queued: "任务排队中",
-    assigned: "Jetson 已领取任务",
-    precheck: "正在检查设备",
-    set_mapping_camera: "正在准备定位相机",
-    localizing: "正在定位",
-    planning: "正在规划路线",
-    navigating: "正在前往目标",
-    verifying_dock: "正在确认到达位置",
-    set_grasp_camera: "正在准备抓取相机",
-    grasping: "正在抓取",
-    holding: "已经抓取，正在保持杯子",
-    placing: "正在放下杯子",
-    verifying_result: "正在确认任务结果"
+    queued: "TASK QUEUED",
+    assigned: "JETSON ACCEPTED TASK",
+    precheck: "SYSTEM CHECK",
+    set_mapping_camera: "ADJUSTING CAMERA",
+    localizing: "LOCALIZING",
+    planning: "PLANNING ROUTE",
+    navigating: "NAVIGATING",
+    verifying_dock: "VERIFYING DOCK",
+    set_grasp_camera: "ADJUSTING CAMERA",
+    grasping: "PICKING UP CUP",
+    holding: "CUP SECURED",
+    placing: "PLACING CUP",
+    verifying_result: "VERIFYING RESULT"
   };
   return captions[state] || "正在努力工作";
 }
@@ -799,8 +799,10 @@ window.addEventListener("beforeunload", () => {
 });
 
 setupRecognition();
-activationHint.textContent = "展开右下角任务助手 · 选择任务";
-activationHint.classList.add("visible");
+if (ForestBridgeTasks.simulation || new URLSearchParams(location.search).get("debug")) {
+  activationHint.textContent = "Open the task assistant to choose a task";
+  activationHint.classList.add("visible");
+}
 loadReminderConfiguration().then(checkMedicationReminders);
 refreshState();
 setInterval(refreshState, 1000);
