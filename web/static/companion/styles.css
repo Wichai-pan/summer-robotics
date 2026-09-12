@@ -28,7 +28,7 @@ input {
 .auth-gate {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  z-index: 200;
   display: none;
   place-items: center;
   padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right))

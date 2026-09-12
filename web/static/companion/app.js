@@ -706,7 +706,7 @@ async function refreshState() {
     if (errorMessage.includes("token is not configured")) {
       setExpression("sad", "App 尚未配置访问令牌");
     } else if (errorMessage.toLowerCase().includes("authorization") || errorMessage.includes("401")) {
-      document.getElementById("auth-gate").hidden = true;
+      document.getElementById("auth-gate").hidden = Boolean(nativeRelayExpected || getNativeRelay());
       if (!temporaryExpression) updateExpressionFromTask();
     } else if (!temporaryExpression) {
       setExpression("sad", "暂时联系不上服务");

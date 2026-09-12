@@ -1,5 +1,12 @@
 # ForestBridge Robot Status
 
+- September 12: companion cup voice requests now map to the verified ACT full
+  cycle. Authenticated users explicitly enable a 15-minute web permission;
+  Relay scopes grants to that preset and Jetson validates task binding/expiry.
+  Deployed companion/Relay and the separate worker clone without starting motion.
+  Microphone and physical voice demo still need onsite validation. See
+  `companion-voice-demo-20260912.md`. Fixed hidden browser login gate as well.
+
 > Working memory only. Re-verify network, Git, devices, and permissions before acting.
 
 ## Stable Pointers
